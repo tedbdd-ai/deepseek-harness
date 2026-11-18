@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <title>Ins Atelier</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <span class="logo">A</span><strong>Ins Atelier</strong>
+    <a href="#" id="options" class="muted">Einstellungen</a>
+  </header>
+  <label class="field">Ziel<select id="idea"><option value="">Nur Mymind</option></select></label>
+  <button type="button" id="page" class="primary">Seite sichern (Screenshot)</button>
+  <p id="status" role="status" aria-live="polite"></p>
+  <h2>Bilder dieser Seite <span id="count" class="muted"></span></h2>
+  <p class="muted hint">Klick auf ein Bild sichert es. Rechtsklick auf Bilder, Links oder markierten Text geht auch.</p>
+  <div id="images" class="images"></div>
+  <script src="popup.js"></script>
+</body>
+</html>

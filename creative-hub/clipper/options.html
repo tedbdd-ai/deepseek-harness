@@ -1,11 +1,20 @@
 <!doctype html>
 <html lang="de">
-<head><meta charset="utf-8"><title>Creativity Hub Clipper</title></head>
+<head>
+  <meta charset="utf-8">
+  <title>Atelier Clipper</title>
+  <link rel="stylesheet" href="popup.css">
+  <style>body { width: auto; max-width: 560px; margin: 40px auto; } input { font: inherit; color: inherit; background: #121214; border: 1px solid #2a2a2e; border-radius: 8px; min-height: 32px; padding: 0 10px; }</style>
+</head>
 <body>
-  <h1>Creativity Hub Clipper</h1>
-  <form><label>Hub-Adresse <input required name="hubUrl" type="url" placeholder="http://127.0.0.1:3080"></label>
-  <button>Speichern</button></form>
-  <p role="status"></p>
+  <header><span class="logo">A</span><strong>Atelier Clipper</strong></header>
+  <form>
+    <label class="field">Port des Hubs<input name="port" type="number" min="1" max="65535" value="3080"></label>
+    <label class="field">Hub-Schlüssel (nur in Chrome nötig; Safari liest ihn selbst)<input name="token" type="password" autocomplete="off" placeholder="leer lassen in Safari"></label>
+    <p class="muted hint">Den Schlüssel kopierst du im Terminal mit <code>pbcopy &lt; ~/.creativity-hub/launcher-token</code>.</p>
+    <button class="primary">Speichern und Verbindung prüfen</button>
+  </form>
+  <p role="status" id="status"></p>
   <script src="options.js"></script>
 </body>
 </html>

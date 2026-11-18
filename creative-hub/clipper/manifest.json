@@ -1,9 +1,12 @@
 {
   "manifest_version": 3,
-  "name": "Creativity Hub Clipper",
-  "version": "0.1.0",
-  "description": "Webseiten und Bilder mit ihren Metadaten an den Creativity Hub übergeben.",
-  "permissions": ["activeTab", "contextMenus", "scripting", "storage"],
-  "background": { "service_worker": "clipper.js" },
-  "options_ui": { "page": "options.html", "open_in_tab": true }
+  "name": "Atelier Clipper",
+  "version": "0.2.0",
+  "description": "Bilder, Webseiten, Auswahl und Links mit einem Klick in Mymind deines Ateliers sichern.",
+  "permissions": ["activeTab", "contextMenus", "scripting", "storage", "tabs", "nativeMessaging"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_popup": "popup.html", "default_title": "Ins Atelier", "default_icon": { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png" } },
+  "options_ui": { "page": "options.html", "open_in_tab": true },
+  "icons": { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "128": "icons/128.png", "512": "icons/512.png" }
 }

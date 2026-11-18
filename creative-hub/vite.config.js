@@ -4,19 +4,14 @@ export default {
   build: {
     rollupOptions: {
       input: 'web/board.jsx',
-      output: { entryFileNames: 'assets/board.js' },
+      preserveEntrySignatures: 'strict',
+      output: {
+        entryFileNames: 'assets/board.js',
+        assetFileNames: asset => asset.names.some(name => name.endsWith('.css'))
+          ? 'assets/board.css'
+          : 'assets/[name]-[hash][extname]',
+      },
     },
     cssCodeSplit: false,
   },
-  plugins: [{
-    name: 'board-stylesheet',
-    generateBundle(_options, bundle) {
-      for (const [name, asset] of Object.entries(bundle)) {
-        if (asset.type !== 'asset' || !name.endsWith('.css')) continue
-        delete bundle[name]
-        asset.fileName = 'assets/board.css'
-        bundle[asset.fileName] = asset
-      }
-    },
-  }],
 }

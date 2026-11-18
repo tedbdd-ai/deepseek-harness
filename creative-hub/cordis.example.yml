@@ -1,3 +1,19 @@
 - insert:
+    - id: creativity-core
+      name: '/absolute/path/to/deepseek-harness/creative-hub/core.mjs'
     - id: creativity-hub
       name: '/absolute/path/to/deepseek-harness/creative-hub/host.mjs'
+    - id: creativity-app-checklist
+      name: '/absolute/path/to/deepseek-harness/creative-hub/apps/checklist/host.mjs'
+    - id: creativity-app-moodboard
+      name: '/absolute/path/to/deepseek-harness/creative-hub/apps/moodboard/host.mjs'
+    - id: creativity-app-light-plan
+      name: '/absolute/path/to/deepseek-harness/creative-hub/apps/light-plan/host.mjs'
+    - id: creativity-app-patch-sheet
+      name: '/absolute/path/to/deepseek-harness/creative-hub/apps/patch-sheet/host.mjs'
+    - id: creativity-provider-litellm
+      name: '/absolute/path/to/deepseek-harness/creative-hub/providers/litellm/host.mjs'
+    - id: creativity-provider-kie
+      name: '/absolute/path/to/deepseek-harness/creative-hub/providers/kie/host.mjs'
+    - id: creativity-provider-brave
+      name: '/absolute/path/to/deepseek-harness/creative-hub/providers/brave/host.mjs'

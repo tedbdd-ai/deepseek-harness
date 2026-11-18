@@ -1,0 +1,627 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		1E4214B830AE3F690014EB4E /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E4214B730AE3F690014EB4E /* AppDelegate.swift */; };
+		1E4214BC30AE3F690014EB4E /* Main.html in Resources */ = {isa = PBXBuildFile; fileRef = 1E4214BA30AE3F690014EB4E /* Main.html */; };
+		1E4214BE30AE3F690014EB4E /* Icon.png in Resources */ = {isa = PBXBuildFile; fileRef = 1E4214BD30AE3F690014EB4E /* Icon.png */; };
+		1E4214C030AE3F690014EB4E /* Style.css in Resources */ = {isa = PBXBuildFile; fileRef = 1E4214BF30AE3F690014EB4E /* Style.css */; };
+		1E4214C230AE3F690014EB4E /* Script.js in Resources */ = {isa = PBXBuildFile; fileRef = 1E4214C130AE3F690014EB4E /* Script.js */; };
+		1E4214C430AE3F690014EB4E /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E4214C330AE3F690014EB4E /* ViewController.swift */; };
+		1E4214C730AE3F690014EB4E /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 1E4214C530AE3F690014EB4E /* Main.storyboard */; };
+		1E4214C930AE3F6A0014EB4E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1E4214C830AE3F6A0014EB4E /* Assets.xcassets */; };
+		1E4214D030AE3F6A0014EB4E /* Atelier Clipper Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1E4214CF30AE3F6A0014EB4E /* Atelier Clipper Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		1E4214D530AE3F6A0014EB4E /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E4214D430AE3F6A0014EB4E /* SafariWebExtensionHandler.swift */; };
+		1E4214E930AE3F6B0014EB4E /* popup.js in Resources */ = {isa = PBXBuildFile; fileRef = 1E4214E130AE3F6B0014EB4E /* popup.js */; };
+		1E4214EA30AE3F6B0014EB4E /* background.js in Resources */ = {isa = PBXBuildFile; fileRef = 1E4214E230AE3F6B0014EB4E /* background.js */; };
+		1E4214EB30AE3F6B0014EB4E /* popup.html in Resources */ = {isa = PBXBuildFile; fileRef = 1E4214E330AE3F6B0014EB4E /* popup.html */; };
+		1E4214EC30AE3F6B0014EB4E /* options.js in Resources */ = {isa = PBXBuildFile; fileRef = 1E4214E430AE3F6B0014EB4E /* options.js */; };
+		1E4214ED30AE3F6B0014EB4E /* icons in Resources */ = {isa = PBXBuildFile; fileRef = 1E4214E530AE3F6B0014EB4E /* icons */; };
+		1E4214EE30AE3F6B0014EB4E /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = 1E4214E630AE3F6B0014EB4E /* manifest.json */; };
+		1E4214EF30AE3F6B0014EB4E /* options.html in Resources */ = {isa = PBXBuildFile; fileRef = 1E4214E730AE3F6B0014EB4E /* options.html */; };
+		1E4214F030AE3F6B0014EB4E /* popup.css in Resources */ = {isa = PBXBuildFile; fileRef = 1E4214E830AE3F6B0014EB4E /* popup.css */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		1E4214D130AE3F6A0014EB4E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1E4214AC30AE3F680014EB4E /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 1E4214CE30AE3F6A0014EB4E;
+			remoteInfo = "Atelier Clipper Extension";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		1E4214DC30AE3F6A0014EB4E /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				1E4214D030AE3F6A0014EB4E /* Atelier Clipper Extension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		1E4214B430AE3F690014EB4E /* Atelier Clipper.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Atelier Clipper.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		1E4214B730AE3F690014EB4E /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		1E4214BB30AE3F690014EB4E /* Base */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = Base; path = Base.lproj/Main.html; sourceTree = "<group>"; };
+		1E4214BD30AE3F690014EB4E /* Icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Icon.png; sourceTree = "<group>"; };
+		1E4214BF30AE3F690014EB4E /* Style.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = Style.css; sourceTree = "<group>"; };
+		1E4214C130AE3F690014EB4E /* Script.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = Script.js; sourceTree = "<group>"; };
+		1E4214C330AE3F690014EB4E /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
+		1E4214C630AE3F690014EB4E /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
+		1E4214C830AE3F6A0014EB4E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		1E4214CA30AE3F6A0014EB4E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		1E4214CF30AE3F6A0014EB4E /* Atelier Clipper Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Atelier Clipper Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		1E4214D430AE3F6A0014EB4E /* SafariWebExtensionHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariWebExtensionHandler.swift; sourceTree = "<group>"; };
+		1E4214D630AE3F6A0014EB4E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		1E4214E130AE3F6B0014EB4E /* popup.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = popup.js; path = ../../../clipper/popup.js; sourceTree = "<group>"; };
+		1E4214E230AE3F6B0014EB4E /* background.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = background.js; path = ../../../clipper/background.js; sourceTree = "<group>"; };
+		1E4214E330AE3F6B0014EB4E /* popup.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = popup.html; path = ../../../clipper/popup.html; sourceTree = "<group>"; };
+		1E4214E430AE3F6B0014EB4E /* options.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = options.js; path = ../../../clipper/options.js; sourceTree = "<group>"; };
+		1E4214E530AE3F6B0014EB4E /* icons */ = {isa = PBXFileReference; lastKnownFileType = folder; name = icons; path = ../../../clipper/icons; sourceTree = "<group>"; };
+		1E4214E630AE3F6B0014EB4E /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = manifest.json; path = ../../../clipper/manifest.json; sourceTree = "<group>"; };
+		1E4214E730AE3F6B0014EB4E /* options.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = options.html; path = ../../../clipper/options.html; sourceTree = "<group>"; };
+		1E4214E830AE3F6B0014EB4E /* popup.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; name = popup.css; path = ../../../clipper/popup.css; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		1E4214B130AE3F680014EB4E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1E4214CC30AE3F6A0014EB4E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		1E4214AB30AE3F680014EB4E = {
+			isa = PBXGroup;
+			children = (
+				1E4214B630AE3F690014EB4E /* Atelier Clipper */,
+				1E4214D330AE3F6A0014EB4E /* Atelier Clipper Extension */,
+				1E4214B530AE3F690014EB4E /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		1E4214B530AE3F690014EB4E /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				1E4214B430AE3F690014EB4E /* Atelier Clipper.app */,
+				1E4214CF30AE3F6A0014EB4E /* Atelier Clipper Extension.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		1E4214B630AE3F690014EB4E /* Atelier Clipper */ = {
+			isa = PBXGroup;
+			children = (
+				1E4214B730AE3F690014EB4E /* AppDelegate.swift */,
+				1E4214C330AE3F690014EB4E /* ViewController.swift */,
+				1E4214C530AE3F690014EB4E /* Main.storyboard */,
+				1E4214C830AE3F6A0014EB4E /* Assets.xcassets */,
+				1E4214CA30AE3F6A0014EB4E /* Info.plist */,
+				1E4214B930AE3F690014EB4E /* Resources */,
+			);
+			path = "Atelier Clipper";
+			sourceTree = "<group>";
+		};
+		1E4214B930AE3F690014EB4E /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				1E4214BA30AE3F690014EB4E /* Main.html */,
+				1E4214BD30AE3F690014EB4E /* Icon.png */,
+				1E4214BF30AE3F690014EB4E /* Style.css */,
+				1E4214C130AE3F690014EB4E /* Script.js */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		1E4214D330AE3F6A0014EB4E /* Atelier Clipper Extension */ = {
+			isa = PBXGroup;
+			children = (
+				1E4214E030AE3F6B0014EB4E /* Resources */,
+				1E4214D430AE3F6A0014EB4E /* SafariWebExtensionHandler.swift */,
+				1E4214D630AE3F6A0014EB4E /* Info.plist */,
+			);
+			path = "Atelier Clipper Extension";
+			sourceTree = "<group>";
+		};
+		1E4214E030AE3F6B0014EB4E /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				1E4214E130AE3F6B0014EB4E /* popup.js */,
+				1E4214E230AE3F6B0014EB4E /* background.js */,
+				1E4214E330AE3F6B0014EB4E /* popup.html */,
+				1E4214E430AE3F6B0014EB4E /* options.js */,
+				1E4214E530AE3F6B0014EB4E /* icons */,
+				1E4214E630AE3F6B0014EB4E /* manifest.json */,
+				1E4214E730AE3F6B0014EB4E /* options.html */,
+				1E4214E830AE3F6B0014EB4E /* popup.css */,
+			);
+			name = Resources;
+			path = "Atelier Clipper Extension";
+			sourceTree = SOURCE_ROOT;
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		1E4214B330AE3F680014EB4E /* Atelier Clipper */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1E4214DD30AE3F6A0014EB4E /* Build configuration list for PBXNativeTarget "Atelier Clipper" */;
+			buildPhases = (
+				1E4214B030AE3F680014EB4E /* Sources */,
+				1E4214B130AE3F680014EB4E /* Frameworks */,
+				1E4214B230AE3F680014EB4E /* Resources */,
+				1E4214DC30AE3F6A0014EB4E /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				1E4214D230AE3F6A0014EB4E /* PBXTargetDependency */,
+			);
+			name = "Atelier Clipper";
+			packageProductDependencies = (
+			);
+			productName = "Atelier Clipper";
+			productReference = 1E4214B430AE3F690014EB4E /* Atelier Clipper.app */;
+			productType = "com.apple.product-type.application";
+		};
+		1E4214CE30AE3F6A0014EB4E /* Atelier Clipper Extension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1E4214D930AE3F6A0014EB4E /* Build configuration list for PBXNativeTarget "Atelier Clipper Extension" */;
+			buildPhases = (
+				1E4214CB30AE3F6A0014EB4E /* Sources */,
+				1E4214CC30AE3F6A0014EB4E /* Frameworks */,
+				1E4214CD30AE3F6A0014EB4E /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Atelier Clipper Extension";
+			packageProductDependencies = (
+			);
+			productName = "Atelier Clipper Extension";
+			productReference = 1E4214CF30AE3F6A0014EB4E /* Atelier Clipper Extension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		1E4214AC30AE3F680014EB4E /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2660;
+				LastUpgradeCheck = 2660;
+				TargetAttributes = {
+					1E4214B330AE3F680014EB4E = {
+						CreatedOnToolsVersion = 26.6;
+					};
+					1E4214CE30AE3F6A0014EB4E = {
+						CreatedOnToolsVersion = 26.6;
+					};
+				};
+			};
+			buildConfigurationList = 1E4214AF30AE3F680014EB4E /* Build configuration list for PBXProject "Atelier Clipper" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 1E4214AB30AE3F680014EB4E;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 1E4214B530AE3F690014EB4E /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				1E4214B330AE3F680014EB4E /* Atelier Clipper */,
+				1E4214CE30AE3F6A0014EB4E /* Atelier Clipper Extension */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		1E4214B230AE3F680014EB4E /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1E4214BE30AE3F690014EB4E /* Icon.png in Resources */,
+				1E4214C730AE3F690014EB4E /* Main.storyboard in Resources */,
+				1E4214C230AE3F690014EB4E /* Script.js in Resources */,
+				1E4214BC30AE3F690014EB4E /* Main.html in Resources */,
+				1E4214C930AE3F6A0014EB4E /* Assets.xcassets in Resources */,
+				1E4214C030AE3F690014EB4E /* Style.css in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1E4214CD30AE3F6A0014EB4E /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1E4214EF30AE3F6B0014EB4E /* options.html in Resources */,
+				1E4214EA30AE3F6B0014EB4E /* background.js in Resources */,
+				1E4214EC30AE3F6B0014EB4E /* options.js in Resources */,
+				1E4214EB30AE3F6B0014EB4E /* popup.html in Resources */,
+				1E4214F030AE3F6B0014EB4E /* popup.css in Resources */,
+				1E4214ED30AE3F6B0014EB4E /* icons in Resources */,
+				1E4214EE30AE3F6B0014EB4E /* manifest.json in Resources */,
+				1E4214E930AE3F6B0014EB4E /* popup.js in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		1E4214B030AE3F680014EB4E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1E4214C430AE3F690014EB4E /* ViewController.swift in Sources */,
+				1E4214B830AE3F690014EB4E /* AppDelegate.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1E4214CB30AE3F6A0014EB4E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1E4214D530AE3F6A0014EB4E /* SafariWebExtensionHandler.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		1E4214D230AE3F6A0014EB4E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 1E4214CE30AE3F6A0014EB4E /* Atelier Clipper Extension */;
+			targetProxy = 1E4214D130AE3F6A0014EB4E /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin PBXVariantGroup section */
+		1E4214BA30AE3F690014EB4E /* Main.html */ = {
+			isa = PBXVariantGroup;
+			children = (
+				1E4214BB30AE3F690014EB4E /* Base */,
+			);
+			name = Main.html;
+			sourceTree = "<group>";
+		};
+		1E4214C530AE3F690014EB4E /* Main.storyboard */ = {
+			isa = PBXVariantGroup;
+			children = (
+				1E4214C630AE3F690014EB4E /* Base */,
+			);
+			name = Main.storyboard;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
+
+/* Begin XCBuildConfiguration section */
+		1E4214D730AE3F6A0014EB4E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		1E4214D830AE3F6A0014EB4E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		1E4214DA30AE3F6A0014EB4E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Atelier Clipper Extension/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Atelier Clipper Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = local.atelier.clipper.Extension;
+				CODE_SIGN_ENTITLEMENTS = "Atelier Clipper Extension/Extension.entitlements";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		1E4214DB30AE3F6A0014EB4E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Atelier Clipper Extension/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Atelier Clipper Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = local.atelier.clipper.Extension;
+				CODE_SIGN_ENTITLEMENTS = "Atelier Clipper Extension/Extension.entitlements";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		1E4214DE30AE3F6A0014EB4E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Atelier Clipper/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Atelier Clipper";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMainStoryboardFile = Main;
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = local.atelier.clipper;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		1E4214DF30AE3F6A0014EB4E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Atelier Clipper/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Atelier Clipper";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMainStoryboardFile = Main;
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = local.atelier.clipper;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1E4214AF30AE3F680014EB4E /* Build configuration list for PBXProject "Atelier Clipper" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1E4214D730AE3F6A0014EB4E /* Debug */,
+				1E4214D830AE3F6A0014EB4E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		1E4214D930AE3F6A0014EB4E /* Build configuration list for PBXNativeTarget "Atelier Clipper Extension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1E4214DA30AE3F6A0014EB4E /* Debug */,
+				1E4214DB30AE3F6A0014EB4E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		1E4214DD30AE3F6A0014EB4E /* Build configuration list for PBXNativeTarget "Atelier Clipper" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1E4214DE30AE3F6A0014EB4E /* Debug */,
+				1E4214DF30AE3F6A0014EB4E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 1E4214AC30AE3F680014EB4E /* Project object */;
+}
