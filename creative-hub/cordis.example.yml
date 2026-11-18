@@ -1,0 +1,3 @@
+- insert:
+    - id: creativity-hub
+      name: '/absolute/path/to/deepseek-harness/creative-hub/host.mjs'

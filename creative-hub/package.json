@@ -1,0 +1,12 @@
+{
+  "name": "creativity-hub-overlay",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "vite build" },
+  "dependencies": {
+    "@excalidraw/excalidraw": "0.18.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "devDependencies": { "vite": "7.3.6" }
+}

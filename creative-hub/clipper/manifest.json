@@ -1,0 +1,9 @@
+{
+  "manifest_version": 3,
+  "name": "Creativity Hub Clipper",
+  "version": "0.1.0",
+  "description": "Webseiten und Bilder mit ihren Metadaten an den Creativity Hub übergeben.",
+  "permissions": ["activeTab", "contextMenus", "scripting", "storage"],
+  "background": { "service_worker": "clipper.js" },
+  "options_ui": { "page": "options.html", "open_in_tab": true }
+}
