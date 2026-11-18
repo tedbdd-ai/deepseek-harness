@@ -2,7 +2,11 @@
 
 Ein DeepSeek-Harness-Web-Overlay für persönliche Notizen, Referenzen und Storyboards. Der Hub verwendet die Anmeldung des Harness-Webprofils. Er speichert seinen Bestand in einer lokalen SQLite-Datei. Die Installation ist für ein persönliches Harness-Profil mit einem Benutzer gedacht.
 
-## Start im Harness
+## Start auf dem Mac
+
+Öffne `start.command` im Finder oder starte die Datei aus dem Terminal. Der Starter baut bei Bedarf Excalidraw, startet das installierte Harness im Webmodus und öffnet den Hub im Browser. Lass das Terminalfenster geöffnet, solange du den Hub nutzt.
+
+## Manueller Start im Harness
 
 1. Wechsle im Fork in den Ordner `creative-hub`. Für den eingebetteten Excalidraw-Editor führe dort `npm install` und `npm run build` aus.
 2. Kopiere `cordis.example.yml` als `cordis.local.yml` und setze den absoluten Pfad zu `host.mjs`. Optional kannst du unter `config.databasePath` einen absoluten Pfad für die SQLite-Datei eintragen. Standard ist `~/.creativity-hub/hub.sqlite`.
