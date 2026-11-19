@@ -330,3 +330,12 @@ dialog.image-viewer {
 .image-frame > .tile-delete:hover { color: var(--c-danger); background: var(--c-danger-fill); border-color: rgba(255, 105, 97, .35); }
 .image-frame:hover > .tile-delete, .image-frame:focus-within > .tile-delete { opacity: 1; }
 @media (hover: none) { .image-frame > .tile-delete { opacity: 1; } }
+
+/* Mehrfachauswahl */
+.pick-mark { position: absolute; top: var(--s-2); right: var(--s-2); width: 28px; height: 28px; border-radius: 14px; display: none; align-items: center; justify-content: center; border: 2px solid rgba(255, 255, 255, .85); background: rgba(17, 17, 18, .55); color: transparent; pointer-events: none; }
+.pick-mark svg { width: 14px; height: 14px; stroke-width: 3; }
+body.picking .image-frame[data-asset] > .pick-mark { display: flex; }
+body.picking .image-frame[data-asset] > .tile-delete, body.picking .image-frame[data-asset] > .image-expand { display: none; }
+.image-frame.picked > .pick-mark { background: var(--c-focus); border-color: var(--c-focus); color: #fff; }
+.image-frame.picked .pic { outline: 2px solid var(--c-focus); outline-offset: 3px; }
+body.picking .tile { cursor: default; }

@@ -133,17 +133,66 @@ function withFullscreen(item, content) {
   return el('div', { class: 'image-frame', ondblclick: e => { e.preventDefault(); openImage(url, item.title) } }, content, fullscreenButton(url, item.title))
 }
 
+/* Mehrfachauswahl: im Auswahlmodus (oder mit ⌘ bzw. Shift) wählt ein Klick aus, statt zu öffnen. */
+const picking = { on: false, ids: new Set(), visible: [] }
+
+function setPicking(on) {
+  picking.on = on
+  if (!on) picking.ids.clear()
+  document.body.classList.toggle('picking', on)
+  document.querySelectorAll('.image-frame[data-asset]').forEach(f => f.classList.toggle('picked', picking.ids.has(f.dataset.asset)))
+  drawPickBar()
+}
+
+function togglePick(id) {
+  if (!picking.on) setPicking(true)
+  picking.ids.has(id) ? picking.ids.delete(id) : picking.ids.add(id)
+  document.querySelectorAll(`.image-frame[data-asset="${id}"]`).forEach(f => f.classList.toggle('picked', picking.ids.has(id)))
+  drawPickBar()
+}
+
+/** The selection controls for an overview; `items` are the tiles currently shown. */
+function pickControls(items) {
+  picking.visible = items
+  const box = el('span', { class: 'pick-bar', style: 'display:contents' })
+  drawPickBar(box)
+  return box
+}
+
+function drawPickBar(box = document.querySelector('.pick-bar')) {
+  if (!box) return
+  const n = picking.ids.size
+  box.replaceChildren(...(picking.on ? [
+    el('span', { class: 'meta', 'aria-live': 'polite' }, n === 1 ? '1 ausgewählt' : `${n} ausgewählt`),
+    el('button', { type: 'button', class: 'btn sm ghost', onclick: () => { const all = picking.visible.every(i => picking.ids.has(i.id)); picking.visible.forEach(i => all ? picking.ids.delete(i.id) : picking.ids.add(i.id)); setPicking(true) } }, picking.visible.length && picking.visible.every(i => picking.ids.has(i.id)) ? 'Keine' : 'Alle'),
+    el('button', { type: 'button', class: 'btn sm danger', disabled: !n || null, onclick: removePicked }, icon('trash'), 'Löschen'),
+    el('button', { type: 'button', class: 'btn sm', onclick: () => setPicking(false) }, 'Fertig'),
+  ] : [el('button', { type: 'button', class: 'btn sm', onclick: () => setPicking(true), title: 'Mehrere auswählen (auch mit ⌘ oder Shift und Klick)' }, icon('check'), 'Auswählen')]))
+}
+
+async function removePicked() {
+  const ids = [...picking.ids]
+  if (!ids.length) return
+  if (!await confirmDialog(`${ids.length} ${ids.length === 1 ? 'Element' : 'Elemente'} löschen?`, 'Sie werden aus dem Atelier gelöscht, auch aus allen Projekten. Das lässt sich nicht rückgängig machen.', 'Löschen')) return
+  let done = 0
+  for (const id of ids) { try { await api('/assets/' + id, 'DELETE'); done++ } catch (error) { toast(error.message, true) } }
+  toast(done === 1 ? '1 Element gelöscht.' : `${done} Elemente gelöscht.`)
+  setPicking(false); closeInspector(); refreshCounts(); route()
+}
+
 function tile(item, onOpen, { caption = true, onDelete = () => removeAsset(item, route) } = {}) {
   const kind = kindOf(item)
   const domain = domainOf(item.source)
   // Delete straight from the grid: the button appears on the image on hover or focus.
   const remove = el('button', { type: 'button', class: 'icon tile-delete', 'aria-label': `„${item.title}“ löschen`, title: 'Löschen', onclick: e => { e.stopPropagation(); onDelete() } }, icon('trash'))
-  const framed = withFullscreen(item, el('button', { type: 'button', class: 'tile' + (state.selected === item.id ? ' sel' : ''), 'data-id': item.id, 'aria-label': item.title, onclick: () => onOpen(item) },
+  const framed = withFullscreen(item, el('button', { type: 'button', class: 'tile' + (state.selected === item.id ? ' sel' : ''), 'data-id': item.id, 'aria-label': item.title, onclick: e => { if (picking.on || e.metaKey || e.ctrlKey || e.shiftKey) { e.preventDefault(); togglePick(item.id) } else onOpen(item) } },
     el('span', { class: 'pic' }, media(item), (kind === 'videos' || kind === 'webseiten') && mediaUrl(item) ? el('span', { class: 'kind' }, kindLabel[kind]) : null),
     caption ? el('span', { class: 'title' }, item.title) : null,
     caption && domain ? el('span', { class: 'src' }, el('span', { class: 'dot', style: `background:${sourceDot(domain)}` }), domain) : null))
   const frame = framed.classList?.contains('image-frame') ? framed : el('div', { class: 'image-frame' }, framed)
-  frame.append(remove)
+  frame.dataset.asset = item.id
+  frame.classList.toggle('picked', picking.ids.has(item.id))
+  frame.append(remove, el('span', { class: 'pick-mark', 'aria-hidden': 'true' }, icon('check')))
   return frame
 }
 
@@ -221,7 +270,8 @@ const filters = [['alle', 'Alle'], ['bilder', 'Bilder'], ['videos', 'Videos'], [
 
 async function renderSammlung() {
   const seg = el('div', { class: 'seg', role: 'group', 'aria-label': 'Art' }, filters.map(([key, label]) => el('button', { type: 'button', 'aria-pressed': String(state.filter === key), onclick: () => { state.filter = key; renderSammlung() } }, label)))
-  const tools = el('div', { class: 'tools' }, uploadButton(), el('button', { type: 'button', class: 'btn sm', onclick: addLinkDialog }, icon('link'), 'Link einfügen'))
+  const picker = pickControls([])
+  const tools = el('div', { class: 'tools' }, picker, uploadButton(), el('button', { type: 'button', class: 'btn sm', onclick: addLinkDialog }, icon('link'), 'Link einfügen'))
   const body = el('div', { class: 'scroll' }, loading())
   view.replaceChildren(...header('Sammlung', null, seg, tools), body)
   try {
@@ -237,6 +287,7 @@ async function renderSammlung() {
       body.replaceChildren(emptyState('inbox', `Keine ${filters.find(f => f[0] === state.filter)[1]}`, 'In der Sammlung gibt es davon gerade nichts.', el('button', { class: 'btn', onclick: () => { state.filter = 'alle'; renderSammlung() } }, 'Alle zeigen')))
       return
     }
+    picking.visible = items; drawPickBar()
     body.replaceChildren(el('div', { class: 'masonry' }, items.map(item => tile(item, openClip))))
   } catch (error) { body.replaceChildren(errorState(error, renderSammlung)) }
 }
@@ -334,7 +385,7 @@ async function renderLibrary() {
     el('option', { value: '' }, 'Alle Medien'), el('option', { value: 'fashion' }, 'Fashion-Referenzen'))
   const modelSel = el('select', { 'aria-label': 'Modell' }, el('option', { value: '' }, 'Alle Modelle'))
   const projectSel = el('select', { 'aria-label': 'Projekt' }, el('option', { value: '' }, 'Alle Projekte'), state.projects.map(p => el('option', { value: p.id }, p.title)))
-  const tools = el('div', { class: 'tools library-filters' }, el('label', { class: 'pill' }, typeSel, chev()), el('label', { class: 'pill' }, modelSel, chev()), el('label', { class: 'pill' }, projectSel, chev()))
+  const tools = el('div', { class: 'tools library-filters' }, pickControls([]), el('label', { class: 'pill' }, typeSel, chev()), el('label', { class: 'pill' }, modelSel, chev()), el('label', { class: 'pill' }, projectSel, chev()))
   const body = el('div', { class: 'scroll' }, loading(5))
   view.replaceChildren(...header('Library', 'Alles, was du generiert hast', tools), body)
   let all
@@ -347,6 +398,7 @@ async function renderLibrary() {
     if (!items.length) return body.replaceChildren(emptyState('image', 'Keine Treffer', 'Für diese Auswahl gibt es keine Bilder.', el('button', { class: 'btn', onclick: () => { typeSel.value = ''; modelSel.value = ''; projectSel.value = ''; draw() } }, 'Filter zurücksetzen')))
     const groups = new Map()
     for (const item of items) { const key = dateLabel(item.created_at); if (!groups.has(key)) groups.set(key, []); groups.get(key).push(item) }
+    picking.visible = items; drawPickBar()
     body.replaceChildren(...[...groups].flatMap(([day, list]) => [el('div', { class: 'day' }, day), el('div', { class: 'grid' }, list.map(item => tile(item, openGeneration, { caption: isFashionReference(item) })))]))
   }
   typeSel.onchange = modelSel.onchange = projectSel.onchange = draw
@@ -391,10 +443,11 @@ async function renderProject(id) {
   if (!project) { view.replaceChildren(emptyState('inbox', 'Projekt nicht gefunden', 'Vielleicht wurde es gelöscht.', el('a', { class: 'btn', href: '#/sammlung' }, 'Zur Sammlung'))); return }
   const snapshot = state.snapshots.find(s => s.id === project.snapshot)
   const body = el('div', { class: 'scroll' }, loading())
-  view.replaceChildren(...header(project.title, [snapshot && snapshot.id !== 'blank' ? snapshot.title : '', project.due ? 'Termin ' + new Date(project.due).toLocaleDateString('de-DE') : ''].filter(Boolean).join(' · ') || null, el('div', { class: 'tools' }, uploadButton({ projectId: id }))), body)
+  view.replaceChildren(...header(project.title, [snapshot && snapshot.id !== 'blank' ? snapshot.title : '', project.due ? 'Termin ' + new Date(project.due).toLocaleDateString('de-DE') : ''].filter(Boolean).join(' · ') || null, el('div', { class: 'tools' }, pickControls([]), uploadButton({ projectId: id }))), body)
   try {
     const items = await api('/assets?project=' + id)
     if (!items.length) return body.replaceChildren(emptyState('inbox', 'Noch nichts im Projekt', 'Ordne Dinge aus der Sammlung oder der Library zu, oder zieh Dateien hierher.', el('a', { class: 'btn primary', href: '#/sammlung' }, 'Zur Sammlung')))
+    picking.visible = items; drawPickBar()
     body.replaceChildren(el('div', { class: 'masonry' }, items.map(item => tile(item, item.library === 'generation' ? openGeneration : openClip))))
   } catch (error) { body.replaceChildren(errorState(error, () => renderProject(id))) }
 }
@@ -461,6 +514,7 @@ const shared = { get $() { return $ }, openImage, uploadFiles, uploadButton, API
 const currentRoute = () => (location.hash.match(/^#\/([\w-]+)/)?.[1]) || 'sammlung'
 function route() {
   closeInspector()
+  if (picking.on) setPicking(false)
   activeLeave?.(); activeLeave = null
   const name = currentRoute()
   document.querySelectorAll('.side .navi[data-route]').forEach(a => { const on = a.dataset.route === name; a.classList.toggle('on', on); on ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current') })
@@ -484,6 +538,7 @@ search.addEventListener('input', () => { clearTimeout(searchTimer); searchTimer 
 function clearSearch() { search.value = ''; state.query = ''; route() }
 addEventListener('keydown', e => {
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); search.focus(); search.select() }
+  if (e.key === 'Escape' && picking.on && !document.querySelector('dialog[open]')) return setPicking(false)
   if (e.key === 'Escape' && !inspector.hidden && !document.querySelector('dialog[open]')) closeInspector()
 })
 $('#new-project').addEventListener('click', newProjectDialog)
