@@ -11,7 +11,7 @@ const pgApi = (path, method = 'GET', body) => fetch(PG + path, { method, headers
 const remember = (key, value) => { try { localStorage.setItem('atelier:styler:' + key, JSON.stringify(value)) } catch { /* Ohne Browser-Speicher gilt die Auswahl nur bis zum Neuladen. */ } }
 const recall = key => { try { return JSON.parse(localStorage.getItem('atelier:styler:' + key)) } catch { return null /* Speicher gesperrt: Standardwert. */ } }
 
-export async function render(container, { el, api, media, withFullscreen, isFashionReference, toast, refreshCounts, projects, params }) {
+export async function render(container, { el, api, media, withFullscreen, isFashionReference, toast, refreshCounts, projects, params, uploadButton }) {
   const [clips, generated, models] = await Promise.all([api('/assets?library=clips'), api('/assets?library=generation'), pgApi('/models').catch(() => [])])
   const images = [...clips, ...generated].filter(a => a.media_type?.startsWith('image/') || (!a.media_type && a.preview))
   const editors = models.filter(m => m.variants?.edit)
@@ -45,7 +45,9 @@ export async function render(container, { el, api, media, withFullscreen, isFash
     }
     search.oninput = fill
     const dialog = el('dialog', { class: 'pg-editor styler-picker', 'aria-label': title, style: 'width:min(880px, calc(100vw - 32px))' },
-      el('form', { method: 'dialog' }, el('h2', {}, title), search, grid, el('div', { class: 'row' }, el('button', { class: 'btn ghost' }, 'Abbrechen'))))
+      el('form', { method: 'dialog' }, el('div', { style: 'display:flex;align-items:center;gap:12px' }, el('h2', { style: 'margin-right:auto' }, title),
+        uploadButton?.({ label: 'Vom Mac hochladen', onDone: created => { const image = created.find(a => a.media_type?.startsWith('image/')); if (!image) return; images.unshift(image); dialog.close(); onSelect(image); draw() } })),
+        search, grid, el('div', { class: 'row' }, el('button', { class: 'btn ghost' }, 'Abbrechen'))))
     dialog.onclose = () => dialog.remove()
     document.body.append(dialog)
     fill()

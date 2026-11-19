@@ -2,11 +2,11 @@
  * Browser module of the Playground plugin, loaded by the hub as a page (`#/playground`).
  * The hub passes its shared building blocks through `renderView(ctx)`; the plugin owns this UI.
  */
-let $, openImage, API, api, chev, currentRoute, dateLabel, el, errorState, fullscreenButton, header, icon, icons, loading, media, refreshCounts, state, tile, timeLabel, toast, view, withFullscreen
+let $, openImage, uploadButton, API, api, chev, currentRoute, dateLabel, el, errorState, fullscreenButton, header, icon, icons, loading, media, refreshCounts, state, tile, timeLabel, toast, view, withFullscreen
 
 /** Called by the hub on every visit; renders the whole view. */
 export function renderView(ctx) {
-  ;({ '$': $, openImage, API, api, chev, currentRoute, dateLabel, el, errorState, fullscreenButton, header, icon, icons, loading, media, refreshCounts, state, tile, timeLabel, toast, view, withFullscreen } = ctx)
+  ;({ '$': $, openImage, uploadButton, API, api, chev, currentRoute, dateLabel, el, errorState, fullscreenButton, header, icon, icons, loading, media, refreshCounts, state, tile, timeLabel, toast, view, withFullscreen } = ctx)
   Object.assign(icons, icons2)
   return renderPlayground()
 }
@@ -613,7 +613,10 @@ async function pickReferences() {
     e.currentTarget.classList.toggle('on'); e.currentTarget.setAttribute('aria-pressed', String(chosen.has(item.id)))
   } }, media(item)))))
   const dialog = el('dialog', { style: 'width:min(880px, calc(100vw - 32px))' }, el('form', { method: 'dialog' },
-    el('h2', {}, 'Referenzen wählen'), items.length ? grid : el('p', {}, 'In Sammlung und Library gibt es noch keine Bilder.'),
+    el('div', { style: 'display:flex;align-items:center;gap:12px' }, el('h2', { style: 'margin-right:auto' }, 'Referenzen wählen'),
+      // Files from the Mac land in the Sammlung and are attached at once.
+      uploadButton({ label: 'Vom Mac hochladen', onDone: created => { dialog.close(); updateReferences([...new Set([...pg.refs, ...created.filter(a => a.media_type?.startsWith('image/')).map(a => a.id)])].slice(0, 16)) } })),
+    items.length ? grid : el('p', {}, 'In Sammlung und Library gibt es noch keine Bilder.'),
     el('div', { class: 'row' }, el('button', { class: 'btn ghost', value: 'no' }, 'Abbrechen'), el('button', { class: 'btn primary', value: 'yes' }, 'Übernehmen'))))
   dialog.addEventListener('close', () => { if (dialog.returnValue === 'yes') { updateReferences([...chosen].slice(0, 16)) } dialog.remove() })
   document.body.append(dialog); dialog.showModal()

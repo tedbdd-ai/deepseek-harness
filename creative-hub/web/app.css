@@ -326,3 +326,7 @@ dialog.image-viewer {
 .pg-hint { display: flex; align-items: center; gap: var(--s-3); font-size: 13px; color: var(--c-ink-2); }
 .pg-hint span { flex: 1; }
 .pg-role.locked { border-color: var(--c-ink-3); }
+.image-frame > .tile-delete { position: absolute; top: var(--s-2); left: var(--s-2); opacity: 0; transition: opacity var(--dur) ease; background: rgba(17, 17, 18, .82); border-color: rgba(255, 255, 255, .16); color: var(--c-ink-2); }
+.image-frame > .tile-delete:hover { color: var(--c-danger); background: var(--c-danger-fill); border-color: rgba(255, 105, 97, .35); }
+.image-frame:hover > .tile-delete, .image-frame:focus-within > .tile-delete { opacity: 1; }
+@media (hover: none) { .image-frame > .tile-delete { opacity: 1; } }

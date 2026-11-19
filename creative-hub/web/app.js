@@ -26,6 +26,7 @@ const icons = {
   expand: '<path d="M8 3H3v5m13-5h5v5m0 8v5h-5M3 16v5h5"/>',
   close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
+  upload: '<path d="M12 15V3"/><path d="m7 8 5-5 5 5"/><path d="M5 21h14"/>',
   down: '<path d="M12 15V3"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>',
   open: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
   cut: '<circle cx="6" cy="6" r="3"/><path d="M8.12 8.12 12 12"/><path d="M20 4 8.12 15.88"/><circle cx="6" cy="18" r="3"/><path d="M14.8 14.8 20 20"/>',
@@ -132,13 +133,18 @@ function withFullscreen(item, content) {
   return el('div', { class: 'image-frame', ondblclick: e => { e.preventDefault(); openImage(url, item.title) } }, content, fullscreenButton(url, item.title))
 }
 
-function tile(item, onOpen, { caption = true } = {}) {
+function tile(item, onOpen, { caption = true, onDelete = () => removeAsset(item, route) } = {}) {
   const kind = kindOf(item)
   const domain = domainOf(item.source)
-  return withFullscreen(item, el('button', { type: 'button', class: 'tile' + (state.selected === item.id ? ' sel' : ''), 'data-id': item.id, 'aria-label': item.title, onclick: () => onOpen(item) },
+  // Delete straight from the grid: the button appears on the image on hover or focus.
+  const remove = el('button', { type: 'button', class: 'icon tile-delete', 'aria-label': `„${item.title}“ löschen`, title: 'Löschen', onclick: e => { e.stopPropagation(); onDelete() } }, icon('trash'))
+  const framed = withFullscreen(item, el('button', { type: 'button', class: 'tile' + (state.selected === item.id ? ' sel' : ''), 'data-id': item.id, 'aria-label': item.title, onclick: () => onOpen(item) },
     el('span', { class: 'pic' }, media(item), (kind === 'videos' || kind === 'webseiten') && mediaUrl(item) ? el('span', { class: 'kind' }, kindLabel[kind]) : null),
     caption ? el('span', { class: 'title' }, item.title) : null,
     caption && domain ? el('span', { class: 'src' }, el('span', { class: 'dot', style: `background:${sourceDot(domain)}` }), domain) : null))
+  const frame = framed.classList?.contains('image-frame') ? framed : el('div', { class: 'image-frame' }, framed)
+  frame.append(remove)
+  return frame
 }
 
 function chev() { const s = svg(icons.chev); s.classList.add('chev'); return s }
@@ -215,7 +221,7 @@ const filters = [['alle', 'Alle'], ['bilder', 'Bilder'], ['videos', 'Videos'], [
 
 async function renderSammlung() {
   const seg = el('div', { class: 'seg', role: 'group', 'aria-label': 'Art' }, filters.map(([key, label]) => el('button', { type: 'button', 'aria-pressed': String(state.filter === key), onclick: () => { state.filter = key; renderSammlung() } }, label)))
-  const tools = el('div', { class: 'tools' }, el('button', { type: 'button', class: 'btn sm', onclick: addLinkDialog }, icon('link'), 'Link einfügen'))
+  const tools = el('div', { class: 'tools' }, uploadButton(), el('button', { type: 'button', class: 'btn sm', onclick: addLinkDialog }, icon('link'), 'Link einfügen'))
   const body = el('div', { class: 'scroll' }, loading())
   view.replaceChildren(...header('Sammlung', null, seg, tools), body)
   try {
@@ -283,17 +289,39 @@ addEventListener('dragover', e => { if (hasFiles(e)) e.preventDefault() })
 addEventListener('drop', async e => {
   if (!hasFiles(e)) return
   e.preventDefault(); dragDepth = 0; dropHint.hidden = true
-  const files = [...e.dataTransfer.files].filter(f => /^(image|video)\//.test(f.type))
-  if (!files.length) return toast('Nur Bilder und Videos lassen sich hineinziehen.', true)
   const projectId = location.hash.match(/^#\/projekt\/([\w-]+)/)?.[1]
-  let saved = 0
+  if ((await uploadFiles(e.dataTransfer.files, { projectId })).length) route()
+})
+
+/**
+ * Saves image and video files in the Sammlung (and the project, if given).
+ * @param {FileList | File[]} list files from a drop or the file picker.
+ * @param {{ projectId?: string }} options
+ * @returns {Promise<object[]>} the created assets.
+ */
+async function uploadFiles(list, { projectId } = {}) {
+  const files = [...list].filter(f => /^(image|video)\//.test(f.type))
+  if (!files.length) { toast('Nur Bilder und Videos lassen sich hochladen.', true); return [] }
+  const created = []
   for (const file of files) {
     if (file.size > 12 * 1024 * 1024) { toast(`„${file.name}“ ist größer als 12 MB.`, true); continue }
     const media = await new Promise(resolve => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.readAsDataURL(file) })
-    try { await api('/assets', 'POST', { library: 'clips', title: file.name.replace(/\.[^.]+$/, ''), media, mediaType: file.type, projectId }); saved++ } catch (error) { toast(error.message, true) }
+    const title = file.name.replace(/\.[^.]+$/, '')
+    try { created.push({ ...(await api('/assets', 'POST', { library: 'clips', title, media, mediaType: file.type, projectId })), library: 'clips', title, media_type: file.type, created_at: new Date().toISOString() }) } catch (error) { toast(error.message, true) }
   }
-  if (saved) { toast(saved === 1 ? 'Gesichert.' : `${saved} Dateien gesichert.`); refreshCounts(); if (projectId) await loadProjects(); route() }
-})
+  if (created.length) { toast(created.length === 1 ? 'Gesichert.' : `${created.length} Dateien gesichert.`); refreshCounts(); if (projectId) await loadProjects() }
+  return created
+}
+
+/** A button that opens the file picker and uploads the chosen files. */
+function uploadButton({ projectId, onDone, label = 'Hochladen', className = 'btn sm' } = {}) {
+  const input = el('input', { type: 'file', accept: 'image/*,video/*', multiple: true, hidden: true, onchange: async () => {
+    const created = await uploadFiles(input.files, { projectId })
+    input.value = ''
+    if (created.length) (onDone ?? route)(created)
+  } })
+  return el('span', { style: 'display:contents' }, input, el('button', { type: 'button', class: className, onclick: () => input.click() }, icon('upload'), label))
+}
 
 function isFashionReference(item) {
   return item.library === 'generation' && item.media_type?.startsWith('image/') &&
@@ -363,7 +391,7 @@ async function renderProject(id) {
   if (!project) { view.replaceChildren(emptyState('inbox', 'Projekt nicht gefunden', 'Vielleicht wurde es gelöscht.', el('a', { class: 'btn', href: '#/sammlung' }, 'Zur Sammlung'))); return }
   const snapshot = state.snapshots.find(s => s.id === project.snapshot)
   const body = el('div', { class: 'scroll' }, loading())
-  view.replaceChildren(...header(project.title, [snapshot && snapshot.id !== 'blank' ? snapshot.title : '', project.due ? 'Termin ' + new Date(project.due).toLocaleDateString('de-DE') : ''].filter(Boolean).join(' · ') || null), body)
+  view.replaceChildren(...header(project.title, [snapshot && snapshot.id !== 'blank' ? snapshot.title : '', project.due ? 'Termin ' + new Date(project.due).toLocaleDateString('de-DE') : ''].filter(Boolean).join(' · ') || null, el('div', { class: 'tools' }, uploadButton({ projectId: id }))), body)
   try {
     const items = await api('/assets?project=' + id)
     if (!items.length) return body.replaceChildren(emptyState('inbox', 'Noch nichts im Projekt', 'Ordne Dinge aus der Sammlung oder der Library zu, oder zieh Dateien hierher.', el('a', { class: 'btn primary', href: '#/sammlung' }, 'Zur Sammlung')))
@@ -429,7 +457,7 @@ function providerCard(provider) {
 /* Routing */
 let activeLeave = null
 /** Hub building blocks handed to page plugins that render a whole view (e.g. the Playground). */
-const shared = { get $() { return $ }, openImage, API, api, chev, get currentRoute() { return currentRoute }, dateLabel, el, errorState, fullscreenButton, header, icon, icons, loading, media, refreshCounts, state, tile, timeLabel, toast, view, withFullscreen }
+const shared = { get $() { return $ }, openImage, uploadFiles, uploadButton, API, api, chev, get currentRoute() { return currentRoute }, dateLabel, el, errorState, fullscreenButton, header, icon, icons, loading, media, refreshCounts, state, tile, timeLabel, toast, view, withFullscreen }
 const currentRoute = () => (location.hash.match(/^#\/([\w-]+)/)?.[1]) || 'sammlung'
 function route() {
   closeInspector()
@@ -442,7 +470,7 @@ function route() {
     const body = el('div', { class: 'scroll' }, loading())
     if (page.view) return import(page.module).then(module => { activeLeave = module.leave; return module.renderView(shared) }).catch(error => { view.replaceChildren(...header(page.title), errorState(error, route)) })
     view.replaceChildren(...header(page.title), body)
-    return import(page.module).then(module => module.render(body, { el, api, media, withFullscreen, isFashionReference, toast, refreshCounts, projects: state.projects, params: new URLSearchParams(location.hash.split('?')[1]) })).catch(error => body.replaceChildren(errorState(error, route)))
+    return import(page.module).then(module => module.render(body, { el, api, media, withFullscreen, isFashionReference, toast, refreshCounts, uploadFiles, uploadButton, projects: state.projects, params: new URLSearchParams(location.hash.split('?')[1]) })).catch(error => body.replaceChildren(errorState(error, route)))
   }
   if (name === 'library') return renderLibrary()
   if (name === 'projekt') return renderProject(location.hash.split('/')[2])
