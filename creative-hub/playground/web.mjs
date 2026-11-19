@@ -464,12 +464,21 @@ function quickModelSettings(model, variant, onChange) {
   ].filter(Boolean)
 }
 
-const referenceRoles = ['Allgemein', 'Ausgangsbild', 'Identität', 'Kleidung', 'Stil', 'Komposition', 'Ort', 'Licht', 'Pose']
+const garmentParts = ['Kleidung: Oberteil', 'Kleidung: Unterteil', 'Kleidung: Jacke/Mantel', 'Kleidung: Einteiler', 'Kleidung: Schuhe', 'Kleidung: Accessoire', 'Material & Farbe', 'Muster & Details']
+const referenceRoles = ['Allgemein', 'Ausgangsbild', 'Identität', 'Kleidung', ...garmentParts, 'Stil', 'Komposition', 'Ort', 'Licht', 'Pose']
 const roleHints = {
   Allgemein: 'Bild wird so genutzt, wie der Prompt es sagt.',
   Ausgangsbild: 'Dieses Bild wird bearbeitet; alles, was du nicht änderst, bleibt.',
   Identität: 'Nur Gesicht, Haare und Körperbau dieser Person.',
-  Kleidung: 'Nur das Kleidungsstück: Schnitt, Material, Farbe. Nicht die Person.',
+  Kleidung: 'Das ganze Outfit: Schnitt, Material, Farbe. Nicht die Person.',
+  'Kleidung: Oberteil': 'Nur das Oberteil aus diesem Bild.',
+  'Kleidung: Unterteil': 'Nur Hose oder Rock aus diesem Bild.',
+  'Kleidung: Jacke/Mantel': 'Nur Jacke, Mantel oder Cape aus diesem Bild.',
+  'Kleidung: Einteiler': 'Nur Catsuit, Kleid oder Overall aus diesem Bild.',
+  'Kleidung: Schuhe': 'Nur die Schuhe aus diesem Bild.',
+  'Kleidung: Accessoire': 'Nur ein Accessoire: Handschuhe, Haube, Maske, Gürtel, Schmuck.',
+  'Material & Farbe': 'Nur Material, Glanz und Farben, nicht der Schnitt.',
+  'Muster & Details': 'Nur Besätze, Nähte, Schnallen, Rüschen oder Drucke.',
   Stil: 'Nur Bildstil, Farbpalette und Oberfläche.',
   Komposition: 'Nur Bildaufbau, Perspektive und Platzierung.',
   Ort: 'Nur Umgebung und Architektur.',
@@ -477,7 +486,7 @@ const roleHints = {
   Pose: 'Nur Körperhaltung, Geste und Blick.',
 }
 
-/** Coherent camera looks: Scrabble draws whole looks instead of mixing angle, lens and light at random. */
+/** Coherent camera looks. */
 const looks = [
   { name: 'Editorial Blitz', angle: 'Augenhöhe', lens: '35 mm Reportage', light: 'Direktblitz' },
   { name: 'Kino-Nacht', angle: 'Seitenansicht', lens: '50 mm Normalobjektiv', light: 'Neonlicht' },
@@ -488,62 +497,91 @@ const looks = [
   { name: 'Katalog Studio', angle: 'Augenhöhe', lens: '85 mm Porträt', light: 'Softbox' },
   { name: 'Überblick von oben', angle: 'Vogelperspektive', lens: '24 mm Weitwinkel', light: 'Direktblitz' },
 ]
+/** Situations with the look that suits them (names match playground/direction.mjs). */
+const situations = [
+  ['Halloween-Party im Altbau', 'Editorial Blitz'], ['Backstage im Club', 'Kino-Nacht'], ['Nasse Straße bei Nacht', 'Kino-Nacht'],
+  ['Hotellobby der 70er', 'Porträt im Fensterlicht'], ['Industriehalle im Nebel', 'Laufsteg von unten'], ['Fotostudio', 'Katalog Studio'],
+  ['Dachterrasse zur blauen Stunde', 'Golden Hour Street'], ['Spiegelsaal', 'Porträt im Fensterlicht'], ['Laufsteg', 'Laufsteg von unten'],
+  ['U-Bahnhof', 'Kino-Nacht'], ['Treppenhaus', 'Überblick von oben'], ['Galerie-Eröffnung', 'Editorial Blitz'],
+]
 
 function studioForRun(studio) {
   const active = { ...studio }
-  delete active.setting
-  delete active.pose
-  delete active.locked
-  delete active.lookName
-  if (active.vary && pg.count > 1) active.looks = drawLooks(pg.count, studio).map(({ angle, lens, light }) => ({ angle, lens, light }))
-  else delete active.looks
+  for (const key of ['setting', 'pose', 'locked', 'lookName', 'roleLocked']) delete active[key]
+  if (active.vary && pg.count > 1) active.remixes = Array.from({ length: pg.count }, (_, i) => i === 0 ? null : drawRecipe(studio)).map((recipe, i) => i === 0
+    ? { roles: studio.roles, situation: studio.situation, angle: studio.angle, lens: studio.lens, light: studio.light }
+    : { roles: recipe.roles, situation: recipe.situation, ...recipe.look })
+  else delete active.remixes
+  delete active.looks
   return active
 }
 
+const shuffle = list => { const copy = [...list]; for (let i = copy.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [copy[i], copy[j]] = [copy[j], copy[i]] } return copy }
 const pickOne = (list, avoid) => { const choices = list.filter(item => item !== avoid); return (choices.length ? choices : list)[Math.floor(Math.random() * (choices.length || list.length))] }
 
-/** Draws `n` different looks; fields the user locked keep their own value in every look. */
-function drawLooks(n, studio) {
-  const pool = [...looks].sort(() => Math.random() - .5)
-  return Array.from({ length: n }, (_, i) => {
-    const look = { ...pool[i % pool.length] }
-    for (const [key] of directionFields) if (studio.locked?.[key] && studio[key]) look[key] = studio[key]
-    return look
-  })
+/**
+ * A remix recipe: one person keeps the identity, every other image supplies exactly one different
+ * garment part (or material, details, location), plus a situation and its look. Locked roles and
+ * fields stay as they are. Narrow, non-overlapping jobs keep the combined outfit coherent.
+ */
+function drawRecipe(studio) {
+  const roles = { ...studio.roles }
+  const locked = id => studio.roleLocked?.[id]
+  const person = pg.refs.find(id => ['Identität', 'Ausgangsbild'].includes(roles[id]) && locked(id)) ?? pg.refs.find(id => locked(id) && roles[id] === 'Identität') ?? pg.refs.find(id => !locked(id) && roles[id] === 'Identität') ?? pg.refs.find(id => !locked(id))
+  // Main pieces first so every outfit has a body; extras after.
+  const main = shuffle(['Kleidung: Oberteil', 'Kleidung: Unterteil', 'Kleidung: Jacke/Mantel', 'Kleidung: Einteiler'])
+  const extra = shuffle(['Material & Farbe', 'Kleidung: Accessoire', 'Muster & Details', 'Kleidung: Schuhe'])
+  const queue = [main[0], ...extra.slice(0, 1), ...main.slice(1).filter(r => !(main[0] === 'Kleidung: Einteiler' && /Oberteil|Unterteil/.test(r)) && !(r === 'Kleidung: Einteiler' && /Oberteil|Unterteil/.test(main[0]))), ...extra.slice(1), 'Ort']
+  const taken = new Set(pg.refs.filter(locked).map(id => roles[id]))
+  for (const id of pg.refs) {
+    if (locked(id)) continue
+    if (id === person) { roles[id] = 'Identität'; continue }
+    const next = queue.find(role => !taken.has(role) && !(role === 'Kleidung: Einteiler' && [...taken].some(r => /Oberteil|Unterteil/.test(r))) && !(/Oberteil|Unterteil/.test(role) && taken.has('Kleidung: Einteiler')))
+    roles[id] = next ?? 'Muster & Details'
+    taken.add(roles[id])
+  }
+  const [situation, lookName] = studio.locked?.situation && studio.situation ? [studio.situation, studio.lookName] : pickOne(situations, situations.find(s => s[0] === studio.situation))
+  const look = { ...(looks.find(l => l.name === lookName) ?? pickOne(looks)) }
+  for (const [key] of directionFields) if (studio.locked?.[key] && studio[key]) look[key] = studio[key]
+  return { roles, situation, look }
 }
 
-/** Scrabble: draws a camera look for every unlocked direction field. Reference roles are never touched. */
+/** Scrabble: rolls a remix recipe; locked roles, situation and camera fields stay. */
 function rollScrabble() {
+  if (!pg.refs.length) return toast('Hänge zuerst ein paar Bilder an. Scrabble mischt daraus Person, Outfit-Teile und Situation.', true)
   pg.scrabbleUndo ??= []
-  pg.scrabbleUndo.push({ ...Object.fromEntries(directionFields.map(([key]) => [key, pg.studio[key]])), lookName: pg.studio.lookName })
+  pg.scrabbleUndo.push(structuredClone({ prompt: pg.prompt, roles: pg.studio.roles ?? {}, situation: pg.studio.situation, lookName: pg.studio.lookName, ...Object.fromEntries(directionFields.map(([key]) => [key, pg.studio[key]])) }))
   if (pg.scrabbleUndo.length > 20) pg.scrabbleUndo.shift()
-  const look = pickOne(looks, looks.find(l => l.name === pg.studio.lookName))
-  let changed = 0
-  for (const [key] of directionFields) {
-    if (pg.studio.locked?.[key]) continue
-    if (pg.studio[key] !== look[key]) changed++
-    pg.studio[key] = look[key]
+  const recipe = drawRecipe(pg.studio)
+  pg.studio.roles = recipe.roles
+  pg.studio.situation = recipe.situation
+  // With no prompt yet, Scrabble writes a starting point so a handful of images is enough.
+  if (!pg.prompt.trim()) {
+    const person = pg.refs.find(id => recipe.roles[id] === 'Identität')
+    pg.prompt = person ? `Fashion-Editorial: @Bild${pg.studio.referenceLabels?.[person] ?? 1} in einem neuen Outfit aus den anderen Bildern.` : 'Fashion-Editorial in einem neuen Outfit aus den Bildern.'
   }
-  pg.studio.lookName = look.name
+  pg.studio.lookName = recipe.look.name
+  for (const [key] of directionFields) if (!pg.studio.locked?.[key]) pg.studio[key] = recipe.look[key]
   redrawComposer()
-  toast(changed ? `Look „${look.name}“: ${changed} ${changed === 1 ? 'Feld' : 'Felder'} geändert. Gesperrte Felder bleiben.` : 'Alle Felder sind gesperrt; nichts gewürfelt.')
+  toast(`Remix: ${recipe.situation} · ${recipe.look.name}. Gesperrtes bleibt.`)
 }
 
 function undoScrabble() {
   const last = pg.scrabbleUndo?.pop()
   if (!last) return
-  for (const [key] of directionFields) { if (last[key] === undefined) delete pg.studio[key]; else pg.studio[key] = last[key] }
-  pg.studio.lookName = last.lookName
+  pg.studio.roles = last.roles
+  pg.prompt = last.prompt ?? pg.prompt
+  for (const key of ['situation', 'lookName', ...directionFields.map(([k]) => k)]) { if (last[key] === undefined) delete pg.studio[key]; else pg.studio[key] = last[key] }
   if (!pg.scrabbleUndo.length) pg.scrabbleUndo = null
   redrawComposer()
   $('#pg-prompt')?.focus()
 }
 
-/** The current look as removable chips; a chip's lock keeps the value through further throws. */
+/** The recipe's situation and camera look as chips; a lock keeps a value through further throws. */
 function lookChips() {
-  const set = directionFields.filter(([key]) => pg.studio[key])
+  const set = [['situation', 'Situation'], ...directionFields].filter(([key]) => pg.studio[key])
   if (!set.length) return null
-  return el('div', { class: 'pg-look', role: 'group', 'aria-label': 'Kamera-Look' },
+  return el('div', { class: 'pg-look', role: 'group', 'aria-label': 'Situation und Kamera-Look' },
     pg.studio.lookName && el('span', { class: 'meta' }, pg.studio.lookName),
     set.map(([key, label]) => {
       const locked = pg.studio.locked?.[key] === true
@@ -551,7 +589,7 @@ function lookChips() {
         el('button', { type: 'button', class: 'lock', 'aria-pressed': String(locked), 'aria-label': `${label} ${locked ? 'entsperren' : 'sperren'}`, title: locked ? 'Gesperrt: bleibt beim Würfeln' : 'Sperren: bleibt beim Würfeln',
           onclick: () => { pg.studio.locked = { ...pg.studio.locked, [key]: !locked }; redrawComposer() } }, icon(locked ? 'lock' : 'unlock')),
         el('span', {}, pg.studio[key]),
-        el('button', { type: 'button', class: 'rm', 'aria-label': `${label} entfernen`, onclick: () => { delete pg.studio[key]; if (pg.studio.locked) delete pg.studio.locked[key]; if (!directionFields.some(([k]) => pg.studio[k])) delete pg.studio.lookName; redrawComposer() } }, icon('close')))
+        el('button', { type: 'button', class: 'rm', 'aria-label': `${label} entfernen`, onclick: () => { delete pg.studio[key]; if (pg.studio.locked) delete pg.studio.locked[key]; if (![['situation'], ...directionFields].some(([k]) => pg.studio[k])) delete pg.studio.lookName; redrawComposer() } }, icon('close')))
     }))
 }
 
@@ -561,7 +599,7 @@ function advancedDirection(open) {
   return el('details', { class: 'pg-advanced', open },
     el('summary', {}, 'Kamera und Licht'),
     directionFieldsInPrompt(),
-    el('label', { class: 'pg-vary meta' }, vary, 'Bei 2× und 4× für jedes Bild einen anderen Look würfeln'))
+    el('label', { class: 'pg-vary meta' }, vary, 'Bei 2× und 4× für jedes weitere Bild einen eigenen Remix würfeln'))
 }
 
 async function pickReferences() {
@@ -617,10 +655,12 @@ function redrawComposer(showAdvanced = false) {
         } }, icon('close')))
       const role = el('select', { class: 'pg-role', 'aria-label': `Rolle von ${alias}`, title: roleHints[pg.studio.roles?.[id] ?? 'Allgemein'], onchange: () => {
         pg.studio.roles = { ...pg.studio.roles, [id]: role.value }
+        pg.studio.roleLocked = { ...pg.studio.roleLocked, [id]: true }
         role.title = roleHints[role.value]
         $('#pg-prompt')?.dispatchEvent(new Event('input'))
-      } }, referenceRoles.map(r => el('option', { value: r }, r)))
+      } }, referenceRoles.map(r => el('option', { value: r }, r === 'Kleidung' ? 'Ganzes Outfit' : r.replace('Kleidung: ', ''))))
       role.value = pg.studio.roles?.[id] ?? 'Allgemein'
+      if (pg.studio.roleLocked?.[id]) { role.classList.add('locked'); role.title = roleHints[role.value] + ' Von dir festgelegt: bleibt beim Würfeln.' }
       frame.append(item ? withFullscreen(item, thumb) : thumb, role,
         el('button', { type: 'button', class: 'btn sm pg-ref-mark', title: item?.title, 'aria-label': `${alias} in den Prompt einfügen${item ? ': ' + item.title : ''}`, onmousedown: e => { if (document.activeElement === prompt) e.preventDefault() }, onclick: () => insertReference(prompt, alias) }, alias))
     }).catch(error => toast(error.message, true))
@@ -660,7 +700,7 @@ function redrawComposer(showAdvanced = false) {
     el('div', { class: 'pg-bar' },
       el('span', { class: 'pill static', title: 'Verknüpfe Referenzen über ihre Bildmarke im Prompt.' }, icon(taskNow() === 'edit' ? 'edit' : 'text'), taskNow() === 'edit' ? 'Mit Bildreferenzen' : 'Text zu Bild'),
       ...modelPicker(selection, updateSelection),
-      el('button', { type: 'button', class: 'pill', title: 'Würfelt einen stimmigen Kamera-Look aus Winkel, Objektiv und Licht. Gesperrte Felder und Bildrollen bleiben.', onclick: rollScrabble }, icon('wand'), 'Scrabble'),
+      el('button', { type: 'button', class: 'pill', title: 'Mischt deine Bilder neu: eine Person, aus jedem anderen Bild genau ein Outfit-Teil, dazu Situation und passender Look. Was du selbst festgelegt hast, bleibt.', onclick: rollScrabble }, icon('wand'), 'Scrabble'),
       el('button', { type: 'button', class: 'icon', 'aria-label': 'Letzten Wurf rückgängig machen', title: 'Letzten Wurf rückgängig', disabled: !pg.scrabbleUndo?.length || null, onclick: undoScrabble }, icon('undo')),
       settings,
       el('div', { class: 'seg', role: 'group', 'aria-label': 'Anzahl je Modell' }, [1, 2, 4].map(n => el('button', { type: 'button', 'aria-pressed': String(pg.count === n), onclick: () => { pg.count = n; redrawComposer() } }, n + '×'))),

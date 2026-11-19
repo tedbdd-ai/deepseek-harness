@@ -175,3 +175,23 @@ test('Inline references resolve against the outgoing image order and missing ima
   assert.match(runs.at(-1).input.prompt, /Do not transfer the wearer’s face/)
   assert.deepEqual(runs.at(-1).images.map(file => file.referenceLabel), ['Image 1 (identity)', 'Image 2 (garment)'])
 })
+
+test('Remix direction gives each image one garment job and a situation per image', async () => {
+  const { compileDirection, referencePlan } = await import('./playground/direction.mjs')
+  const ids = ['a', 'b', 'c']
+  const studio = {
+    roles: { a: 'Identität', b: 'Kleidung: Jacke/Mantel', c: 'Material & Farbe' }, situation: 'Backstage im Club', angle: 'Seitenansicht',
+    remixes: [null, { roles: { b: 'Kleidung: Oberteil', c: 'Muster & Details' }, situation: 'Laufsteg', angle: 'Bodennähe' }],
+  }
+  const positions = referencePlan('Look mit @Bild1', studio, ids)
+  const first = compileDirection('Look mit @Bild1', { ...studio, remixes: undefined }, ids, positions, 'm', 'kie', 0, 2)
+  assert.match(first, /Situation: backstage in a techno club/)
+  assert.match(first, /Main subject: exactly one person, the person from Image 1/)
+  assert.match(first, /Combine the garment sources into ONE coherent new outfit/)
+  assert.match(first, /Reference 2: Take ONLY the outer layer/)
+  const second = compileDirection('Look mit @Bild1', studio, ids, positions, 'm', 'kie', 1, 2)
+  assert.match(second, /Situation: a fashion show runway/)
+  assert.match(second, /Camera angle: low angle/)
+  assert.match(second, /Reference 2: Take ONLY the top/)
+  assert.match(second, /Reference 3: Take ONLY the trims/)
+})
