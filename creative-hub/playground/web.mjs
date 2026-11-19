@@ -399,6 +399,33 @@ function directionFieldsInPrompt() {
     }))
 }
 
+const sizeNames = { '1:1': 'square_hd', '4:3': 'landscape_4_3', '16:9': 'landscape_16_9', '3:4': 'portrait_4_3', '9:16': 'portrait_16_9' }
+/** Maps a chosen format onto another model's field: `aspect_ratio` or fal's `image_size`. */
+function sharedFormat(key, value, fields) {
+  if (value === undefined || (key !== 'aspect_ratio' && key !== 'image_size')) return null
+  const ratio = key === 'aspect_ratio' ? value : Object.keys(sizeNames).find(r => sizeNames[r] === value)
+  const aspect = fields.find(f => f.key === 'aspect_ratio')
+  if (aspect && (aspect.type !== 'enum' || aspect.options.includes(String(ratio)))) return ['aspect_ratio', ratio]
+  const size = fields.find(f => f.key === 'image_size')
+  if (size && sizeNames[ratio] && size.options?.includes(sizeNames[ratio])) return ['image_size', sizeNames[ratio]]
+  return null
+}
+
+/** Hints where prompt and reference roles disagree; each may carry a one-click fix. */
+function promptRoleHints() {
+  const hints = []
+  const labelOf = id => pg.studio.referenceLabels?.[id]
+  const people = pg.refs.filter(id => ['Identität', 'Ausgangsbild'].includes(pg.studio.roles?.[id]))
+  if (people.length > 1) hints.push({ text: `${people.map(id => '@Bild' + labelOf(id)).join(' und ')} sind Personen: es erscheinen ${people.length} verschiedene Menschen.` })
+  for (const id of pg.refs) {
+    const mark = '@Bild' + labelOf(id)
+    const near = new RegExp(`(outfit|trägt|tr[aä]gt|wears?|wearing|kleid|kleidung|anzug|mantel|cape|catsuit|garment)[^@\n]{0,40}${mark}\\b|${mark}\\b[^@\n]{0,15}(outfit|kleidung|garment)`, 'i')
+    const role = pg.studio.roles?.[id] ?? 'Allgemein'
+    if (near.test(pg.prompt) && role !== 'Kleidung') hints.push({ text: `Der Prompt nennt ${mark} als Kleidung, die Rolle ist „${role}“.`, fix: ['Rolle auf Kleidung', () => { pg.studio.roles = { ...pg.studio.roles, [id]: 'Kleidung' }; redrawComposer() }] })
+  }
+  return hints
+}
+
 function quickModelSettings(model, variant, onChange) {
   if (!variant) return []
   const key = paramKey(model)
@@ -415,6 +442,16 @@ function quickModelSettings(model, variant, onChange) {
         if (!input.value) delete updated[field.key]
         else updated[field.key] = parameterValue(field, input)
         pg.modelParams[key] = updated
+        // In a comparison the format is shared, so every model frames the same picture.
+        for (const other of pg.models.filter(m => m.id !== model.id && pg.modelIds.includes(m.id))) {
+          const fields = other.variants[taskNow()]?.fields ?? []
+          const mapped = sharedFormat(field.key, updated[field.key], fields)
+          const target = { ...(pg.modelParams[other.id] ?? {}) }
+          for (const name of ['aspect_ratio', 'image_size']) if (field.key === 'aspect_ratio' || field.key === 'image_size') delete target[name]
+          if (mapped) target[mapped[0]] = mapped[1]
+          else if (field.key !== 'aspect_ratio' && field.key !== 'image_size' && fields.some(f => f.key === field.key && (f.type !== 'enum' || f.options.includes(String(updated[field.key]))))) target[field.key] = updated[field.key]
+          pg.modelParams[other.id] = target
+        }
         store('modelParams', pg.modelParams)
         onChange()
       })
@@ -564,7 +601,10 @@ function redrawComposer(showAdvanced = false) {
   const advancedOpen = showAdvanced || $('.pg-advanced', box)?.open
   syncReferenceLabels()
   const tray = el('div', { class: 'tray', 'aria-label': 'Bildreferenzen' })
-  const prompt = el('textarea', { id: 'pg-prompt', rows: 2, placeholder: pg.refs.length ? 'Was soll entstehen oder sich ändern?' : 'Was soll entstehen?', 'aria-label': 'Prompt', oninput: e => { pg.prompt = e.target.value } })
+  const prompt = el('textarea', { id: 'pg-prompt', rows: 2, placeholder: pg.refs.length ? 'Was soll entstehen oder sich ändern?' : 'Was soll entstehen?', 'aria-label': 'Prompt', oninput: e => { pg.prompt = e.target.value; drawHints() } })
+  const hintBox = el('div', { class: 'pg-hints', role: 'status', 'aria-live': 'polite' })
+  const drawHints = () => hintBox.replaceChildren(...promptRoleHints().map(h => el('div', { class: 'pg-hint' }, el('span', {}, h.text), h.fix && el('button', { type: 'button', class: 'btn sm', onclick: h.fix[1] }, h.fix[0]))))
+  drawHints()
   prompt.value = pg.prompt
   for (const id of pg.refs) {
     const alias = '@Bild' + pg.studio.referenceLabels[id]
@@ -578,6 +618,7 @@ function redrawComposer(showAdvanced = false) {
       const role = el('select', { class: 'pg-role', 'aria-label': `Rolle von ${alias}`, title: roleHints[pg.studio.roles?.[id] ?? 'Allgemein'], onchange: () => {
         pg.studio.roles = { ...pg.studio.roles, [id]: role.value }
         role.title = roleHints[role.value]
+        $('#pg-prompt')?.dispatchEvent(new Event('input'))
       } }, referenceRoles.map(r => el('option', { value: r }, r)))
       role.value = pg.studio.roles?.[id] ?? 'Allgemein'
       frame.append(item ? withFullscreen(item, thumb) : thumb, role,
@@ -615,7 +656,7 @@ function redrawComposer(showAdvanced = false) {
     el('div', { class: 'pg-prompt-panel' },
       el('div', { class: 'pg-input' }, prompt,
         el('button', { type: 'button', class: 'icon', 'aria-label': 'Referenz aus Sammlung oder Library anhängen', title: 'Referenz anhängen', onclick: pickReferences }, icon('clip'))),
-      lookChips(), modelFields, advancedDirection(advancedOpen)),
+      hintBox, lookChips(), modelFields, advancedDirection(advancedOpen)),
     el('div', { class: 'pg-bar' },
       el('span', { class: 'pill static', title: 'Verknüpfe Referenzen über ihre Bildmarke im Prompt.' }, icon(taskNow() === 'edit' ? 'edit' : 'text'), taskNow() === 'edit' ? 'Mit Bildreferenzen' : 'Text zu Bild'),
       ...modelPicker(selection, updateSelection),

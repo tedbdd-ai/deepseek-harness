@@ -173,5 +173,5 @@ test('Inline references resolve against the outgoing image order and missing ima
   assert.equal(done.results[0].status, 'done')
   assert.match(runs.at(-1).input.prompt, /^Die Person aus Image 1 im Outfit von Image 2\./)
   assert.match(runs.at(-1).input.prompt, /Do not transfer the wearer’s face/)
-  assert.deepEqual(runs.at(-1).images.map(file => file.referenceLabel), ['Image 1', 'Image 2'])
+  assert.deepEqual(runs.at(-1).images.map(file => file.referenceLabel), ['Image 1 (identity)', 'Image 2 (garment)'])
 })

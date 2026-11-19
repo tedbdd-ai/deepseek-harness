@@ -12,7 +12,7 @@
  *
  * Models live in the hub setting `playground:models`, runs (the last 40) in `playground:runs`.
  */
-import { compileDirection, referencePlan } from './direction.mjs'
+import { compileDirection, referencePlan, roleNames } from './direction.mjs'
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { readBody, responder } from '../http.mjs'
@@ -80,7 +80,8 @@ export function createPlayground(store, providers) {
   async function job(runId, index, model, variant, input, images, run) {
     const started = Date.now()
     try {
-      const files = images.map((item, i) => ({ ...item.file, referenceLabel: `Image ${i + 1}` }))
+      // Chat-style providers place this label right before each image (Fit-Checker: role next to the image, not only in a list).
+      const files = images.map((item, i) => { const role = roleNames[run.studio?.roles?.[run.referenceIds[i]]]; return { ...item.file, referenceLabel: `Image ${i + 1}${role ? ` (${role})` : ''}` } })
       const result = variant.catalog
         ? await providers.call(model.provider, 'generate', { model: variant.model, prompt: input.prompt, aspect: input.aspect_ratio ?? 'auto', references: files })
         : await providers.call(model.provider, 'runModel', { variant, input, images: files })

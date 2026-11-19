@@ -14,6 +14,9 @@ const roles = new Map(Object.entries({
   Pose: 'Use only body orientation, gesture, balance and gaze.',
 }))
 
+/** Short English names of the roles, used to label each attached image. */
+export const roleNames = { Ausgangsbild: 'image to edit', Identität: 'identity', Kleidung: 'garment', Stil: 'style', Komposition: 'composition', Ort: 'location', Licht: 'lighting', Pose: 'pose' }
+
 /** Validates the stable aliases and maps them to the outgoing attachment positions. */
 export function referencePlan(prompt, studio, ids) {
   const positions = new Map()
@@ -51,6 +54,10 @@ export function compileDirection(prompt, studio, ids, positions, model, provider
     if (typeof value === 'string' && value.trim()) lines.push(label + ': ' + (english.get(value.trim()) ?? value.trim().slice(0, 500)))
   }
   if (ids.length) {
+    // Models disagree most on who is in the picture; name the main subjects explicitly.
+    const people = ids.map((id, i) => [studio?.roles?.[id], i + 1]).filter(([role]) => role === 'Identität' || role === 'Ausgangsbild').map(([, n]) => n)
+    if (people.length === 1) lines.push(`Main subject: exactly one person, the person from Image ${people[0]}. Any other people are background only unless the request explicitly asks for them.`)
+    else if (people.length > 1) lines.push(`Main subjects: ${people.length} different people, one each from ${people.map(n => 'Image ' + n).join(', ')}. Keep every person distinct; never merge their faces.`)
     lines.push('Image numbers refer to the attached files in the order supplied. Follow the purpose given to each image in the request.')
     ids.forEach((id, i) => {
       const role = studio?.roles?.[id]
