@@ -161,3 +161,72 @@ test('Image fingerprint ignores metadata chunks but not pixels', () => {
   other[other.indexOf('IDAT') + 6] ^= 0xff
   assert.notEqual(imageFingerprint(other), imageFingerprint(png))
 })
+
+test('Kie imports sibling models with identical page titles from a family URL with a selected tab', async t => {
+  const { harness } = setup(t)
+  harness.mount(await import('./providers/kie/host.mjs'))
+  const ids = ['studio-fast-text-to-image', 'studio-pro-text-to-image', 'studio-pro-image-to-image']
+  t.mock.method(globalThis, 'fetch', async address => {
+    if (address.endsWith('/llms.txt')) return new Response(ids.map(id => `[Studio](https://docs.kie.ai/market/${id}.md)`).join('\n'))
+    const id = address.split('/').pop().replace('.md', '')
+    const image = id.endsWith('image-to-image') ? '\n                    image_urls:\n                      type: array\n                      items:\n                        type: string' : ''
+    return new Response('# Studio - Modell\n```yaml\n' + `paths:
+  /api/v1/jobs/createTask:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              properties:
+                model:
+                  default: ${id}
+                input:
+                  properties:
+                    prompt:
+                      type: string${image}` + '\n```')
+  })
+  const models = await harness.ctx.creativeProviders.call('kie', 'resolveModels', { url: 'https://kie.ai/studio?model=studio-fast-text-to-image' })
+  assert.deepEqual(models.map(m => m.id), ['kie:studio-fast', 'kie:studio-pro'])
+  assert.equal(models[1].variants.text.model, ids[1])
+  assert.equal(models[1].variants.edit.model, ids[2])
+})
+
+test('fal converts a saved fashion image to a downloadable GLB and a Library video', async t => {
+  const { harness, credentials } = setup(t)
+  harness.mount(await import('./providers/fal/host.mjs'), { pollMs: 1 })
+  await credentials.set('FAL_KEY', 'test-key')
+  const submissions = []
+  const queueRoot = 'https://queue.fal.run/'
+  const glb = Buffer.alloc(24)
+  glb.write('glTF')
+  glb.writeUInt32LE(2, 4)
+  glb.writeUInt32LE(glb.length, 8)
+  glb.writeUInt32LE(4, 12)
+  glb.write('JSON', 16)
+  glb.write('{}  ', 20)
+  const mp4 = Buffer.from([0, 0, 0, 16, 102, 116, 121, 112, 105, 115, 111, 109, 0, 0, 0, 0])
+
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    if (options.method === 'POST') {
+      const kind = url.endsWith('/trellis-2') ? 'mesh' : 'video'
+      submissions.push({ url, body: JSON.parse(options.body) })
+      return Response.json({ status_url: queueRoot + kind + '/status', response_url: queueRoot + kind + '/result' })
+    }
+    if (url.endsWith('/status')) return Response.json({ status: 'COMPLETED' })
+    if (url === queueRoot + 'mesh/result') return Response.json({ model_glb: { url: 'https://v3.fal.media/reference.glb' } })
+    if (url === queueRoot + 'video/result') return Response.json({ video: { url: 'https://v3.fal.media/reference.mp4' } })
+    return new Response(url.endsWith('.glb') ? glb : mp4)
+  })
+
+  const base = '/creativity-hub/api'
+  const person = await harness.json('POST', base + '/assets', { library: 'clips', title: 'Person', mediaType: 'image/png', media: png.toString('base64') }, 201)
+  for (const [kind, type, bytes] of [['mesh', 'model/gltf-binary', glb], ['video', 'video/mp4', mp4]]) {
+    const { assets: [item] } = await harness.json('POST', base + '/images/reference-media', { provider: 'fal', kind, assetId: person.id })
+    assert.equal(item.media_type, type)
+    assert.equal(item.library, 'generation')
+    assert.deepEqual((await harness.request('GET', base + '/media/' + item.id)).result, bytes)
+  }
+  assert.equal(submissions[0].body.image_url, 'data:image/png;base64,' + png.toString('base64'))
+  assert.match(submissions[1].url, /kling-video.*image-to-video$/)
+  assert.equal(submissions[1].body.duration, '5')
+})

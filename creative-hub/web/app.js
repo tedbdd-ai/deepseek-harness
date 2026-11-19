@@ -1,969 +1,472 @@
-import * as ui from './ui.js'
+/**
+ * Atelier client: Seitenleiste, Sammlung, Library, Projekte und Anbieter.
+ * Spricht nur mit der Hub-API unter /creativity-hub/api; Routen sind Hash-Routen (#/sammlung, #/projekt/<id> …).
+ */
+const API = '/creativity-hub/api'
+const $ = (selector, root = document) => root.querySelector(selector)
+const view = $('#view')
+const inspector = $('#inspector')
 
-const base = '/creativity-hub'
-const { element } = ui
-const $ = id => document.getElementById(id)
-let statusTimer
-const status = message => {
-  $('status').textContent = message
-  clearTimeout(statusTimer)
-  if (message) statusTimer = setTimeout(() => { $('status').textContent = '' }, 4000)
-}
-const fail = error => status(error.message)
-
-let ideas = []
-let apps = []
-let snapshots = []
-let idea = null
-let ideaTab = 'note'
-let routeVersion = 0
-let collection = 'clips'
-let editor = null
-let boardModule
-let notesTimer
-let saving = Promise.resolve()
-let calendarMonth = new Date()
-let kanbanShowDone = false
-let sidebarApps = null
-let editingApps = false
-let rowsView = false
-const references = new Map()
-const blockCleanups = []
-
-/** Kanban columns, in order; ids match `statuses` in store.mjs. */
-const statusList = [
-  { id: 'idee', title: 'Idee', color: '#8E8E93' },
-  { id: 'arbeit', title: 'In Arbeit', color: '#F59E0B' },
-  { id: 'review', title: 'Review', color: '#3B82F6' },
-  { id: 'fertig', title: 'Fertig', color: '#22C55E' },
-]
-const statusOf = id => statusList.find(item => item.id === id) ?? statusList[0]
-
-/** Sidebar apps: hub views that can be shown or hidden, like Native Note's "Apps" section. */
-const pageApps = [
-  { id: 'mymind', title: 'Mymind', route: '#/mymind', icon: 'M12 3l2.4 5.6L20 11l-5.6 2.4L12 19l-2.4-5.6L4 11l5.6-2.4z' },
-  { id: 'library', title: 'Library', route: '#/library', icon: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z' },
-  { id: 'boards', title: 'Excalidraw', route: '#/boards', icon: 'M4 20l4-1L19 8l-3-3L5 16zM14 7l3 3' },
-]
-
-async function api(path, method = 'GET', body) {
-  const response = await fetch(base + '/api/' + path, {
-    method,
-    ...(body && { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
-  })
-  const result = await response.json()
-  if (!response.ok) throw new Error(result.error || 'Anfrage fehlgeschlagen.')
-  return result
-}
-
-const snapshotOf = id => snapshots.find(item => item.id === id) ?? { id, title: id, color: '#8E8E93', apps: [] }
-const appOf = id => apps.find(app => app.id === id)
-const today = () => new Date().toLocaleDateString('sv-SE')
-const ago = iso => {
-  if (!iso) return ''
-  const minutes = Math.round((Date.now() - Date.parse(iso)) / 60000)
-  if (minutes < 1) return 'gerade eben'
-  if (minutes < 60) return `vor ${minutes} Min.`
-  if (minutes < 1440) return `vor ${Math.round(minutes / 60)} Std.`
-  return new Date(iso).toLocaleDateString('de-DE', { day: 'numeric', month: 'short' })
-}
-const dayLabel = day => new Date(day + 'T12:00').toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-const shortDay = day => new Date(day + 'T12:00').toLocaleDateString('de-DE', { day: 'numeric', month: 'short' })
-
-function withIcons(root) {
-  for (const node of root.querySelectorAll('[data-icon]')) if (!node.querySelector('svg')) node.prepend(ui.icon(node.dataset.icon))
-}
-
-function dot(color) {
-  const node = element('i', '', 'dot')
-  node.style.background = color
+/** Builds an element: el('div', { class: 'x', onclick }, child, 'text'). */
+function el(tag, attrs = {}, ...children) {
+  const node = document.createElement(tag)
+  for (const [key, value] of Object.entries(attrs)) {
+    if (value === undefined || value === null || value === false) continue
+    if (key.startsWith('on')) node.addEventListener(key.slice(2), value)
+    else if (key === 'html') node.innerHTML = value
+    else node.setAttribute(key, value === true ? '' : value)
+  }
+  for (const child of children.flat()) if (child !== null && child !== undefined && child !== false) node.append(child)
   return node
 }
+const svg = paths => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('aria-hidden', 'true'); s.innerHTML = paths; return s }
+const icons = {
+  link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  trash: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
+  expand: '<path d="M8 3H3v5m13-5h5v5m0 8v5h-5M3 16v5h5"/>',
+  close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  down: '<path d="M12 15V3"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>',
+  open: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+  cut: '<circle cx="6" cy="6" r="3"/><path d="M8.12 8.12 12 12"/><path d="M20 4 8.12 15.88"/><circle cx="6" cy="18" r="3"/><path d="M14.8 14.8 20 20"/>',
+  inbox: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+  image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/>',
+  wand: '<path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72"/><path d="m14 7 3 3"/>',
+  chev: '<path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/>',
+}
+const icon = name => svg(icons[name])
 
-function sideLink(item) {
-  const link = element('a', '', 'item')
-  link.href = '#/idea/' + item.id
-  link.append(dot(snapshotOf(item.snapshot).color), element('span', item.title, 'label'))
-  if (idea?.id === item.id) link.setAttribute('aria-current', 'page')
-  return link
+async function api(path, method = 'GET', body) {
+  const response = await fetch(API + path, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined })
+  const text = await response.text()
+  const data = text ? JSON.parse(text) : null
+  if (!response.ok) throw new Error((data && (data.error || data.message)) || `Der Hub antwortet mit ${response.status}.`)
+  return data
 }
 
-function drawSidebar(route) {
-  for (const link of document.querySelectorAll('#sidebar [data-route]')) {
-    if (link.dataset.route === route) link.setAttribute('aria-current', 'page')
-    else link.removeAttribute('aria-current')
+let toastTimer
+function toast(message, error = false) {
+  const box = $('#toast')
+  box.textContent = message
+  box.className = 'toast' + (error ? ' err' : '')
+  box.hidden = false
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => { box.hidden = true }, error ? 6000 : 3000)
+}
+
+/* Daten */
+const palette = ['#FF6B57', '#BF5AF2', '#0A84FF', '#30D158', '#FF9F0A', '#64D2FF', '#FF375F']
+const colorOf = id => palette[[...id].reduce((sum, c) => sum + c.charCodeAt(0), 0) % palette.length]
+const state = { projects: [], snapshots: [], members: new Map(), selected: null, filter: 'alle', query: '' }
+
+async function loadProjects() {
+  state.projects = await api('/projects')
+  state.members = new Map()
+  const lists = await Promise.all(state.projects.map(p => api('/assets?project=' + p.id).then(items => [p.id, items])))
+  for (const [projectId, items] of lists) for (const item of items) {
+    if (!state.members.has(item.id)) state.members.set(item.id, new Set())
+    state.members.get(item.id).add(projectId)
   }
-  const pinned = ideas.filter(item => item.pinned)
-  $('pinned').replaceChildren(...pinned.map(sideLink))
-  $('pinned-group').hidden = !pinned.length
-  const shown = sidebarApps ?? pageApps.map(app => app.id)
-  $('apps-edit').setAttribute('aria-pressed', String(editingApps))
-  $('page-apps').replaceChildren(...pageApps.filter(app => editingApps || shown.includes(app.id)).map(app => {
-    const on = shown.includes(app.id)
-    const row = element('div', '', 'app-row' + (on ? '' : ' off'))
-    const link = element('a', '', 'item')
-    link.href = app.route
-    link.append(ui.icon(app.icon), element('span', app.title, 'label'))
-    if (route === app.id) link.setAttribute('aria-current', 'page')
-    row.append(link)
-    if (editingApps) row.append(ui.iconButton(on ? '−' : '+', (on ? 'Ausblenden: ' : 'Einblenden: ') + app.title, () => setSidebarApps(on ? shown.filter(id => id !== app.id) : [...shown, app.id])))
-    return row
+  renderProjects()
+}
+
+function renderProjects() {
+  const active = location.hash.match(/^#\/projekt\/([\w-]+)/)?.[1]
+  $('#projects').replaceChildren(...state.projects.map(p => el('a', {
+    class: 'navi' + (p.id === active ? ' on' : ''), href: '#/projekt/' + p.id, title: p.title, 'aria-current': p.id === active ? 'page' : null,
+  }, el('span', { class: 'pd', style: `background:${colorOf(p.id)}` }), el('span', { class: 't' }, p.title))))
+}
+
+async function refreshCounts() {
+  const [clips, gens] = await Promise.all([api('/assets?library=clips'), api('/assets?library=generation')])
+  $('#count-clips').textContent = clips.length || ''
+  $('#count-generation').textContent = gens.length || ''
+}
+
+const mediaUrl = item => item.media_type ? `${API}/media/${item.id}` : (item.preview || '')
+const kindOf = item => item.media_type?.startsWith('video/') ? 'videos' : item.media_type?.startsWith('image/') || item.preview ? 'bilder' : item.source ? 'webseiten' : 'notizen'
+const kindLabel = { bilder: 'Bild', videos: 'Video', webseiten: 'Webseite', notizen: 'Notiz' }
+const domainOf = url => { try { return new URL(url).hostname.replace(/^www\./, '') } catch { return '' } }
+const sourceDot = domain => /instagram/.test(domain) ? '#E1306C' : /pinterest/.test(domain) ? '#E60023' : /youtube/.test(domain) ? '#FF3B30' : /(^|\.)x\.com|twitter/.test(domain) ? '#F2F2F0' : '#0A84FF'
+const dateLabel = iso => {
+  const d = new Date(iso), today = new Date(); today.setHours(0, 0, 0, 0)
+  const diff = Math.round((today - new Date(d.getFullYear(), d.getMonth(), d.getDate())) / 864e5)
+  return diff === 0 ? 'Heute' : diff === 1 ? 'Gestern' : d.toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: today.getFullYear() === d.getFullYear() ? undefined : 'numeric' })
+}
+const timeLabel = iso => new Date(iso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+/** Reads the lines the hub writes into a generation's description. */
+function parseGeneration(item) {
+  const get = key => (item.description || '').split('\n').find(line => line.startsWith(key + ': '))?.slice(key.length + 2) ?? ''
+  const [model, provider] = get('Modell').split(' über ')
+  return { prompt: get('Prompt') || item.title, model: model || 'Unbekanntes Modell', provider: provider || '', refs: get('Referenzen') }
+}
+
+/* Gemeinsame Bausteine */
+function media(item, { full = false } = {}) {
+  const url = mediaUrl(item)
+  if (item.media_type?.startsWith('video/')) return el('video', { src: url, muted: true, loop: true, playsinline: true, preload: 'metadata', controls: full || null, onmouseenter: e => e.target.play(), onmouseleave: e => e.target.pause() })
+  if (item.media_type === 'model/gltf-binary') return el('div', { class: 'link-card' }, el('span', { class: 'meta' }, 'GLB · 3D-Modell'), el('b', {}, item.title))
+  if (url) return el('img', { src: url, alt: item.title, loading: 'lazy', decoding: 'async' })
+  if (item.source) return el('div', { class: 'link-card' }, el('span', { class: 'meta' }, domainOf(item.source)), el('b', {}, item.title))
+  return el('div', { class: 'note-card' }, item.description || item.title)
+}
+
+function openImage(url, title) {
+  const dialog = el('dialog', { class: 'image-viewer', 'aria-label': title },
+    el('button', { type: 'button', class: 'icon image-viewer-close', 'aria-label': 'Vollbild schließen', title: 'Schließen (Esc)', autofocus: true, onclick: () => dialog.close() }, icon('close')),
+    el('img', { src: url, alt: title }))
+  dialog.addEventListener('click', e => { if (e.target === dialog) dialog.close() })
+  dialog.addEventListener('close', () => dialog.remove(), { once: true })
+  document.body.append(dialog)
+  dialog.showModal()
+}
+
+function fullscreenButton(url, title) {
+  return el('button', { type: 'button', class: 'icon image-expand', 'aria-label': `${title} im Vollbild öffnen`, title: 'Vollbild', onclick: () => openImage(url, title) }, icon('expand'))
+}
+
+function withFullscreen(item, content) {
+  const url = mediaUrl(item)
+  if (!url || (item.media_type && !item.media_type.startsWith('image/'))) return content
+  return el('div', { class: 'image-frame' }, content, fullscreenButton(url, item.title))
+}
+
+function tile(item, onOpen, { caption = true } = {}) {
+  const kind = kindOf(item)
+  const domain = domainOf(item.source)
+  return withFullscreen(item, el('button', { type: 'button', class: 'tile' + (state.selected === item.id ? ' sel' : ''), 'data-id': item.id, 'aria-label': item.title, onclick: () => onOpen(item) },
+    el('span', { class: 'pic' }, media(item), (kind === 'videos' || kind === 'webseiten') && mediaUrl(item) ? el('span', { class: 'kind' }, kindLabel[kind]) : null),
+    caption ? el('span', { class: 'title' }, item.title) : null,
+    caption && domain ? el('span', { class: 'src' }, el('span', { class: 'dot', style: `background:${sourceDot(domain)}` }), domain) : null))
+}
+
+function chev() { const s = svg(icons.chev); s.classList.add('chev'); return s }
+
+function projectChips(item) {
+  const box = el('div', { class: 'chips' })
+  const draw = () => box.replaceChildren(...state.projects.map(p => {
+    const on = state.members.get(item.id)?.has(p.id) ?? false
+    return el('button', { type: 'button', class: 'chip', 'aria-pressed': String(on), onclick: async () => {
+      try {
+        await api(on ? '/unassign' : '/assign', 'POST', { id: item.id, projectId: p.id })
+        if (!state.members.has(item.id)) state.members.set(item.id, new Set())
+        state.members.get(item.id)[on ? 'delete' : 'add'](p.id)
+        draw()
+      } catch (error) { toast(error.message, true) }
+    } }, el('span', { class: 'dot', style: `background:${colorOf(p.id)}` }), p.title, on ? icon('check') : null)
   }))
+  draw()
+  return box
 }
 
-async function setSidebarApps(next) {
-  sidebarApps = next
-  drawSidebar(currentRoute())
-  try { await api('sidebar', 'PUT', { apps: next }) } catch (error) { fail(error) }
+function confirmDialog(title, text, actionLabel) {
+  return new Promise(resolve => {
+    const dialog = el('dialog', {}, el('form', { method: 'dialog' },
+      el('h2', {}, title), el('p', { style: 'margin:0;color:var(--c-ink-2)' }, text),
+      el('div', { class: 'row' }, el('button', { class: 'btn ghost', value: 'no' }, 'Abbrechen'), el('button', { class: 'btn danger', value: 'yes' }, actionLabel))))
+    dialog.addEventListener('close', () => { resolve(dialog.returnValue === 'yes'); dialog.remove() })
+    document.body.append(dialog)
+    dialog.showModal()
+  })
 }
 
-const currentRoute = () => document.querySelector('#sidebar [aria-current="page"]')?.dataset.route ?? ''
-
-const views = ['view-home', 'view-ideas', 'view-kanban', 'view-calendar', 'view-journal', 'view-feed', 'view-todo', 'view-boards', 'view-idea', 'view-collection', 'view-providers']
-function show(view) {
-  for (const id of views) $(id).hidden = id !== view
+function closeInspector() {
+  state.selected = null
+  inspector.hidden = true
+  inspector.replaceChildren()
+  document.querySelectorAll('.tile.sel').forEach(t => t.classList.remove('sel'))
 }
 
-/** Saves fields of any idea from its summary, keeping `ideas` current. */
-async function patchIdea(item, changes) {
-  const saved = await api('projects/' + item.id, 'PUT', { revision: item.revision, ...changes })
-  ideas = ideas.map(other => other.id === saved.id ? { ...other, ...saved } : other)
-  return saved
+function openInspector(item, body) {
+  state.selected = item.id
+  document.querySelectorAll('.tile').forEach(t => t.classList.toggle('sel', t.dataset.id === item.id))
+  inspector.replaceChildren(el('div', { style: 'position:relative;display:flex;flex-direction:column;gap:16px;flex:1' },
+    el('button', { type: 'button', class: 'icon x', 'aria-label': 'Details schließen', onclick: closeInspector }, icon('close')), ...body))
+  inspector.hidden = false
 }
 
-function ideaRow(item) {
-  const row = element('a', '', 'idea-row')
-  row.href = '#/idea/' + item.id
-  const snapshot = snapshotOf(item.snapshot)
-  const state = statusOf(item.status)
-  const meta = element('span', '', 'meta')
-  meta.append(dot(snapshot.color), element('span', snapshot.title))
-  const pill = element('span', state.title, 'pill')
-  pill.prepend(dot(state.color))
-  row.append(element('strong', item.title), meta, pill, element('span', item.due ? shortDay(item.due) : '', 'muted'), element('span', ago(item.updated_at), 'muted'))
-  return row
+async function removeAsset(item, after) {
+  if (!await confirmDialog('Löschen?', `„${item.title}“ wird aus dem Atelier gelöscht. Das lässt sich nicht rückgängig machen.`, 'Löschen')) return
+  try {
+    await api('/assets/' + item.id, 'DELETE')
+    closeInspector(); toast('Gelöscht.'); refreshCounts(); after()
+  } catch (error) { toast(error.message, true) }
 }
 
-// Home
-async function openHome(version) {
-  const [entries, journal] = await Promise.all([api('assets'), api('journal')])
-  if (version !== routeVersion) return
-  show('view-home')
-  drawSidebar('home')
-  const hour = new Date().getHours()
-  $('home-greeting').textContent = hour < 11 ? 'Guten Morgen' : hour < 18 ? 'Hallo' : 'Guten Abend'
-  $('home-recent').replaceChildren(...(ideas.length ? ideas.slice(0, 6).map(ideaRow) : [element('p', 'Noch keine Ideen. Leg mit „Neue Idee“ die erste an.', 'empty')]))
-  $('home-journal').value = journal.find(entry => entry.day === today())?.text ?? ''
-  $('home-journal').oninput = debounce(() => api('journal/' + today(), 'PUT', { text: $('home-journal').value }).catch(fail))
-  const recent = entries.filter(asset => asset.media_type || asset.preview).slice(0, 12)
-  $('home-assets').replaceChildren(...(recent.length ? recent.map(asset => ui.assetTile(asset)) : [element('p', 'Noch nichts gesammelt.', 'empty')]))
+function loading(columns = 4) {
+  return el('div', { class: 'masonry', 'aria-busy': 'true', 'aria-label': 'Lädt' }, Array.from({ length: columns * 2 }, (_, i) => el('div', { class: 'skel', style: `height:${[220, 160, 280, 190][i % 4]}px` })))
 }
 
-function debounce(fn, ms = 700) {
-  let timer
-  return () => { clearTimeout(timer); timer = setTimeout(fn, ms) }
+function emptyState(iconName, title, text, action) {
+  return el('div', { class: 'state' }, icon(iconName), el('h2', {}, title), el('p', {}, text), action)
 }
 
-// All ideas
-function drawIdeas() {
-  const terms = $('idea-search').value.toLocaleLowerCase().split(/\s+/).filter(Boolean)
-  const visible = ideas.filter(item => terms.every(term => (item.title + ' ' + item.notes).toLocaleLowerCase().includes(term)))
-  $('idea-grid').replaceChildren(...(visible.length ? visible.map(ideaRow) : [element('p', ideas.length ? 'Keine passende Idee.' : 'Noch keine Ideen. Leg mit „Neue Idee“ die erste an.', 'empty')]))
+function errorState(error, retry) {
+  return el('div', { class: 'state' }, el('h2', {}, 'Das hat nicht geklappt'), el('p', {}, error.message), el('button', { class: 'btn', onclick: retry }, 'Erneut versuchen'))
 }
 
-// Kanban
-function kanbanCard(item) {
-  const card = element('a', '', 'kanban-card')
-  card.href = '#/idea/' + item.id
-  card.draggable = true
-  card.ondragstart = event => { event.dataTransfer.setData('text/plain', item.id); card.classList.add('dragging') }
-  card.ondragend = () => card.classList.remove('dragging')
-  const meta = element('span', '', 'meta')
-  const snapshot = snapshotOf(item.snapshot)
-  meta.append(dot(snapshot.color), element('span', snapshot.title))
-  if (item.due) meta.append(element('span', '· ' + shortDay(item.due)))
-  card.append(element('strong', item.title), meta)
-  return card
+function header(title, sub, ...tools) {
+  return [el('header', { class: 'head' }, el('h1', {}, title), ...tools.filter(t => !t?.classList?.contains('tools')), tools.find(t => t?.classList?.contains('tools'))), sub ? el('div', { class: 'sub' }, sub) : null].filter(Boolean)
 }
 
-function drawKanban() {
-  const format = $('kanban-format').value
-  const terms = $('kanban-search').value.toLocaleLowerCase().split(/\s+/).filter(Boolean)
-  const visible = ideas.filter(item => (!format || item.snapshot === format) && terms.every(term => item.title.toLocaleLowerCase().includes(term)))
-  $('kanban-sub').textContent = `Von der Idee bis fertig. Zieh eine Karte, um ihren Status zu ändern · ${visible.length}`
-  const pinned = visible.filter(item => item.pinned)
-  $('kanban-pinned').replaceChildren(...pinned.map(item => {
-    const card = kanbanCard(item)
-    card.append(element('span', '📌', 'pin-mark'))
-    return card
-  }))
-  $('kanban-pinned').hidden = !pinned.length
-  $('kanban-board').replaceChildren(...statusList.map(state => {
-    const column = element('section', '', 'kanban-column')
-    column.style.setProperty('--tone', state.color)
-    const items = visible.filter(item => item.status === state.id)
-    const head = element('header')
-    head.append(dot(state.color), element('h2', state.title), element('span', String(items.length), 'muted'))
-    const list = element('div', '', 'kanban-list')
-    const collapsed = state.id === 'fertig' && !kanbanShowDone && items.length > 0
-    if (collapsed) {
-      const more = element('button', `Alle ${items.length} fertigen anzeigen ▾`, 'ghost')
-      more.type = 'button'
-      more.onclick = () => { kanbanShowDone = true; drawKanban() }
-      list.append(more)
-    } else list.append(...(items.length ? items.map(kanbanCard) : [element('p', 'Nichts hier', 'empty')]))
-    column.ondragover = event => { event.preventDefault(); column.classList.add('drop') }
-    column.ondragleave = () => column.classList.remove('drop')
-    column.ondrop = async event => {
-      event.preventDefault()
-      column.classList.remove('drop')
-      const item = ideas.find(other => other.id === event.dataTransfer.getData('text/plain'))
-      if (!item || item.status === state.id) return
-      try { await patchIdea(item, { status: state.id }); drawKanban() } catch (error) { fail(error) }
+/* Sammlung */
+const filters = [['alle', 'Alle'], ['bilder', 'Bilder'], ['videos', 'Videos'], ['webseiten', 'Webseiten'], ['notizen', 'Notizen']]
+
+async function renderSammlung() {
+  const seg = el('div', { class: 'seg', role: 'group', 'aria-label': 'Art' }, filters.map(([key, label]) => el('button', { type: 'button', 'aria-pressed': String(state.filter === key), onclick: () => { state.filter = key; renderSammlung() } }, label)))
+  const tools = el('div', { class: 'tools' }, el('button', { type: 'button', class: 'btn sm', onclick: addLinkDialog }, icon('link'), 'Link einfügen'))
+  const body = el('div', { class: 'scroll' }, loading())
+  view.replaceChildren(...header('Sammlung', null, seg, tools), body)
+  try {
+    const all = await api('/assets?library=clips&q=' + encodeURIComponent(state.query))
+    const items = all.filter(item => state.filter === 'alle' || kindOf(item) === state.filter)
+    if (!all.length) {
+      body.replaceChildren(state.query
+        ? emptyState('inbox', 'Nichts gefunden', `Zu „${state.query}“ gibt es in der Sammlung nichts.`, el('button', { class: 'btn', onclick: clearSearch }, 'Suche löschen'))
+        : emptyState('inbox', 'Noch nichts gesammelt', 'Mit dem Clipper in Safari sicherst du Bilder, Reels und ganze Seiten mit einem Klick hierher. Du kannst auch Dateien hier hineinziehen.', el('button', { class: 'btn primary', onclick: addLinkDialog }, 'Link einfügen')))
+      return
     }
-    column.append(head, list)
-    return column
-  }))
-}
-
-function openKanban() {
-  show('view-kanban')
-  drawSidebar('kanban')
-  const selected = $('kanban-format').value
-  $('kanban-format').replaceChildren(new Option(`Alle Formate (${ideas.length})`, ''), ...snapshots.map(snapshot => new Option(`${snapshot.title} (${ideas.filter(item => item.snapshot === snapshot.id).length})`, snapshot.id)))
-  $('kanban-format').value = selected
-  drawKanban()
-}
-
-// Calendar
-function drawCalendar() {
-  const year = calendarMonth.getFullYear()
-  const month = calendarMonth.getMonth()
-  $('calendar-title').textContent = calendarMonth.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' })
-  const first = new Date(year, month, 1)
-  const offset = (first.getDay() + 6) % 7
-  const days = new Date(year, month + 1, 0).getDate()
-  const cells = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map(name => element('span', name, 'weekday'))
-  for (let index = 0; index < offset; index++) cells.push(element('div', '', 'day blank'))
-  for (let day = 1; day <= days; day++) {
-    const key = new Date(year, month, day).toLocaleDateString('sv-SE')
-    const cell = element('div', '', 'day' + (key === today() ? ' today' : ''))
-    cell.append(element('span', String(day), 'number'))
-    for (const item of ideas.filter(other => other.due === key)) {
-      const link = element('a', item.title, 'event')
-      link.href = '#/idea/' + item.id
-      link.style.setProperty('--tone', statusOf(item.status).color)
-      cell.append(link)
+    if (!items.length) {
+      body.replaceChildren(emptyState('inbox', `Keine ${filters.find(f => f[0] === state.filter)[1]}`, 'In der Sammlung gibt es davon gerade nichts.', el('button', { class: 'btn', onclick: () => { state.filter = 'alle'; renderSammlung() } }, 'Alle zeigen')))
+      return
     }
-    cells.push(cell)
+    body.replaceChildren(el('div', { class: 'masonry' }, items.map(item => tile(item, openClip))))
+  } catch (error) { body.replaceChildren(errorState(error, renderSammlung)) }
+}
+
+function openClip(item) {
+  const domain = domainOf(item.source)
+  openInspector(item, [
+    withFullscreen(item, el('div', { class: 'hero' }, media(item, { full: true }))),
+    el('div', {}, el('h2', {}, item.title), el('div', { class: 'meta', style: 'margin-top:4px' }, [domain, dateLabel(item.created_at) + ', ' + timeLabel(item.created_at)].filter(Boolean).join(' · '))),
+    item.description && item.description !== item.title ? el('div', { class: 'field' }, el('span', {}, 'Notiz'), el('div', { class: 'prompt' }, item.description)) : null,
+    el('div', { class: 'field' }, el('span', {}, 'Projekte'), state.projects.length ? projectChips(item) : el('span', { class: 'meta' }, 'Lege links ein Projekt an, um Dinge zuzuordnen.')),
+    el('div', { class: 'actions' },
+      item.media_type?.startsWith('image/') || item.preview ? el('a', { class: 'btn primary', href: '#/playground?ref=' + item.id }, 'Als Referenz im Playground') : null,
+      item.source ? el('a', { class: 'btn', href: item.source, target: '_blank', rel: 'noopener noreferrer' }, icon('open'), 'Original öffnen') : null,
+      el('div', { class: 'row' },
+        item.media_type ? el('a', { class: 'btn', href: mediaUrl(item), download: item.title }, icon('down'), 'Herunterladen') : null,
+        el('button', { type: 'button', class: 'btn danger', onclick: () => removeAsset(item, route) }, icon('trash'), 'Löschen'))),
+  ])
+}
+
+function addLinkDialog() {
+  const url = el('input', { class: 'text-in', type: 'url', required: true, placeholder: 'https://…', autocomplete: 'off' })
+  const title = el('input', { class: 'text-in', type: 'text', placeholder: 'Titel (sonst die Adresse)', autocomplete: 'off' })
+  const dialog = el('dialog', {}, el('form', { method: 'dialog' },
+    el('h2', {}, 'Link sichern'),
+    el('label', { class: 'field' }, el('span', {}, 'Adresse'), url),
+    el('label', { class: 'field' }, el('span', {}, 'Titel'), title),
+    el('div', { class: 'row' }, el('button', { class: 'btn ghost', value: 'no', formnovalidate: true }, 'Abbrechen'), el('button', { class: 'btn primary', value: 'yes' }, 'Sichern'))))
+  dialog.addEventListener('close', async () => {
+    if (dialog.returnValue === 'yes' && url.value) {
+      try {
+        await api('/assets', 'POST', { library: 'clips', title: title.value.trim() || domainOf(url.value) || url.value, source: url.value })
+        toast('In der Sammlung.'); refreshCounts(); if (currentRoute() === 'sammlung') renderSammlung()
+      } catch (error) { toast(error.message, true) }
+    }
+    dialog.remove()
+  })
+  document.body.append(dialog)
+  dialog.showModal()
+}
+
+/* Dateien hineinziehen */
+let dragDepth = 0
+const dropHint = el('div', { class: 'drop', hidden: true }, el('span', {}, 'Loslassen, um in die Sammlung zu legen'))
+document.body.append(dropHint)
+const hasFiles = event => [...(event.dataTransfer?.types ?? [])].includes('Files')
+addEventListener('dragenter', e => { if (hasFiles(e)) { dragDepth++; dropHint.hidden = false } })
+addEventListener('dragleave', e => { if (hasFiles(e) && --dragDepth <= 0) { dragDepth = 0; dropHint.hidden = true } })
+addEventListener('dragover', e => { if (hasFiles(e)) e.preventDefault() })
+addEventListener('drop', async e => {
+  if (!hasFiles(e)) return
+  e.preventDefault(); dragDepth = 0; dropHint.hidden = true
+  const files = [...e.dataTransfer.files].filter(f => /^(image|video)\//.test(f.type))
+  if (!files.length) return toast('Nur Bilder und Videos lassen sich hineinziehen.', true)
+  const projectId = location.hash.match(/^#\/projekt\/([\w-]+)/)?.[1]
+  let saved = 0
+  for (const file of files) {
+    if (file.size > 12 * 1024 * 1024) { toast(`„${file.name}“ ist größer als 12 MB.`, true); continue }
+    const media = await new Promise(resolve => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.readAsDataURL(file) })
+    try { await api('/assets', 'POST', { library: 'clips', title: file.name.replace(/\.[^.]+$/, ''), media, mediaType: file.type, projectId }); saved++ } catch (error) { toast(error.message, true) }
   }
-  $('calendar-grid').replaceChildren(...cells)
+  if (saved) { toast(saved === 1 ? 'Gesichert.' : `${saved} Dateien gesichert.`); refreshCounts(); if (projectId) await loadProjects(); route() }
+})
+
+function isFashionReference(item) {
+  return item.library === 'generation' && item.media_type?.startsWith('image/') &&
+    /^Fashion-Referenz(?:$| · )/.test(item.title)
 }
 
-// Journal
-async function openJournal(version) {
-  const entries = await api('journal')
-  if (version !== routeVersion) return
-  show('view-journal')
-  drawSidebar('journal')
-  const days = entries.some(entry => entry.day === today()) ? entries : [{ day: today(), text: '' }, ...entries]
-  $('journal-list').replaceChildren(...days.map(entry => {
-    const section = element('section', '', 'journal-entry')
-    const area = element('textarea', '', 'journal-text')
-    area.value = entry.text
-    area.rows = entry.day === today() ? 8 : Math.min(12, Math.max(3, entry.text.split('\n').length + 1))
-    area.placeholder = 'Was beschäftigt dich heute?'
-    area.setAttribute('aria-label', 'Journal ' + dayLabel(entry.day))
-    area.oninput = debounce(() => api('journal/' + entry.day, 'PUT', { text: area.value }).catch(fail))
-    section.append(element('h2', (entry.day === today() ? 'Heute · ' : '') + dayLabel(entry.day)), area)
-    return section
-  }))
-}
-
-// Feed
-const feedKinds = { idea: ['Idee', 'M4 6h16M4 12h16M4 18h16'], asset: ['Gesammelt', 'M12 3l2.4 5.6L20 11l-5.6 2.4L12 19l-2.4-5.6L4 11l5.6-2.4z'], journal: ['Journal', 'M6 3h11a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H6zM9 3v18'] }
-async function openFeed(version) {
-  const entries = await api('feed')
-  if (version !== routeVersion) return
-  show('view-feed')
-  drawSidebar('feed')
-  $('feed-list').replaceChildren(...(entries.length ? entries.map(entry => {
-    const item = element('li', '', 'feed-item')
-    const [label, path] = feedKinds[entry.kind] ?? ['', 'M12 5v14']
-    const body = element('div')
-    const head = element(entry.kind === 'idea' ? 'a' : entry.kind === 'journal' ? 'a' : 'span', '', 'feed-title')
-    if (entry.kind === 'idea') head.href = '#/idea/' + entry.id
-    if (entry.kind === 'journal') head.href = '#/journal'
-    head.textContent = entry.kind === 'journal' ? 'Journal · ' + dayLabel(entry.title) : entry.title
-    const detail = entry.kind === 'idea' ? statusOf(entry.detail).title : entry.kind === 'asset' ? (entry.detail === 'clips' ? 'in Mymind gesichert' : 'in der Library') : entry.detail
-    body.append(head, element('p', detail, 'muted'))
-    item.append(ui.icon(path), element('span', label, 'feed-kind'), body, element('time', ago(entry.at), 'muted'))
-    return item
-  }) : [element('li', 'Noch nichts passiert.', 'empty')]))
-}
-
-// Todo
-async function openTodo(version) {
-  const data = await api('todo')
-  if (version !== routeVersion) return
-  show('view-todo')
-  drawSidebar('todo')
-  let items = Array.isArray(data.items) ? data.items : []
-  const save = () => api('todo', 'PUT', { items }).catch(fail)
+/* Library */
+async function renderLibrary() {
+  const typeSel = el('select', { 'aria-label': 'Inhalt der Library' },
+    el('option', { value: '' }, 'Alle Medien'), el('option', { value: 'fashion' }, 'Fashion-Referenzen'))
+  const modelSel = el('select', { 'aria-label': 'Modell' }, el('option', { value: '' }, 'Alle Modelle'))
+  const projectSel = el('select', { 'aria-label': 'Projekt' }, el('option', { value: '' }, 'Alle Projekte'), state.projects.map(p => el('option', { value: p.id }, p.title)))
+  const tools = el('div', { class: 'tools library-filters' }, el('label', { class: 'pill' }, typeSel, chev()), el('label', { class: 'pill' }, modelSel, chev()), el('label', { class: 'pill' }, projectSel, chev()))
+  const body = el('div', { class: 'scroll' }, loading(5))
+  view.replaceChildren(...header('Library', 'Alles, was du generiert hast', tools), body)
+  let all
+  try { all = await api('/assets?library=generation&q=' + encodeURIComponent(state.query)) } catch (error) { body.replaceChildren(errorState(error, renderLibrary)); return }
+  const models = [...new Set(all.map(item => parseGeneration(item).model))].sort()
+  modelSel.append(...models.map(m => el('option', { value: m }, m)))
   const draw = () => {
-    const list = element('ul', '', 'checklist')
-    list.append(...items.map((entry, index) => {
-      const li = element('li', '', entry.done ? 'done' : '')
-      const label = element('label')
-      const box = element('input')
-      box.type = 'checkbox'
-      box.checked = entry.done
-      box.onchange = () => { items = items.map((other, i) => i === index ? { ...other, done: box.checked } : other); save(); draw() }
-      label.append(box, element('span', entry.text))
-      li.append(label, ui.iconButton('×', entry.text + ' entfernen', () => { items = items.filter((_, i) => i !== index); save(); draw() }))
-      return li
-    }))
-    const form = element('form', '', 'inline-add')
-    const input = element('input')
-    input.placeholder = 'Neue Aufgabe …'
-    input.setAttribute('aria-label', 'Neue Aufgabe')
-    form.append(input, element('button', 'Hinzufügen', 'primary small'))
-    form.onsubmit = event => { event.preventDefault(); const text = input.value.trim(); if (!text) return; items = [...items, { text, done: false }]; save(); draw(); $('todo-body').querySelector('input:not([type])')?.focus() }
-    $('todo-body').replaceChildren(form, list)
+    const items = all.filter(item => (!typeSel.value || isFashionReference(item)) && (!modelSel.value || parseGeneration(item).model === modelSel.value) && (!projectSel.value || state.members.get(item.id)?.has(projectSel.value)))
+    if (!all.length) return body.replaceChildren(emptyState('image', state.query ? 'Nichts gefunden' : 'Noch nichts generiert', state.query ? `Zu „${state.query}“ gibt es in der Library nichts.` : 'Alles, was du im Playground erzeugst, landet hier.', state.query ? el('button', { class: 'btn', onclick: clearSearch }, 'Suche löschen') : null))
+    if (!items.length) return body.replaceChildren(emptyState('image', 'Keine Treffer', 'Für diese Auswahl gibt es keine Bilder.', el('button', { class: 'btn', onclick: () => { typeSel.value = ''; modelSel.value = ''; projectSel.value = ''; draw() } }, 'Filter zurücksetzen')))
+    const groups = new Map()
+    for (const item of items) { const key = dateLabel(item.created_at); if (!groups.has(key)) groups.set(key, []); groups.get(key).push(item) }
+    body.replaceChildren(...[...groups].flatMap(([day, list]) => [el('div', { class: 'day' }, day), el('div', { class: 'grid' }, list.map(item => tile(item, openGeneration, { caption: isFashionReference(item) })))]))
   }
+  typeSel.onchange = modelSel.onchange = projectSel.onchange = draw
   draw()
 }
 
-// Excalidraw boards
-async function openBoards(version) {
-  show('view-boards')
-  drawSidebar('boards')
-  const full = await Promise.all(ideas.map(item => api('projects/' + item.id)))
-  if (version !== routeVersion) return
-  const withBoard = full.filter(item => item.scene.elements.some(part => !part.isDeleted))
-  const cards = withBoard.map(item => {
-    const card = element('a', '', 'board-card')
-    card.href = '#/idea/' + item.id + '/board'
-    const frame = element('div', '', 'board-thumb')
-    card.append(frame, element('strong', item.title), element('span', ago(item.updated_at), 'muted'))
-    loadBoard().then(module => module.preview(item.scene)).then(preview => frame.replaceChildren(preview)).catch(() => frame.replaceChildren(element('span', 'Vorschau fehlt', 'muted')))
-    return card
-  })
-  $('board-grid').replaceChildren(...(cards.length ? cards : [element('p', 'Noch keine Boards. Öffne eine Idee und klicke „Board bearbeiten“.', 'empty')]))
+function openGeneration(item) {
+  const gen = parseGeneration(item)
+  const fashion = isFashionReference(item)
+  openInspector(item, [
+    withFullscreen(item, el('div', { class: 'hero' }, media(item, { full: true }))),
+    el('div', {}, el('h2', {}, fashion ? item.title : gen.model), el('div', { class: 'meta', style: 'margin-top:4px' }, [fashion && gen.model, gen.provider, dateLabel(item.created_at) + ', ' + timeLabel(item.created_at)].filter(Boolean).join(' · '))),
+    el('div', { class: 'field' }, el('span', {}, 'Prompt'), el('div', { class: 'prompt' }, gen.prompt)),
+    gen.refs ? el('div', { class: 'field' }, el('span', {}, 'Referenzen'), el('div', { class: 'prompt' }, gen.refs)) : null,
+    el('div', { class: 'field' }, el('span', {}, 'Projekte'), state.projects.length ? projectChips(item) : el('span', { class: 'meta' }, 'Noch keine Projekte.')),
+    el('div', { class: 'actions' },
+      fashion && state.pages?.some(page => page.id === 'styler') && el('a', { class: 'btn primary', href: '#/styler?ref=' + encodeURIComponent(item.id) }, 'Im Styler verwenden'),
+      item.media_type?.startsWith('image/') && el('a', { class: 'btn primary', href: '#/playground?ref=' + item.id }, 'Im Playground weiterarbeiten'),
+      el('div', { class: 'row' },
+        el('a', { class: 'btn', href: mediaUrl(item), download: item.media_type === 'model/gltf-binary' ? item.title + '.glb' : gen.model }, icon('down'), 'Herunterladen'),
+        item.media_type?.startsWith('image/') && el('button', { type: 'button', class: 'btn', onclick: e => cutOut(item, e.currentTarget) }, icon('cut'), 'Freistellen')),
+      el('button', { type: 'button', class: 'btn danger', onclick: () => removeAsset(item, route) }, icon('trash'), 'Löschen')),
+  ])
 }
 
-// One idea
-function teardownIdea() {
-  clearTimeout(notesTimer)
-  editor?.unmount()
-  editor = null
-  while (blockCleanups.length) blockCleanups.pop()?.()
-}
-
-async function openIdea(id, version, openBoardEditor) {
-  const next = await api('projects/' + id)
-  if (version !== routeVersion) return
-  const sameIdea = idea?.id === next.id
-  teardownIdea()
-  idea = next
-  if (!sameIdea) ideaTab = 'note'
-  show('view-idea')
-  $('idea-title').value = idea.title
-  $('idea-notes').value = idea.notes
-  const snapshot = snapshotOf(idea.snapshot)
-  $('idea-snapshot').replaceChildren(dot(snapshot.color), snapshot.title)
-  $('idea-status').replaceChildren(...statusList.map(state => new Option(state.title, state.id)))
-  $('idea-status').value = idea.status
-  $('idea-due').value = idea.due
-  drawPin()
-  $('idea-saved').textContent = 'Gespeichert ' + ago(idea.updated_at)
-  $('board-caption').textContent = idea.title + ' · ' + ago(idea.updated_at)
-  $('board-editor').hidden = true
-  $('board-actions').hidden = true
-  drawSidebar('idea')
-  drawTabs()
-  growNotes()
-  await Promise.all([drawBoardPreview(), drawBlocks()])
-  if (openBoardEditor) $('board-open').click()
-}
-
-function drawTabs() {
-  const tabs = [['note', 'Notiz'], ...idea.apps.map(id => [id, appOf(id)?.title ?? id]), ['details', 'Details']]
-  if (!tabs.some(([id]) => id === ideaTab)) ideaTab = 'note'
-  $('idea-tabs').replaceChildren(...tabs.map(([id, title]) => {
-    const tab = element('button', title, 'tab')
-    tab.type = 'button'
-    tab.setAttribute('role', 'tab')
-    tab.setAttribute('aria-selected', String(id === ideaTab))
-    tab.onclick = () => { ideaTab = id; drawTabs(); showTab() }
-    return tab
-  }))
-  const available = apps.filter(app => !idea.apps.includes(app.id))
-  $('add-app').replaceChildren(new Option('Einblenden ▾', ''), ...available.map(app => new Option(app.title, app.id)))
-  $('add-app').hidden = !available.length
-  showTab()
-}
-
-function showTab() {
-  $('tab-note').hidden = ideaTab !== 'note'
-  $('tab-details').hidden = ideaTab !== 'details'
-  for (const section of $('blocks').children) section.hidden = section.dataset.app !== ideaTab
-  if (ideaTab === 'note') growNotes()
-}
-
-function drawPin() {
-  $('idea-pin').textContent = idea.pinned ? '📌 Angepinnt · lösen' : 'Anpinnen'
-}
-
-function growNotes() {
-  const notes = $('idea-notes')
-  notes.style.height = 'auto'
-  notes.style.height = notes.scrollHeight + 'px'
-}
-
-/** Serializes idea writes so every PUT carries the latest revision. */
-function saveIdea(changes) {
-  const target = idea
-  saving = saving.then(async () => {
-    if (idea?.id !== target.id) return
-    const saved = await api('projects/' + idea.id, 'PUT', { revision: idea.revision, ...changes })
-    if (idea?.id !== saved.id) return
-    idea = { ...saved }
-    ideas = ideas.map(item => item.id === saved.id ? { ...item, ...saved } : item)
-    $('idea-saved').textContent = 'Gespeichert ' + ago(saved.updated_at)
-  }).catch(fail)
-  return saving
-}
-
-async function setApps(next) {
-  await saveIdea({ apps: next })
-  drawTabs()
-  await drawBlocks()
-}
-
-function loadBoard() {
-  boardModule ??= (async () => {
-    const css = element('link')
-    css.rel = 'stylesheet'
-    css.href = base + '/board-editor/assets/board.css'
-    document.head.append(css)
-    return import(base + '/board-editor/assets/board.js')
-  })().catch(() => { boardModule = undefined; throw new Error('Der Excalidraw-Editor muss zuerst gebaut werden. Siehe README.') })
-  return boardModule
-}
-
-async function drawBoardPreview() {
-  const current = idea
-  if (!current.scene.elements.some(item => !item.isDeleted)) {
-    $('board-preview').replaceChildren(element('p', 'Das Board ist leer. Skizziere hier Abläufe, Looks oder Lichtsetups.', 'empty'))
-    return
-  }
-  const preview = await (await loadBoard()).preview(current.scene)
-  if (idea?.id === current.id) $('board-preview').replaceChildren(preview)
-}
-
-async function drawBlocks() {
-  while (blockCleanups.length) blockCleanups.pop()?.()
-  const current = idea
-  const sections = current.apps.map(id => {
-    const app = appOf(id)
-    const section = element('section', '', 'block')
-    section.dataset.app = id
-    const header = element('header')
-    header.append(ui.icon(app?.icon ?? 'M12 5v14M5 12h14', 18), element('h2', app?.title ?? id),
-      ui.iconButton('−', (app?.title ?? id) + ' aus dieser Idee ausblenden', () => setApps(idea.apps.filter(other => other !== id))))
-    const body = element('div')
-    section.append(header, body)
-    if (app) renderApp(app, body, current).catch(error => body.replaceChildren(element('p', 'Die App konnte nicht geladen werden: ' + error.message, 'missing')))
-    else {
-      const missing = element('div', '', 'missing')
-      missing.append(element('span', `Die App „${id}“ ist noch nicht installiert. Bitte Claude oder Codex, sie zu bauen:`))
-      missing.append(element('pre', `Baue im Creativity Hub die App "${id}" als Plugin unter creative-hub/apps/${id}/ nach dem Muster von apps/checklist (host.mjs mit defineApp, block.js mit render).`))
-      body.append(missing)
-    }
-    return section
-  })
-  if (idea?.id === current.id) { $('blocks').replaceChildren(...sections); showTab() }
-}
-
-async function renderApp(app, container, current) {
-  let { data, revision } = await api(`projects/${current.id}/apps/${app.id}`)
-  let queue = Promise.resolve()
-  const module = await import(app.module)
-  if (idea?.id !== current.id) return
-  const save = next => {
-    queue = queue.then(async () => {
-      const saved = await api(`projects/${current.id}/apps/${app.id}`, 'PUT', { revision, data: next })
-      revision = saved.revision
-      data = saved.data
-    }).catch(error => status(app.title + ': ' + error.message))
-    return queue
-  }
-  const cleanup = await module.render(container, {
-    idea: { id: current.id, title: current.title },
-    data,
-    save,
-    api,
-    status,
-    ui,
-  })
-  if (typeof cleanup === 'function') blockCleanups.push(cleanup)
-}
-
-// Mymind and Library
-function assetCard(asset) {
-  const article = element('article', '', 'card')
-  const media = ui.assetMedia(asset)
-  if (media) article.append(media)
-  const body = element('div', '', 'card-body')
-  const head = element('header')
-  head.append(element('h3', asset.title))
-  if (collection === 'generation' && asset.media_type?.startsWith('image/')) {
-    const pick = ui.iconButton('◎', asset.title + ' als Referenz verwenden', () => { toggleReference(asset); pick.setAttribute('aria-pressed', String(references.has(asset.id))) })
-    pick.setAttribute('aria-pressed', String(references.has(asset.id)))
-    pick.title = 'Als Referenz verwenden'
-    head.append(pick)
-  }
-  head.append(ui.iconButton('×', asset.title + ' löschen', () => removeAsset(asset)))
-  body.append(head)
-  if (asset.description) body.append(element('p', asset.description))
-  if (asset.source) {
-    const link = element('a', new URL(asset.source).hostname, 'source')
-    link.href = asset.source
-    link.target = '_blank'
-    link.rel = 'noreferrer'
-    body.append(link)
-  }
-  const foot = element('footer')
-  foot.append(element('time', ago(asset.created_at), 'muted'))
-  if (ideas.length) {
-    const select = element('select')
-    select.setAttribute('aria-label', asset.title + ' einer Idee zuordnen')
-    select.append(new Option('Zu Idee …', ''), ...ideas.map(item => new Option(item.title, item.id)))
-    select.onchange = async () => {
-      if (!select.value) return
-      try {
-        await api('assign', 'POST', { id: asset.id, projectId: select.value })
-        status('Der Idee hinzugefügt.')
-      } catch (error) { fail(error) }
-      select.value = ''
-    }
-    foot.append(select)
-  }
-  body.append(foot)
-  article.append(body)
-  return article
-}
-
-async function removeAsset(asset) {
-  if (!confirm(`„${asset.title}“ endgültig löschen? Das lässt sich nicht rückgängig machen.`)) return
-  try {
-    await api('assets/' + asset.id, 'DELETE')
-    references.delete(asset.id)
-    drawReferences()
-    status('Gelöscht.')
-    await drawAssets()
-  } catch (error) { fail(error) }
-}
-
-function readFile(file) {
-  if (file.size > 12 * 1024 * 1024) throw new Error('Die Datei ist größer als 12 MB.')
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result.split(',')[1])
-    reader.onerror = () => reject(new Error('Die Datei konnte nicht gelesen werden.'))
-    reader.readAsDataURL(file)
-  })
-}
-
-/** Native Note's "Add a new idea" card: paste a link or write a note, or upload a file. */
-function quickAdd() {
-  const form = element('form', '', 'card add-card')
-  const input = element('textarea')
-  input.rows = 2
-  input.placeholder = 'Link einfügen oder Notiz schreiben …'
-  input.setAttribute('aria-label', 'Link oder Notiz')
-  const file = element('input')
-  file.type = 'file'
-  file.accept = 'image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm'
-  file.hidden = true
-  const footer = element('footer')
-  const upload = element('button', '⤒ Hochladen', 'ghost')
-  upload.type = 'button'
-  upload.onclick = () => file.click()
-  file.onchange = async () => {
-    const picked = file.files[0]
-    if (!picked) return
-    try {
-      await api('assets', 'POST', { library: collection, title: picked.name.replace(/\.[^.]+$/, ''), media: await readFile(picked), mediaType: picked.type })
-      status('Hochgeladen.')
-      await drawAssets()
-    } catch (error) { fail(error) }
-    file.value = ''
-  }
-  footer.append(upload, element('button', 'Sichern', 'primary small'))
-  form.append(element('span', collection === 'clips' ? 'Neue Idee sammeln' : 'Datei hinzufügen', 'muted'), input, file, footer)
-  form.onsubmit = async event => {
-    event.preventDefault()
-    const value = input.value.trim()
-    if (!value) return
-    let url = ''
-    try { url = new URL(value).protocol.startsWith('http') ? value : '' } catch { url = '' }
-    try {
-      await api('assets', 'POST', url
-        ? { library: collection, title: new URL(url).hostname, source: url, ...(collection === 'generation' && /\.(png|jpe?g|webp|gif)(\?|$)/i.test(url) ? { preview: url } : {}) }
-        : { library: 'clips', title: value.split('\n')[0].slice(0, 60), description: value })
-      input.value = ''
-      status('Gesichert.')
-      await drawAssets()
-    } catch (error) { fail(error) }
-  }
-  return form
-}
-
-async function drawAssets() {
-  const version = routeVersion
-  const entries = await api('assets?' + new URLSearchParams({ library: collection, q: $('search').value }))
-  if (version !== routeVersion) return
-  $('assets').classList.toggle('rows', rowsView)
-  $('assets').replaceChildren(quickAdd(), ...entries.map(assetCard))
-}
-
-function toggleReference(asset) {
-  if (references.has(asset.id)) references.delete(asset.id)
-  else references.set(asset.id, asset)
-  drawReferences()
-}
-
-function drawReferences() {
-  $('composer-refs').replaceChildren(...[...references.values()].map(asset => {
-    const chip = element('span', '', 'ref-chip')
-    const thumb = ui.assetMedia(asset)
-    if (thumb) { thumb.onclick = null; thumb.classList.remove('zoomable'); chip.append(thumb) }
-    chip.append(element('span', asset.title), ui.iconButton('×', asset.title + ' als Referenz entfernen', () => { references.delete(asset.id); drawReferences(); drawAssets().catch(fail) }))
-    return chip
-  }))
-}
-
-let generators = []
-async function setupComposer() {
-  const providers = await api('providers')
-  generators = providers.filter(provider => provider.capabilities.includes('generate'))
-  $('composer').hidden = !generators.length
-  if (!generators.length) return
-  const chosen = $('composer-provider').value
-  $('composer-provider').replaceChildren(...generators.map(provider => new Option(provider.title, provider.id)))
-  if (generators.some(provider => provider.id === chosen)) $('composer-provider').value = chosen
-  $('composer-idea').replaceChildren(new Option('Keine Ziel-Idee', ''), ...ideas.map(item => new Option(item.title, item.id)))
-  await loadModels()
-}
-
-async function loadModels() {
-  const provider = $('composer-provider').value
-  $('composer-model').replaceChildren(new Option('Modelle laden …', ''))
-  try {
-    const models = await api(`providers/${provider}/models`)
-    if ($('composer-provider').value !== provider) return
-    $('composer-model').replaceChildren(...(models.length ? models.map(model => new Option(model.title, model.id)) : [new Option('Standardmodell', '')]))
-  } catch (error) {
-    $('composer-model').replaceChildren(new Option('Standardmodell', ''))
-    fail(error)
-  }
-}
-
-async function generate(event) {
-  event.preventDefault()
-  const prompt = $('composer-prompt').value.trim()
-  if (!prompt) return status('Schreib zuerst einen Prompt.')
-  const provider = generators.find(item => item.id === $('composer-provider').value)
-  const count = Number($('composer-count').value)
-  const model = $('composer-model').value
-  if (!confirm(`${count} ${count === 1 ? 'Bild' : 'Bilder'} mit ${provider.title}${model ? ' · ' + model : ''}${references.size ? ' und ' + references.size + ' Referenzen' : ''} generieren? Der Anbieter berechnet die Anfragen nach seiner Preisliste.`)) return
-  const button = $('composer-go')
+async function cutOut(item, button) {
+  const providers = await api('/providers').catch(() => [])
+  const provider = providers.find(p => p.capabilities.includes('removeBackground') && p.secrets.every(s => s.configured))
+  if (!provider) return toast('Kein Anbieter zum Freistellen eingerichtet. Unter „Anbieter“ einen Schlüssel eintragen.', true)
   button.disabled = true
-  status('Generiere …')
+  const label = button.lastChild.textContent
+  button.lastChild.textContent = 'Stellt frei …'
   try {
-    const result = await api('images/generate', 'POST', { provider: provider.id, model, prompt, aspect: $('composer-aspect').value, count, referenceIds: [...references.keys()], ideaId: $('composer-idea').value })
-    status(`${result.assets.length} ${result.assets.length === 1 ? 'Bild' : 'Bilder'} gesichert.${result.credits ? ' Verbraucht: ' + result.credits + ' Credits.' : ''}`)
-    await drawAssets()
-  } catch (error) { fail(error) } finally { button.disabled = false }
+    await api('/images/remove-background', 'POST', { provider: provider.id, assetId: item.id, title: item.title })
+    toast('Freigestellt, liegt in der Library.'); refreshCounts(); renderLibrary()
+  } catch (error) { toast(error.message, true) } finally { button.disabled = false; button.lastChild.textContent = label }
 }
 
-async function openCollection(kind, route) {
-  collection = kind
-  show('view-collection')
-  $('search').placeholder = kind === 'clips' ? 'Durchsuche deinen Mind …' : 'Durchsuche Bilder und Videos …'
-  $('search').value = ''
-  $('new-asset').textContent = kind === 'clips' ? '🔖 Clip mit Details' : 'Datei mit Details'
-  $('composer').hidden = kind !== 'generation'
-  drawSidebar(route)
-  await drawAssets()
-  if (kind === 'generation') { drawReferences(); await setupComposer() }
+/* Projekt */
+async function renderProject(id) {
+  const project = state.projects.find(p => p.id === id)
+  if (!project) { view.replaceChildren(emptyState('inbox', 'Projekt nicht gefunden', 'Vielleicht wurde es gelöscht.', el('a', { class: 'btn', href: '#/sammlung' }, 'Zur Sammlung'))); return }
+  const snapshot = state.snapshots.find(s => s.id === project.snapshot)
+  const body = el('div', { class: 'scroll' }, loading())
+  view.replaceChildren(...header(project.title, [snapshot && snapshot.id !== 'blank' ? snapshot.title : '', project.due ? 'Termin ' + new Date(project.due).toLocaleDateString('de-DE') : ''].filter(Boolean).join(' · ') || null), body)
+  try {
+    const items = await api('/assets?project=' + id)
+    if (!items.length) return body.replaceChildren(emptyState('inbox', 'Noch nichts im Projekt', 'Ordne Dinge aus der Sammlung oder der Library zu, oder zieh Dateien hierher.', el('a', { class: 'btn primary', href: '#/sammlung' }, 'Zur Sammlung')))
+    body.replaceChildren(el('div', { class: 'masonry' }, items.map(item => tile(item, item.library === 'generation' ? openGeneration : openClip))))
+  } catch (error) { body.replaceChildren(errorState(error, () => renderProject(id))) }
 }
 
-/** Lightbox actions: remove the background or use the image as a reference. */
-ui.setLightboxActions(asset => {
-  if (!asset.media_type?.startsWith('image/') && !asset.preview) return []
-  const actions = []
-  const cutouts = generatorsWith('removeBackground')
-  if (cutouts.length) {
-    const cut = element('button', 'Freistellen', 'ghost')
-    cut.type = 'button'
-    cut.onclick = async () => {
-      const provider = cutouts[0]
-      if (!confirm(`„${asset.title}“ mit ${provider.title} freistellen? Der Anbieter berechnet den Auftrag nach seiner Preisliste.`)) return
-      cut.disabled = true
+function newProjectDialog() {
+  const title = el('input', { class: 'text-in', required: true, placeholder: 'z. B. Musikvideo Red Rose', autocomplete: 'off' })
+  const kind = el('select', { 'aria-label': 'Art' }, state.snapshots.map(s => el('option', { value: s.id }, s.title)))
+  const dialog = el('dialog', {}, el('form', { method: 'dialog' },
+    el('h2', {}, 'Neues Projekt'),
+    el('label', { class: 'field' }, el('span', {}, 'Name'), title),
+    state.snapshots.length ? el('label', { class: 'field' }, el('span', {}, 'Art'), el('span', { class: 'pill', style: 'align-self:flex-start' }, kind, chev())) : null,
+    el('div', { class: 'row' }, el('button', { class: 'btn ghost', value: 'no', formnovalidate: true }, 'Abbrechen'), el('button', { class: 'btn primary', value: 'yes' }, 'Anlegen'))))
+  dialog.addEventListener('close', async () => {
+    if (dialog.returnValue === 'yes' && title.value.trim()) {
       try {
-        await api('images/remove-background', 'POST', { provider: provider.id, assetId: asset.id, title: asset.title, source: asset.source })
-        status('Freigestellt und in der Library gesichert.')
-        if (!$('view-collection').hidden) await drawAssets()
-      } catch (error) { fail(error) } finally { cut.disabled = false }
+        const created = await api('/projects', 'POST', { title: title.value.trim(), snapshot: kind.value || 'blank' })
+        await loadProjects(); location.hash = '#/projekt/' + created.id
+      } catch (error) { toast(error.message, true) }
     }
-    actions.push(cut)
-  }
-  const ref = element('button', references.has(asset.id) ? 'Referenz entfernen' : 'Als Referenz', 'ghost')
-  ref.type = 'button'
-  ref.onclick = () => { toggleReference(asset); ref.textContent = references.has(asset.id) ? 'Referenz entfernen' : 'Als Referenz'; status('Referenzen: ' + references.size + ' · im Library-Composer') }
-  actions.push(ref)
-  return actions
-})
-
-let providerCache = []
-const generatorsWith = capability => providerCache.filter(provider => provider.capabilities.includes(capability))
-
-function openAsset(data = {}) {
-  const form = $('asset-form')
-  form.reset()
-  form.querySelector('.form-status').textContent = ''
-  form.dataset.library = collection
-  const clip = collection === 'clips'
-  $('asset-title').textContent = clip ? 'Clip hinzufügen' : 'Datei importieren'
-  for (const key of ['title', 'source', 'preview', 'description']) form.elements[key].value = typeof data[key] === 'string' ? data[key] : ''
-  $('asset-dialog').showModal()
+    dialog.remove()
+  })
+  document.body.append(dialog)
+  dialog.showModal()
+  title.focus()
 }
 
-async function submitForm(event, submit) {
-  event.preventDefault()
-  const form = event.currentTarget
-  const button = form.querySelector('button.primary')
-  button.disabled = true
-  const feedback = form.querySelector('.form-status')
-  feedback.textContent = ''
-  try { await submit(new FormData(form), form) } catch (error) { feedback.textContent = error.message } finally { button.disabled = false }
+/* Anbieter */
+async function renderProviders() {
+  const body = el('div', { class: 'scroll' }, el('div', { class: 'skel', style: 'height:160px;max-width:720px' }))
+  view.replaceChildren(...header('Anbieter', 'Bildmodelle und Freistellen. Schlüssel liegen im Credential-Speicher des Harness, nicht in der Datenbank.'), body)
+  try {
+    const list = await api('/providers')
+    body.replaceChildren(el('div', { style: 'display:flex;flex-direction:column;gap:24px;max-width:720px' }, list.map(providerCard)))
+  } catch (error) { body.replaceChildren(errorState(error, renderProviders)) }
 }
-
-// New idea
-let pickedSnapshot = 'blank'
-function openNewIdea() {
-  $('idea-form').reset()
-  $('idea-form').querySelector('.form-status').textContent = ''
-  pickedSnapshot = snapshots[0]?.id ?? 'blank'
-  drawSnapshots()
-  $('idea-dialog').showModal()
-}
-
-function drawSnapshots() {
-  $('snapshot-grid').replaceChildren(...snapshots.map(snapshot => {
-    const button = element('button', '', 'snapshot')
-    button.type = 'button'
-    button.setAttribute('aria-pressed', String(snapshot.id === pickedSnapshot))
-    const title = element('strong')
-    title.append(dot(snapshot.color), snapshot.title)
-    const tags = element('span', '', 'tags')
-    tags.append(...snapshot.apps.map(id => element('em', appOf(id)?.title ?? id + ' (fehlt)')))
-    if (!snapshot.apps.length) tags.append(element('em', 'Board'))
-    button.append(title, element('span', snapshot.description), tags)
-    button.onclick = () => { pickedSnapshot = snapshot.id; drawSnapshots() }
-    return button
-  }))
-}
-
-// Providers
-const capabilityNames = { models: 'Modelle', generate: 'Generieren', removeBackground: 'Freistellen', search: 'Bildsuche' }
 
 function providerCard(provider) {
-  const card = element('section', '', 'provider')
-  const header = element('header')
-  const caps = element('span', '', 'caps')
-  caps.append(...provider.capabilities.filter(cap => cap !== 'models').map(cap => element('em', capabilityNames[cap] ?? cap)))
-  header.append(element('h2', provider.title), caps)
-  card.append(header)
-  if (provider.description) card.append(element('p', provider.description, 'muted'))
-  const form = element('form')
-  for (const field of provider.settings) {
-    const label = element('label', field.label)
-    const input = element('input')
-    input.name = 'setting:' + field.key
-    input.value = field.value
-    input.placeholder = field.placeholder
-    label.append(input)
-    form.append(label)
-  }
-  for (const field of provider.secrets) {
-    const label = element('label', field.label)
-    const input = element('input')
-    input.type = 'password'
-    input.name = 'secret:' + field.key
-    input.autocomplete = 'off'
-    input.placeholder = field.configured ? 'gesetzt – zum Ändern neu eingeben' : 'nicht gesetzt'
-    label.append(input, element('span', `${field.credential}${field.configured ? ' · gesetzt' + (field.source ? ' (' + field.source + ')' : '') : ' · fehlt'}`, 'secret-state'))
-    form.append(label)
-  }
-  const footer = element('footer')
-  const save = element('button', 'Speichern', 'primary small')
-  footer.append(save)
-  const models = element('div', '', 'models')
-  if (provider.capabilities.includes('models')) {
-    const load = element('button', 'Modelle laden', 'ghost')
-    load.type = 'button'
-    load.onclick = async () => {
-      load.disabled = true
-      try {
-        const list = await api(`providers/${provider.id}/models`)
-        models.replaceChildren(...(list.length ? list.map(model => element('code', model.id)) : [element('span', 'Keine Modelle gemeldet.', 'muted')]))
-      } catch (error) { models.replaceChildren(element('span', error.message, 'form-status')) } finally { load.disabled = false }
-    }
-    footer.append(load)
-  }
-  form.append(footer, models)
-  form.onsubmit = async event => {
-    event.preventDefault()
-    const settings = {}
-    const secrets = {}
-    for (const input of form.querySelectorAll('input')) {
-      const [kind, key] = input.name.split(':')
-      if (kind === 'setting') settings[key] = input.value
-      else if (input.value) secrets[key] = input.value
-    }
-    try {
-      const saved = await api('providers/' + provider.id, 'PUT', { settings, secrets })
-      card.replaceWith(providerCard(saved))
-      status(provider.title + ' gespeichert.')
-    } catch (error) { fail(error) }
-  }
-  card.append(form)
-  return card
+  const inputs = provider.settings.map(s => [s.key, el('input', { class: 'text-in', value: s.value ?? '', autocomplete: 'off' })])
+  const secrets = provider.secrets.map(s => [s.key, el('input', { class: 'text-in', type: 'password', placeholder: s.configured ? 'Gespeichert, zum Ändern neu eingeben' : 'Noch nicht eingetragen', autocomplete: 'off' })])
+  const models = el('div', { class: 'meta' })
+  const ready = provider.secrets.every(s => s.configured)
+  return el('section', { style: 'display:flex;flex-direction:column;gap:16px;padding:24px;border:1px solid var(--c-hair);border-radius:16px;background:var(--c-panel)' },
+    el('div', {}, el('h2', { style: 'margin:0;font-size:20px;font-weight:600' }, provider.title), el('div', { class: 'meta', style: 'margin-top:4px' }, provider.description || ''), el('div', { class: 'meta', style: 'margin-top:4px;color:' + (ready ? 'var(--c-ink-2)' : 'var(--c-danger)') }, ready ? 'Eingerichtet' : 'Schlüssel fehlt')),
+    ...provider.settings.map((s, i) => el('label', { class: 'field' }, el('span', {}, s.label), inputs[i][1])),
+    ...provider.secrets.map((s, i) => el('label', { class: 'field' }, el('span', {}, s.label), secrets[i][1])),
+    el('div', { style: 'display:flex;gap:8px;flex-wrap:wrap' },
+      el('button', { type: 'button', class: 'btn', onclick: async () => {
+        try {
+          await api('/providers/' + provider.id, 'PUT', { settings: Object.fromEntries(inputs.map(([k, input]) => [k, input.value])), secrets: Object.fromEntries(secrets.filter(([, input]) => input.value).map(([k, input]) => [k, input.value])) })
+          toast('Gespeichert.'); renderProviders()
+        } catch (error) { toast(error.message, true) }
+      } }, 'Speichern'),
+      provider.capabilities.includes('models') ? el('button', { type: 'button', class: 'btn', onclick: async () => {
+        models.textContent = 'Lädt …'
+        try { models.textContent = (await api(`/providers/${provider.id}/models`)).map(m => m.title).join(' · ') || 'Keine Modelle gemeldet.' } catch (error) { models.textContent = error.message }
+      } }, 'Modelle laden') : null),
+    models)
 }
 
-async function openProviders() {
-  show('view-providers')
-  drawSidebar('providers')
-  const list = await api('providers')
-  providerCache = list
-  $('provider-list').replaceChildren(...(list.length ? list.map(providerCard) : [element('p', 'Kein Anbieter-Plugin installiert.', 'empty')]))
+/* Routing */
+let activeLeave = null
+/** Hub building blocks handed to page plugins that render a whole view (e.g. the Playground). */
+const shared = { get $() { return $ }, API, api, chev, get currentRoute() { return currentRoute }, dateLabel, el, errorState, fullscreenButton, header, icon, icons, loading, media, refreshCounts, state, tile, timeLabel, toast, view, withFullscreen }
+const currentRoute = () => (location.hash.match(/^#\/([\w-]+)/)?.[1]) || 'sammlung'
+function route() {
+  closeInspector()
+  activeLeave?.(); activeLeave = null
+  const name = currentRoute()
+  document.querySelectorAll('.side .navi[data-route]').forEach(a => { const on = a.dataset.route === name; a.classList.toggle('on', on); on ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current') })
+  renderProjects()
+  const page = state.pages?.find(app => app.id === name)
+  if (page) {
+    const body = el('div', { class: 'scroll' }, loading())
+    if (page.view) return import(page.module).then(module => { activeLeave = module.leave; return module.renderView(shared) }).catch(error => { view.replaceChildren(...header(page.title), errorState(error, route)) })
+    view.replaceChildren(...header(page.title), body)
+    return import(page.module).then(module => module.render(body, { el, api, media, withFullscreen, isFashionReference, toast, refreshCounts, projects: state.projects, params: new URLSearchParams(location.hash.split('?')[1]) })).catch(error => body.replaceChildren(errorState(error, route)))
+  }
+  if (name === 'library') return renderLibrary()
+  if (name === 'projekt') return renderProject(location.hash.split('/')[2])
+  if (name === 'anbieter') return renderProviders()
+  return renderSammlung()
 }
 
-// Router
-async function route() {
-  const version = ++routeVersion
-  const hash = location.hash || '#/'
+const search = $('#search')
+let searchTimer
+search.addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { state.query = search.value.trim(); if (!['sammlung', 'library'].includes(currentRoute())) location.hash = '#/sammlung'; else route() }, 200) })
+function clearSearch() { search.value = ''; state.query = ''; route() }
+addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); search.focus(); search.select() }
+  if (e.key === 'Escape' && !inspector.hidden && !document.querySelector('dialog[open]')) closeInspector()
+})
+$('#new-project').addEventListener('click', newProjectDialog)
+addEventListener('hashchange', route)
+
+;(async () => {
+  try { state.snapshots = await api('/snapshots') } catch { state.snapshots = [] /* Snapshots sind optional; ohne sie legt der Hub „blank“-Projekte an. */ }
   try {
-    const ideaMatch = /^#\/idea\/([0-9a-f-]{36})(\/board)?$/.exec(hash)
-    if (ideaMatch) return await openIdea(ideaMatch[1], version, Boolean(ideaMatch[2]))
-    teardownIdea()
-    idea = null
-    ideas = await api('projects')
-    if (version !== routeVersion) return
-    switch (hash) {
-      case '#/ideas': show('view-ideas'); drawSidebar('ideas'); return drawIdeas()
-      case '#/kanban': return openKanban()
-      case '#/calendar': show('view-calendar'); drawSidebar('calendar'); return drawCalendar()
-      case '#/journal': return await openJournal(version)
-      case '#/feed': return await openFeed(version)
-      case '#/todo': return await openTodo(version)
-      case '#/boards': return await openBoards(version)
-      case '#/mymind': case '#/inspiration': return await openCollection('clips', 'mymind')
-      case '#/library': return await openCollection('generation', 'library')
-      case '#/providers': return await openProviders()
-      default: return await openHome(version)
-    }
-  } catch (error) { fail(error) }
-}
-
-$('idea-title').onchange = () => saveIdea({ title: $('idea-title').value }).then(() => drawSidebar('idea'))
-$('idea-notes').oninput = () => {
-  growNotes()
-  clearTimeout(notesTimer)
-  $('idea-saved').textContent = 'Ungespeichert …'
-  const value = $('idea-notes').value
-  notesTimer = setTimeout(() => saveIdea({ notes: value }), 800)
-}
-$('idea-status').onchange = () => saveIdea({ status: $('idea-status').value })
-$('idea-due').onchange = () => saveIdea({ due: $('idea-due').value })
-$('idea-pin').onclick = () => saveIdea({ pinned: !idea.pinned }).then(() => { drawPin(); drawSidebar('idea') })
-$('add-app').onchange = () => { const id = $('add-app').value; if (id) { ideaTab = id; setApps([...idea.apps, id]) } }
-$('board-open').onclick = async () => {
-  const current = idea
-  try {
-    const module = await loadBoard()
-    if (idea?.id !== current.id) return
-    $('board-editor').hidden = false
-    $('board-actions').hidden = false
-    editor = module.mount($('board-editor'), idea.scene)
-  } catch (error) { fail(error) }
-}
-const closeBoard = () => { editor?.unmount(); editor = null; $('board-editor').hidden = true; $('board-actions').hidden = true }
-$('board-close').onclick = closeBoard
-$('board-save').onclick = async () => {
-  const scene = editor?.scene()
-  if (!scene) return
-  await saveIdea({ scene })
-  status('Board gespeichert.')
-  closeBoard()
-  drawBoardPreview().catch(fail)
-}
-$('idea-search').oninput = drawIdeas
-$('kanban-search').oninput = drawKanban
-$('kanban-format').onchange = drawKanban
-$('calendar-prev').onclick = () => { calendarMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1); drawCalendar() }
-$('calendar-next').onclick = () => { calendarMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1); drawCalendar() }
-$('calendar-today').onclick = () => { calendarMonth = new Date(); drawCalendar() }
-$('search').oninput = () => drawAssets().catch(fail)
-$('new-asset').onclick = () => openAsset()
-$('view-grid').onclick = () => { rowsView = false; $('view-grid').setAttribute('aria-pressed', 'true'); $('view-rows').setAttribute('aria-pressed', 'false'); drawAssets().catch(fail) }
-$('view-rows').onclick = () => { rowsView = true; $('view-grid').setAttribute('aria-pressed', 'false'); $('view-rows').setAttribute('aria-pressed', 'true'); drawAssets().catch(fail) }
-$('composer').onsubmit = generate
-$('composer-provider').onchange = () => loadModels()
-$('apps-edit').onclick = () => { editingApps = !editingApps; drawSidebar(currentRoute()) }
-for (const id of ['nav-new', 'ideas-new', 'kanban-new']) $(id).onclick = openNewIdea
-$('nav-search').onclick = () => {
-  if (!$('view-collection').hidden) return $('search').focus()
-  if (location.hash !== '#/ideas') location.hash = '#/ideas'
-  setTimeout(() => $('idea-search').focus(), 80)
-}
-document.addEventListener('keydown', event => {
-  if ((event.metaKey || event.ctrlKey) && event.key === 'k') { event.preventDefault(); $('nav-search').click() }
-})
-for (const button of document.querySelectorAll('[data-close]')) button.onclick = () => button.closest('dialog').close()
-$('idea-form').onsubmit = event => submitForm(event, async data => {
-  const created = await api('projects', 'POST', { title: data.get('title'), snapshot: pickedSnapshot })
-  $('idea-dialog').close()
-  ideas = await api('projects')
-  location.hash = '#/idea/' + created.id
-})
-$('asset-form').onsubmit = event => submitForm(event, async (data, form) => {
-  const payload = Object.fromEntries(['title', 'source', 'preview', 'description'].map(key => [key, data.get(key)]))
-  payload.library = form.dataset.library
-  const file = data.get('file')
-  if (file.size) { payload.mediaType = file.type; payload.media = await readFile(file) }
-  await api('assets', 'POST', payload)
-  $('asset-dialog').close()
-  status('Gespeichert.')
-  await drawAssets()
-})
-window.addEventListener('hashchange', route)
-
-async function start() {
-  withIcons(document)
-  let clip
-  if (location.hash.startsWith('#clip=')) {
-    clip = JSON.parse(decodeURIComponent(location.hash.slice(6)))
-    history.replaceState(null, '', location.pathname + '#/mymind')
-  }
-  let sidebar
-  ;[apps, snapshots, ideas, sidebar, providerCache] = await Promise.all([api('apps'), api('snapshots'), api('projects'), api('sidebar'), api('providers')])
-  sidebarApps = Array.isArray(sidebar.apps) ? sidebar.apps : null
-  await route()
-  if (clip) { collection = 'clips'; openAsset(clip) }
-}
-start().catch(fail)
+    state.pages = (await api('/apps')).filter(app => app.page)
+    $('#plugin-pages').replaceChildren(...state.pages.map(app => el('a', { class: 'navi', href: '#/' + app.id, 'data-route': app.id }, svg(`<path d="${app.icon}"/>`), el('span', { class: 't' }, app.title))))
+  } catch (error) { toast(error.message, true) }
+  try { await loadProjects() } catch (error) { toast(error.message, true) }
+  refreshCounts().catch(() => { /* Zähler sind Zusatzinfo; ein Fehler zeigt sich ohnehin in der Ansicht. */ })
+  route()
+})()

@@ -17,3 +17,9 @@
       name: '/absolute/path/to/deepseek-harness/creative-hub/providers/kie/host.mjs'
     - id: creativity-provider-brave
       name: '/absolute/path/to/deepseek-harness/creative-hub/providers/brave/host.mjs'
+    - id: creativity-provider-fal
+      name: '/absolute/path/to/deepseek-harness/creative-hub/providers/fal/host.mjs'
+    - id: creativity-playground
+      name: '/absolute/path/to/deepseek-harness/creative-hub/playground/host.mjs'
+    - id: creativity-app-styler
+      name: '/absolute/path/to/deepseek-harness/creative-hub/apps/styler/host.mjs'

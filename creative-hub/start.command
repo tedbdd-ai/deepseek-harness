@@ -59,6 +59,8 @@ yaml_path() { printf '%s' "$hub_dir/$1" | sed "s/'/''/g"; }
     echo "    - id: creativity-provider-$provider_id"
     echo "      name: '$(yaml_path "providers/$provider_id/host.mjs")'"
   done
+  echo '    - id: creativity-playground'
+  echo "      name: '$(yaml_path playground/host.mjs)'"
   for app in "$hub_dir"/apps/*/host.mjs; do
     [[ -e "$app" ]] || continue
     app_id="$(basename "$(dirname "$app")")"

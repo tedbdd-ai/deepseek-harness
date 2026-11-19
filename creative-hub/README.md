@@ -1,10 +1,12 @@
 # Creativity Hub (Atelier)
 
-Eine Creative-Notes-App als DeepSeek-Harness-Web-Overlay, aufgebaut wie Riley Browns „Native Note“:
+Dein persönlicher Kreativ-Hub als DeepSeek-Harness-Web-Overlay, dunkel und im Aufbau einer Mac-App (Entwurf „Atelier Hub“):
 
-- **Seitenleiste:** Home, Suche (⌘K), Neue Idee, Todo · **Ideen:** Alle Ideen, Kalender (nach Termin), Kanban (Status Idee → In Arbeit → Review → Fertig, Karten per Ziehen verschieben), Journal (ein Eintrag pro Tag), Feed (letzte Änderungen) · Angepinnt · **Apps:** Mymind (Links, Notizen, Uploads), Library (Bilder und Videos, mit Generieren-Leiste) und Excalidraw (alle Boards); mit ✓ blendest du Apps ein und aus.
-- **Idee:** Titel, Tabs „Notiz“ (eingebettetes Excalidraw-Board und Text), je ein Tab pro App und „Details“ (Status, Termin, Format, Anpinnen). Welche Apps eine Idee mitbringt, legt ihr Format (Snapshot) fest, z. B. Musik-Session, Mode-Lookbook, Shoot oder VR-Konzept; „Einblenden“ fügt weitere hinzu.
-- **Großansicht:** Klick auf ein Bild; dort „Freistellen“ und „Als Referenz“ für die Generieren-Leiste der Library.
+- **Seitenleiste:** Suche (⌘K), Sammlung, Library, Playground, deine Projekte und unten Anbieter.
+- **Sammlung:** alles, was du mit dem Clipper oder per Link sicherst, gefiltert nach Bildern, Videos, Webseiten und Notizen. Bilder und Videos lassen sich hineinziehen. Rechts stehen Quelle, Projekte (zum An- und Abwählen), „Original öffnen“, Herunterladen und Löschen.
+- **Library:** alle generierten Bilder nach Tag, filterbar nach Modell und Projekt, mit Prompt, Modell, Referenzen, Freistellen und Herunterladen.
+- **Projekt:** alles, was einem Projekt zugeordnet ist.
+- **Playground** (Plugin `playground/host.mjs`): Modelle per Adresse ihrer Seite bei kie.ai oder fal.ai hinzufügen; der Anbieter liest die veröffentlichte Eingabebeschreibung, der Playground baut daraus Einstellungen und wählt mit Referenzbild die Bearbeiten-Variante. Ein Prompt geht an mehrere Modelle (1×, 2× oder 4× je Modell); jedes Ergebnis landet in der Library, auf Wunsch im Ziel-Projekt. Ergebnisse lassen sich ins Projekt legen, als Referenz nutzen, variieren und herunterladen.
 
 Der Hub verwendet die Anmeldung des Harness-Webprofils und speichert alles in einer lokalen SQLite-Datei. Er ist für ein persönliches Harness-Profil mit einem Benutzer gedacht.
 
@@ -54,8 +56,9 @@ Jeder Anbieter ist ein Plugin unter `providers/<id>/host.mjs` und meldet sich be
 | Plugin | Kann | Schlüssel |
 | :--- | :--- | :--- |
 | `providers/litellm` | Modelle, Generieren über `/v1/chat/completions` mit Bild-Ausgabe | `LITELLM_API_KEY` |
-| `providers/kie` | Generieren (Katalog in `providers/kie/models.mjs`: Nano Banana 2/2.1/Pro, GPT Image 2, Seedream 5.5, Flux 2 Pro, Grok Imagine 2), Freistellen (`recraft/remove-background`) | `KIE_API_KEY` |
+| `providers/kie` | Generieren (Katalog in `providers/kie/models.mjs`: Nano Banana 2/2.1/Pro, GPT Image 2, GPT Image 2.5 Sunburst/Flare, Seedream 5.5, Flux 2 Pro, Grok Imagine 2), Freistellen (`recraft/remove-background`) | `KIE_API_KEY` |
 | `providers/brave` | Bildsuche | `BRAVE_SEARCH_API_KEY` |
+| `providers/fal` | Playground-Modelle von fal.ai (Queue-API) | `FAL_KEY` |
 
 Eingerichtet wird alles im Hub unter **Anbieter**: Adresse eintragen, Schlüssel einfügen, speichern, „Modelle laden“. Der Hub legt Ergebnisse in der Library ab, mit Prompt, Modell, Anbieter und Referenzen in der Beschreibung. Ein neuer Anbieter ist ein neuer Ordner unter `providers/`; `start.command` bindet ihn automatisch ein, der Hub zeigt ihn ohne Änderung an.
 
@@ -79,7 +82,7 @@ Sie schreibt über `/creativity-launcher/api/` mit dem Schlüssel aus `~/.creati
 ## Tests
 
 ```bash
-node --test hub.test.mjs apps.test.mjs providers.test.mjs
+node --test hub.test.mjs apps.test.mjs providers.test.mjs playground.test.mjs
 ```
 
 Die macOS- und iOS-App für die Notizen selbst sind noch nicht implementiert.

@@ -20,7 +20,6 @@ const staticFiles = new Map([
   [base, ['index.html', 'text/html; charset=utf-8']],
   [base + '/', ['index.html', 'text/html; charset=utf-8']],
   [base + '/app.js', ['app.js', 'text/javascript; charset=utf-8']],
-  [base + '/ui.js', ['ui.js', 'text/javascript; charset=utf-8']],
   [base + '/app.css', ['app.css', 'text/css; charset=utf-8']],
 ])
 const buildTypes = { js: 'text/javascript', css: 'text/css', woff2: 'font/woff2', woff: 'font/woff', svg: 'image/svg+xml', png: 'image/png', json: 'application/json' }
@@ -85,7 +84,7 @@ async function assetFile(store, id) {
   throw new InputError(`„${asset.title}“ hat kein Bild.`)
 }
 
-function saveImage(store, file, { title, source = '', description, ideaId }) {
+function saveGeneratedMedia(store, file, { title, source = '', description, ideaId }) {
   const { id } = store.createAsset({
     library: 'generation', title, source, description, media: file.data.toString('base64'), mediaType: file.mediaType,
     ...(typeof ideaId === 'string' && ideaId ? { projectId: ideaId } : {}),
@@ -115,6 +114,17 @@ async function imageRoute(store, providers, method, path, req) {
       if (!query) throw new InputError('Gib einen Suchbegriff ein.')
       return providers.call(body.provider, 'search', { query })
     }
+    case 'reference-media': {
+      if (!['mesh', 'video'].includes(body.kind) || typeof body.assetId !== 'string') throw new InputError('Wähle ein Referenzbild und ein Ausgabeformat.')
+      if (typeof body.ideaId === 'string' && body.ideaId) store.project(body.ideaId)
+      const reference = store.asset(body.assetId).title
+      const image = await assetFile(store, body.assetId)
+      if (!image.mediaType.startsWith('image/')) throw new InputError('Für diese Ausgabe wird ein Referenzbild benötigt.')
+      const { model, file } = await providers.call(body.provider, 'referenceMedia', { kind: body.kind, image })
+      const title = body.kind === 'mesh' ? '3D-Model-Referenz' : 'Model-Referenzclip'
+      const asset = saveGeneratedMedia(store, file, { title, description: `Modell: ${model} über ${body.provider}\nReferenzen: ${reference}`, ideaId: body.ideaId })
+      return { assets: [asset] }
+    }
     case 'generate': {
       const prompt = typeof body.prompt === 'string' ? body.prompt.trim().slice(0, 8000) : ''
       if (!prompt) throw new InputError('Schreib einen Prompt.')
@@ -125,7 +135,7 @@ async function imageRoute(store, providers, method, path, req) {
       const input = { model: typeof body.model === 'string' ? body.model : '', prompt, references, aspect: typeof body.aspect === 'string' ? body.aspect : 'auto' }
       const results = await Promise.all(Array.from({ length: count }, () => providers.call(body.provider, 'generate', input)))
       const description = `Prompt: ${prompt}\nModell: ${input.model || 'Standard'} über ${body.provider}` + (names.length ? `\nReferenzen: ${names.join(', ')}` : '')
-      const assets = results.flatMap(result => result.images).map(file => saveImage(store, file, { title: prompt.slice(0, 80), description, ideaId: body.ideaId }))
+      const assets = results.flatMap(result => result.images).map(file => saveGeneratedMedia(store, file, { title: typeof body.title === 'string' && body.title.trim() ? body.title.trim() : prompt.slice(0, 80), description, ideaId: body.ideaId }))
       return { assets, credits: results.reduce((sum, result) => sum + (result.credits ?? 0), 0) }
     }
     case 'remove-background': {
@@ -135,7 +145,7 @@ async function imageRoute(store, providers, method, path, req) {
       const title = typeof body.title === 'string' && body.title.trim() ? body.title.trim() : 'Bild'
       const origin = httpUrl(body.source) || source.url || ''
       const result = await providers.call(body.provider, 'removeBackground', { image: source })
-      const asset = saveImage(store, result.image, { title: 'Freigestellt: ' + title, source: origin, description: `Freigestellt über ${body.provider}.${origin ? '\nQuelle: ' + origin : ''}`, ideaId: body.ideaId })
+      const asset = saveGeneratedMedia(store, result.image, { title: 'Freigestellt: ' + title, source: origin, description: `Freigestellt über ${body.provider}.${origin ? '\nQuelle: ' + origin : ''}`, ideaId: body.ideaId })
       return { asset, credits: result.credits ?? 0 }
     }
     default:

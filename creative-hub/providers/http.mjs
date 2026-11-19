@@ -1,7 +1,7 @@
 /** Fetch helpers shared by provider plugins. Every failure becomes a readable `ProviderError`. */
 import { createHash } from 'node:crypto'
 import { ProviderError } from '../providers.mjs'
-import { mediaTypeOf } from '../store.mjs'
+import { mediaLimit, mediaTypeOf } from '../store.mjs'
 
 /**
  * @param {string} service name used in error messages.
@@ -23,7 +23,7 @@ function connectFailure(cause) {
 export async function request(service, url, { timeout = 120000, ...options } = {}) {
   let response
   try {
-    response = await fetch(url, { ...options, signal: AbortSignal.timeout(timeout), redirect: 'follow' })
+    response = await fetch(url, { redirect: 'follow', ...options, signal: AbortSignal.timeout(timeout) })
   } catch (error) {
     throw new ProviderError(error.name === 'TimeoutError' ? `${service} hat nicht rechtzeitig geantwortet.` : `${service} ist nicht erreichbar (${new URL(url).host}): ${connectFailure(error.cause)}`)
   }
@@ -35,17 +35,26 @@ export async function request(service, url, { timeout = 120000, ...options } = {
   return response
 }
 
-/** Downloads an http(s) or data URL into `{ mediaType, data }` (at most 12 MB, hub media types only). */
-export async function download(service, url) {
+/** Downloads an http(s) or data URL into `{ mediaType, data }` (bounded by the hub media limits). */
+export async function download(service, url, expectedType) {
+  const limit = mediaLimit(expectedType)
   let data
   if (url.startsWith('data:')) {
     const comma = url.indexOf(',')
     data = Buffer.from(url.slice(comma + 1), url.slice(0, comma).includes(';base64') ? 'base64' : 'utf8')
   } else {
-    data = Buffer.from(await (await request(service, url, { timeout: 120000 })).arrayBuffer())
+    const response = await request(service, url, { timeout: 120000 })
+    const chunks = []
+    let size = 0
+    for await (const chunk of response.body) {
+      size += chunk.length
+      if (size > limit) throw new ProviderError(`${service} hat eine zu große Datei geliefert.`)
+      chunks.push(chunk)
+    }
+    data = Buffer.concat(chunks, size)
   }
   const mediaType = mediaTypeOf(data)
-  if (!mediaType || data.length > 12 * 1024 * 1024) throw new ProviderError(`${service} hat keine nutzbare Bild- oder Videodatei geliefert.`)
+  if (!mediaType || data.length > limit || (expectedType ? mediaType !== expectedType : mediaType === 'model/gltf-binary')) throw new ProviderError(`${service} hat keine nutzbare Mediendatei geliefert.`)
   return { mediaType, data }
 }
 

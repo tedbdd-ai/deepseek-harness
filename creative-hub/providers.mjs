@@ -16,10 +16,16 @@
  *     one call yields the images of one request; `references` are `[{ mediaType, data, url? }]`
  *   - `removeBackground(env, { image })` → `{ image: { mediaType, data }, credits? }`
  *   - `search(env, { query })` → `[{ title, pageUrl, imageUrl, thumbnailUrl, domain }]`
+ *   - `resolveModels(env, { url })` → Playground models read from a model page:
+ *     `[{ id, title, provider, providerTitle, page, variants: { text?, edit? } }]`, each variant
+ *     `{ model, fields }` with `fields` from `providers/schema.mjs`
+ *   - `referenceMedia(env, { kind, image })` → `{ file: { mediaType, data }, model }` for model clips and GLB files
+ *   - `runModel(env, { variant, input, images })` → `{ images, credits? }`; `input` holds only fields
+ *     the variant declares, `images` are reference files `[{ mediaType, data, url? }]`
  */
 import { InputError, idPattern } from './store.mjs'
 
-const actions = ['models', 'generate', 'removeBackground', 'search']
+const actions = ['models', 'generate', 'removeBackground', 'search', 'resolveModels', 'runModel', 'referenceMedia']
 const credentialName = /^[A-Z_][A-Z0-9_]{0,127}$/
 
 /** Thrown by providers for failures the user can fix or should read (missing key, quota, upstream error). */

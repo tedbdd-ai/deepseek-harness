@@ -41,8 +41,12 @@ const formats = {
   'image/webp': bytes => bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP',
   'image/gif': bytes => ['GIF87a', 'GIF89a'].includes(bytes.toString('ascii', 0, 6)),
   'video/mp4': bytes => bytes.toString('ascii', 4, 8) === 'ftyp',
+  'model/gltf-binary': bytes => bytes.length >= 20 && bytes.toString('ascii', 0, 4) === 'glTF' &&
+    bytes.readUInt32LE(4) === 2 && bytes.readUInt32LE(8) === bytes.length,
   'video/webm': bytes => bytes.subarray(0, 4).equals(Buffer.from('1a45dfa3', 'hex')),
 }
+
+export const mediaLimit = mediaType => (mediaType === 'model/gltf-binary' || mediaType?.startsWith('video/') ? 80 : 12) * 1024 * 1024
 
 /** @returns the hub media type of `bytes` by file signature, or `undefined`. */
 export function mediaTypeOf(bytes) {
@@ -218,8 +222,8 @@ export function openStore(filename) {
       if (body.media) {
         mediaType = body.mediaType
         media = typeof body.media === 'string' ? Buffer.from(body.media, 'base64') : Buffer.alloc(0)
-        if (media.length > 12 * 1024 * 1024 || !Object.hasOwn(formats, mediaType) || !formats[mediaType](media)) {
-          throw new InputError('Erlaubt sind PNG, JPEG, WebP, GIF, MP4 und WebM bis 12 MB.')
+        if (!Object.hasOwn(formats, mediaType) || media.length > mediaLimit(mediaType) || !formats[mediaType](media)) {
+          throw new InputError('Erlaubt sind PNG, JPEG, WebP und GIF bis 12 MB sowie MP4, WebM und GLB bis 80 MB.')
         }
       }
       if (library === 'clips' && !source && !description && !media) throw new InputError('Gib eine gültige URL, einen Notiztext oder eine Datei an.')

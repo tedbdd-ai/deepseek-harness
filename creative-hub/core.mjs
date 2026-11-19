@@ -18,7 +18,9 @@ export const name = 'creativity-core'
  * Creates the app registry.
  * @param {typeof defaultSnapshots} snapshots templates for new ideas.
  * @returns {{
- *   register(app: { id: string, title: string, icon: string, module: string, description?: string }): () => void,
+ *   register(app: { id: string, title: string, icon: string, module: string, description?: string, page?: boolean, view?: boolean }): () => void,
+ *   `page` lists the app in the sidebar; with `view` its module exports `renderView(shared)` and draws the whole view,
+ *   otherwise `render(container, context)` below the page title.
  *   apps(): object[], snapshots(): object[], snapshot(id: string): object | undefined
  * }}
  *   `icon` is an SVG path for a 24×24 stroke icon; `module` is the same-origin URL of an
@@ -34,7 +36,7 @@ export function createAppRegistry(snapshots) {
       if (!idPattern.test(app.id)) throw new Error(`Ungültige App-ID "${app.id}".`)
       if (!app.module.startsWith('/')) throw new Error(`App "${app.id}" braucht ein Modul unter einem lokalen Pfad.`)
       if (apps.has(app.id)) throw new Error(`App "${app.id}" ist bereits registriert.`)
-      const entry = { id: app.id, title: app.title, icon: app.icon, module: app.module, description: app.description ?? '' }
+      const entry = { id: app.id, title: app.title, icon: app.icon, module: app.module, description: app.description ?? '', ...(app.page && { page: true }), ...(app.view && { view: true }) }
       apps.set(app.id, entry)
       return () => { if (apps.get(app.id) === entry) apps.delete(app.id) }
     },

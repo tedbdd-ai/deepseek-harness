@@ -1,6 +1,7 @@
 /**
  * Builds the Cordis plugin of one hub app. The app's browser module is the file
- * `block.js` beside its `host.mjs`; it is served at `/creativity-apps/<id>/block.js`
+ * `block.js` beside its `host.mjs`; it is served at `/creativity-apps/<id>/block.js`, and other
+ * `.js`/`.mjs` files beside it (except `host.mjs`) can be imported from it
  * and must export `render(container, context)` (see apps/README.md).
  */
 import { readFile } from 'node:fs/promises'
@@ -23,8 +24,10 @@ export function defineApp(app, hostUrl) {
         auth: 'required',
         handler: async (req, res) => {
           const { send, json } = responder(req, res)
-          if ((req.method === 'GET' || req.method === 'HEAD') && new URL(req.url, 'http://localhost').pathname === module) {
-            return send(200, 'text/javascript; charset=utf-8', await readFile(new URL('./block.js', hostUrl)))
+          // block.js and the browser modules it imports (`./name.mjs`) are served from the app folder; host.mjs stays private.
+          const file = new RegExp(`^/creativity-apps/${app.id}/([\\w-]+\\.m?js)$`).exec(new URL(req.url, 'http://localhost').pathname)?.[1]
+          if ((req.method === 'GET' || req.method === 'HEAD') && file && file !== 'host.mjs') {
+            try { return send(200, 'text/javascript; charset=utf-8', await readFile(new URL('./' + file, hostUrl))) } catch { /* Datei gibt es nicht: unten 404. */ }
           }
           json({ error: 'Seite nicht gefunden.' }, 404)
         },

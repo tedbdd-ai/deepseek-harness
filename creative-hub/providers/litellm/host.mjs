@@ -42,7 +42,11 @@ export function apply(ctx, config = {}) {
       return [...new Set([preferred, ...ids.sort()])].filter(Boolean).map(id => ({ id, title: id }))
     },
     async generate(env, { model, prompt, references, aspect }) {
-      const content = [{ type: 'text', text: prompt }, ...references.map(file => ({ type: 'image_url', image_url: { url: dataUrl(file) } }))]
+      const content = [{ type: 'text', text: prompt }]
+      for (const file of references) {
+        if (file.referenceLabel) content.push({ type: 'text', text: file.referenceLabel + ':' })
+        content.push({ type: 'image_url', image_url: { url: dataUrl(file) } })
+      }
       const body = {
         model: model || env.settings.defaultModel,
         messages: [{ role: 'user', content }],
