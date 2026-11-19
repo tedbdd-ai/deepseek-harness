@@ -27,19 +27,21 @@ const roles = new Map(Object.entries({
 const garmentRoles = [...roles.keys()].filter(role => role.startsWith('Kleidung') || role === 'Material & Farbe' || role === 'Muster & Details')
 
 /** Situations Scrabble draws from, sent in English. */
+// Each situation names something the person does there: a bare place reads as a backdrop and the
+// models paste the person in front of it like wallpaper.
 export const situations = new Map(Object.entries({
-  'Halloween-Party im Altbau': 'a Halloween party in an old apartment',
-  'Backstage im Club': 'backstage at a club',
-  'Nasse Straße bei Nacht': 'a wet street at night',
-  'Hotellobby der 70er': 'a 1970s hotel lobby',
-  'Industriehalle im Nebel': 'a hazy industrial hall',
-  'Fotostudio': 'a photo studio',
-  'Dachterrasse zur blauen Stunde': 'a rooftop at dusk',
-  'Spiegelsaal': 'a hall of mirrors',
-  'Laufsteg': 'a runway show',
-  'U-Bahnhof': 'an underground station',
-  'Treppenhaus': 'an old staircase',
-  'Galerie-Eröffnung': 'a gallery opening',
+  'Halloween-Party im Altbau': 'at a Halloween party in an old apartment, talking with guests in the hallway',
+  'Backstage im Club': 'backstage at a club, leaning against a concrete wall between cables and cases',
+  'Nasse Straße bei Nacht': 'on a wet street at night, stepping off the curb as a car passes',
+  'Hotellobby der 70er': 'in a 1970s hotel lobby, waiting at the reception desk',
+  'Industriehalle im Nebel': 'in a hazy industrial hall, walking between steel pillars',
+  'Fotostudio': 'in a photo studio between shots, adjusting a glove next to the lights',
+  'Dachterrasse zur blauen Stunde': 'on a rooftop at dusk, sitting on the parapet with the city behind',
+  'Spiegelsaal': 'in a hall of mirrors, checking the outfit in one of the mirrors',
+  'Laufsteg': 'on a runway, mid-stride at the end of the catwalk',
+  'U-Bahnhof': 'in an underground station, stepping out of a train',
+  'Treppenhaus': 'on an old staircase, walking down with a hand on the railing',
+  'Galerie-Eröffnung': 'at a gallery opening, standing with a glass among other guests',
 }))
 
 /** Short English names of the roles, used to label each attached image. */
@@ -81,7 +83,7 @@ export function compileDirection(prompt, studio, ids, positions, model, provider
   if (remix) studio = { ...studio, ...remix, roles: { ...studio.roles, ...remix.roles } }
   const look = remix ?? (Array.isArray(studio?.looks) ? studio.looks[index] : undefined)
   const situation = situations.get(studio?.situation) ?? (typeof studio?.situation === 'string' ? studio.situation.slice(0, 300) : '')
-  if (situation) lines.push('Setting: ' + situation + '.')
+  if (situation) lines.push('The person is ' + situation + '.')
   for (const [key, label] of Object.entries({ setting: 'Scene', pose: 'Action and pose', angle: 'Camera angle', lens: 'Lens', light: 'Lighting' })) {
     const value = look?.[key] ?? studio?.[key]
     if (typeof value === 'string' && value.trim()) lines.push(label + ': ' + (english.get(value.trim()) ?? value.trim().slice(0, 500)))
@@ -90,6 +92,9 @@ export function compileDirection(prompt, studio, ids, positions, model, provider
     // Models disagree most on who is in the picture; name the main subjects explicitly.
     const people = ids.map((id, i) => [studio?.roles?.[id], i + 1]).filter(([role]) => role === 'Identität' || role === 'Ausgangsbild').map(([, n]) => n)
     if (people.length === 1) lines.push(`One main person: the person from Image ${people[0]}.`)
+    // People from one image and a place from another (or a drawn situation) tend to look pasted on.
+    if (people.length && (situation || ids.some(id => studio?.roles?.[id] === 'Ort'))) lines.push('Photograph the person inside the scene, not in front of it: the same light, colour and shadows fall on the person and the surroundings, perspective and scale match, the person touches or uses the space (floor contact, leaning, sitting), and focus falls off naturally. It should look like one candid frame from a real shoot, not a composite.')
+    if (people.length) lines.push('Natural photo look: real skin texture, true colours, no glossy retouching, no HDR or plastic sheen.')
     else if (people.length > 1) lines.push(`Main subjects: ${people.length} different people, one each from ${people.map(n => 'Image ' + n).join(', ')}. Keep every person distinct; never merge their faces.`)
     const parts = ids.filter(id => garmentRoles.includes(studio?.roles?.[id]))
     if (parts.length > 1) lines.push('Mix these pieces into one outfit; the other people and backgrounds in those images are not part of the picture.')
