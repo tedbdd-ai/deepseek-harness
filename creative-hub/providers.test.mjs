@@ -230,3 +230,22 @@ test('fal converts a saved fashion image to a downloadable GLB and a Library vid
   assert.match(submissions[1].url, /kling-video.*image-to-video$/)
   assert.equal(submissions[1].body.duration, '5')
 })
+
+test('Re-encoded copies with slightly different pixels count as the same image', async () => {
+  const { deflateSync } = await import('node:zlib')
+  const { sameImage } = await import('./providers/http.mjs')
+  const crc = buf => { let c = ~0; for (const byte of buf) { c ^= byte; for (let k = 0; k < 8; k++) c = c & 1 ? (c >>> 1) ^ 0xedb88320 : c >>> 1 } return ~c >>> 0 }
+  const chunk = (type, body) => { const head = Buffer.alloc(8); head.writeUInt32BE(body.length); head.write(type, 4, 'ascii'); const tail = Buffer.alloc(4); tail.writeUInt32BE(crc(Buffer.concat([Buffer.from(type), body]))); return Buffer.concat([head, body, tail]) }
+  const makePng = pixel => {
+    const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(64, 0); ihdr.writeUInt32BE(64, 4); ihdr[8] = 8; ihdr[9] = 2
+    const rows = []
+    for (let y = 0; y < 64; y++) { const row = [0]; for (let x = 0; x < 64; x++) row.push(...pixel(x, y)); rows.push(Buffer.from(row)) }
+    return Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(Buffer.concat(rows))), chunk('IEND', Buffer.alloc(0))])
+  }
+  const gradient = (x, y) => [x * 4, y * 4, 128]
+  const original = makePng(gradient)
+  const copy = makePng((x, y) => x === 10 && y === 10 ? [0, 0, 0] : (x + y) % 3 ? gradient(x, y) : gradient(x, y).map(v => Math.min(255, v + 2)))
+  const other = makePng((x, y) => [255 - x * 4, 255 - y * 4, 20])
+  assert.equal(sameImage(original, copy), true)
+  assert.equal(sameImage(original, other), false)
+})

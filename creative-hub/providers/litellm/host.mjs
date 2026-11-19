@@ -6,7 +6,7 @@
  * References are sent as image parts. The model list comes from the proxy's `/v1/models`.
  */
 import { ProviderError } from '../../providers.mjs'
-import { dataUrl, download, imageFingerprint, request } from '../http.mjs'
+import { dataUrl, download, request, sameImage } from '../http.mjs'
 
 export const name = 'creativity-provider-litellm'
 export const inject = ['creativeProviders']
@@ -64,10 +64,11 @@ export function apply(ctx, config = {}) {
         throw new ProviderError(`Das Modell ${body.model} hat kein Bild geliefert.${text ? ' Antwort: ' + text : ''}`)
       }
       // Gemini image models behind LiteLLM may repeat an image in `images`, each copy with its own
-      // C2PA manifest; keep each picture once.
+      // C2PA manifest and slightly different pixels; keep each picture once.
       const files = await Promise.all([...new Set(urls)].map(url => download('LiteLLM', url)))
-      const seen = new Set()
-      return { images: files.filter(file => { const key = imageFingerprint(file.data); return !seen.has(key) && seen.add(key) }) }
+      const kept = []
+      for (const file of files) if (!kept.some(other => sameImage(other.data, file.data))) kept.push(file)
+      return { images: kept }
     },
   }))
 }

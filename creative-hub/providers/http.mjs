@@ -1,5 +1,6 @@
 /** Fetch helpers shared by provider plugins. Every failure becomes a readable `ProviderError`. */
 import { createHash } from 'node:crypto'
+import { inflateSync } from 'node:zlib'
 import { ProviderError } from '../providers.mjs'
 import { mediaLimit, mediaTypeOf } from '../store.mjs'
 
@@ -80,4 +81,76 @@ export function imageFingerprint(data) {
   }
   const scan = data[0] === 0xff && data[1] === 0xd8 ? data.indexOf(Buffer.from([0xff, 0xda])) : -1
   return hash.update(scan > 0 ? data.subarray(scan) : data).digest('hex')
+}
+
+/**
+ * A 32×32 grayscale thumbnail of an 8-bit RGB/RGBA PNG, or `null` for other formats.
+ * @param {Buffer} data image bytes.
+ * @returns {{ width: number, height: number, cells: Float64Array } | null}
+ */
+function pngThumbnail(data) {
+  if (!data.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'))) return null
+  let width = 0, height = 0, depth = 0, type = 0, interlace = 0
+  const parts = []
+  for (let offset = 8; offset + 12 <= data.length;) {
+    const length = data.readUInt32BE(offset)
+    const name = data.toString('ascii', offset + 4, offset + 8)
+    const body = data.subarray(offset + 8, offset + 8 + length)
+    if (name === 'IHDR') { width = body.readUInt32BE(0); height = body.readUInt32BE(4); depth = body[8]; type = body[9]; interlace = body[12] }
+    if (name === 'IDAT') parts.push(body)
+    offset += 12 + length
+  }
+  const channels = type === 2 ? 3 : type === 6 ? 4 : 0
+  if (depth !== 8 || !channels || interlace || !width || !height) return null
+  let raw
+  try { raw = inflateSync(Buffer.concat(parts)) } catch { return null /* Beschädigte Bilddaten: nur exakter Vergleich. */ }
+  const stride = width * channels
+  if (raw.length < (stride + 1) * height) return null
+  const size = 32
+  const cells = new Float64Array(size * size)
+  const counts = new Uint32Array(size * size)
+  let previous = Buffer.alloc(stride)
+  for (let y = 0; y < height; y++) {
+    const filter = raw[y * (stride + 1)]
+    const line = Buffer.from(raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1)))
+    for (let i = 0; i < stride; i++) {
+      const left = i >= channels ? line[i - channels] : 0
+      const up = previous[i]
+      const corner = i >= channels ? previous[i - channels] : 0
+      let add = 0
+      if (filter === 1) add = left
+      else if (filter === 2) add = up
+      else if (filter === 3) add = (left + up) >> 1
+      else if (filter === 4) { const p = left + up - corner, pa = Math.abs(p - left), pb = Math.abs(p - up), pc = Math.abs(p - corner); add = pa <= pb && pa <= pc ? left : pb <= pc ? up : corner }
+      line[i] = (line[i] + add) & 255
+    }
+    const row = Math.min(size - 1, Math.floor(y * size / height))
+    for (let x = 0; x < width; x++) {
+      const cell = row * size + Math.min(size - 1, Math.floor(x * size / width))
+      const i = x * channels
+      cells[cell] += (line[i] * 299 + line[i + 1] * 587 + line[i + 2] * 114) / 1000
+      counts[cell]++
+    }
+    previous = line
+  }
+  for (let i = 0; i < cells.length; i++) cells[i] /= counts[i] || 1
+  return { width, height, cells }
+}
+
+/**
+ * Whether two image files show the same picture: identical pixels, or for PNGs a difference below
+ * one brightness level on average at 32×32 (Gemini behind LiteLLM returns re-encoded copies whose
+ * pixels differ slightly).
+ * @param {Buffer} a image bytes.
+ * @param {Buffer} b image bytes.
+ * @returns {boolean}
+ */
+export function sameImage(a, b) {
+  if (imageFingerprint(a) === imageFingerprint(b)) return true
+  const x = pngThumbnail(a)
+  const y = pngThumbnail(b)
+  if (!x || !y || x.width !== y.width || x.height !== y.height) return false
+  let total = 0
+  for (let i = 0; i < x.cells.length; i++) total += Math.abs(x.cells[i] - y.cells[i])
+  return total / x.cells.length < 1
 }
