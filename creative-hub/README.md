@@ -22,6 +22,8 @@ Snapshots stehen in `snapshots.mjs`. Am Eintrag `creativity-core` ersetzt `confi
 
 ## Eine neue App bauen
 
+Vor jeder neuen Funktion gilt der Skill `atelier-plugin` (`.agents/skills/atelier-plugin/SKILL.md`): welche Schnittstelle, welche Art Plugin, die Regeln für Effekte, Lebensdauer, Browser-Module, bezahlte Aufrufe und Design, dazu die Prüfliste.
+
 1. Lege `apps/<id>/host.mjs` an: `export const { name, inject, apply } = defineApp({ id, title, icon, description }, import.meta.url)`. `icon` ist ein SVG-Pfad für ein 24×24-Strich-Icon.
 2. Lege daneben `apps/<id>/block.js` an. Das ES-Modul exportiert `render(container, context)` und darf eine Aufräumfunktion zurückgeben.
 3. `context` enthält `idea` (`id`, `title`), `data` (das gespeicherte JSON-Objekt dieser App für diese Idee, anfangs `{}`), `save(data)` (ersetzt die Daten, Revisionen verwaltet der Hub), `api(path, method, body)` für die Hub-API, `status(text)` und `ui` mit den Bausteinen `element`, `icon`, `iconButton`, `rowsEditor`, `assetMedia` und `assetTile` aus `web/ui.js`.
