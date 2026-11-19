@@ -12,33 +12,34 @@ const roles = new Map(Object.entries({
   Ort: 'Take only the environment, architecture and spatial layout.',
   Licht: 'Match light direction, softness, colour temperature and shadows only.',
   Pose: 'Use only body orientation, gesture, balance and gaze.',
-  // Garment parts: each source supplies exactly one piece, so several images combine into one new outfit.
-  'Kleidung: Oberteil': 'Take ONLY the top (shirt, blouse, bodice or corset) from this image: cut, material, colour and details. Ignore the person, the other clothes and the background.',
-  'Kleidung: Unterteil': 'Take ONLY the bottom (trousers, skirt or leggings) from this image: cut, length, material, colour and details. Ignore everything else in it.',
-  'Kleidung: Jacke/Mantel': 'Take ONLY the outer layer (jacket, coat or cape) from this image: cut, volume, length, material and details. Ignore everything else in it.',
-  'Kleidung: Einteiler': 'Take ONLY the one-piece garment (catsuit, dress or overall) from this image: cut, coverage, material, colour and details. Ignore everything else in it.',
-  'Kleidung: Schuhe': 'Take ONLY the footwear from this image. Ignore everything else in it.',
-  'Kleidung: Accessoire': 'Take ONLY one accessory from this image (gloves, hood, mask, belt, harness, jewellery or bag). Ignore everything else in it.',
-  'Material & Farbe': 'Take ONLY the material, surface finish and colour palette of the clothing in this image and apply them to the new outfit. Do not copy the cut of its garments.',
-  'Muster & Details': 'Take ONLY the trims, seams, hardware, buckles, ruffles or prints of the clothing in this image and work them into the new outfit. Do not copy whole garments.',
+  // Garment parts: each source lends one piece. Short and loose on purpose: long "ONLY … ignore …"
+  // instructions made Scrabble results look staged (compare runs of 19.11., 12:25 vs. 15:45).
+  'Kleidung: Oberteil': 'Use its top.',
+  'Kleidung: Unterteil': 'Use its trousers or skirt.',
+  'Kleidung: Jacke/Mantel': 'Use its jacket, coat or cape.',
+  'Kleidung: Einteiler': 'Use its catsuit, dress or overall.',
+  'Kleidung: Schuhe': 'Use its shoes.',
+  'Kleidung: Accessoire': 'Use one accessory from it.',
+  'Material & Farbe': 'Use its material and colours.',
+  'Muster & Details': 'Use its trims and details.',
 }))
 
 const garmentRoles = [...roles.keys()].filter(role => role.startsWith('Kleidung') || role === 'Material & Farbe' || role === 'Muster & Details')
 
 /** Situations Scrabble draws from, sent in English. */
 export const situations = new Map(Object.entries({
-  'Halloween-Party im Altbau': 'a Halloween party in a candle-lit Berlin Altbau apartment with guests in costume',
-  'Backstage im Club': 'backstage in a techno club, concrete walls, cables, a door to the dance floor',
-  'Nasse Straße bei Nacht': 'a rain-soaked city street at night with reflections on the asphalt',
-  'Hotellobby der 70er': 'a 1970s hotel lobby with brass, velvet and warm lamps',
-  'Industriehalle im Nebel': 'an empty industrial hall with haze and shafts of light',
-  'Fotostudio': 'a professional photo studio with a seamless backdrop',
-  'Dachterrasse zur blauen Stunde': 'a rooftop terrace at blue hour above the city',
-  'Spiegelsaal': 'a baroque hall of mirrors with tall windows',
-  'Laufsteg': 'a fashion show runway with an audience in the dark',
-  'U-Bahnhof': 'an empty underground station with tiled walls and fluorescent light',
-  'Treppenhaus': 'a grand old staircase with wrought-iron railings',
-  'Galerie-Eröffnung': 'a contemporary art gallery opening with white walls and guests',
+  'Halloween-Party im Altbau': 'a Halloween party in an old apartment',
+  'Backstage im Club': 'backstage at a club',
+  'Nasse Straße bei Nacht': 'a wet street at night',
+  'Hotellobby der 70er': 'a 1970s hotel lobby',
+  'Industriehalle im Nebel': 'a hazy industrial hall',
+  'Fotostudio': 'a photo studio',
+  'Dachterrasse zur blauen Stunde': 'a rooftop at dusk',
+  'Spiegelsaal': 'a hall of mirrors',
+  'Laufsteg': 'a runway show',
+  'U-Bahnhof': 'an underground station',
+  'Treppenhaus': 'an old staircase',
+  'Galerie-Eröffnung': 'a gallery opening',
 }))
 
 /** Short English names of the roles, used to label each attached image. */
@@ -80,7 +81,7 @@ export function compileDirection(prompt, studio, ids, positions, model, provider
   if (remix) studio = { ...studio, ...remix, roles: { ...studio.roles, ...remix.roles } }
   const look = remix ?? (Array.isArray(studio?.looks) ? studio.looks[index] : undefined)
   const situation = situations.get(studio?.situation) ?? (typeof studio?.situation === 'string' ? studio.situation.slice(0, 300) : '')
-  if (situation) lines.push('Situation: ' + situation + '.')
+  if (situation) lines.push('Setting: ' + situation + '.')
   for (const [key, label] of Object.entries({ setting: 'Scene', pose: 'Action and pose', angle: 'Camera angle', lens: 'Lens', light: 'Lighting' })) {
     const value = look?.[key] ?? studio?.[key]
     if (typeof value === 'string' && value.trim()) lines.push(label + ': ' + (english.get(value.trim()) ?? value.trim().slice(0, 500)))
@@ -88,10 +89,10 @@ export function compileDirection(prompt, studio, ids, positions, model, provider
   if (ids.length) {
     // Models disagree most on who is in the picture; name the main subjects explicitly.
     const people = ids.map((id, i) => [studio?.roles?.[id], i + 1]).filter(([role]) => role === 'Identität' || role === 'Ausgangsbild').map(([, n]) => n)
-    if (people.length === 1) lines.push(`Main subject: exactly one person, the person from Image ${people[0]}. Any other people are background only unless the request explicitly asks for them.`)
+    if (people.length === 1) lines.push(`One main person: the person from Image ${people[0]}.`)
     else if (people.length > 1) lines.push(`Main subjects: ${people.length} different people, one each from ${people.map(n => 'Image ' + n).join(', ')}. Keep every person distinct; never merge their faces.`)
     const parts = ids.filter(id => garmentRoles.includes(studio?.roles?.[id]))
-    if (parts.length > 1) lines.push('Combine the garment sources into ONE coherent new outfit worn by the main subject. It must look designed as a whole, with consistent materials and fit, not like a collage. Each source contributes only its assigned part.')
+    if (parts.length > 1) lines.push('Mix these pieces into one outfit; the other people and backgrounds in those images are not part of the picture.')
     lines.push('Image numbers refer to the attached files in the order supplied. Follow the purpose given to each image in the request.')
     ids.forEach((id, i) => {
       const role = studio?.roles?.[id]

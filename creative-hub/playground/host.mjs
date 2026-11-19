@@ -51,9 +51,23 @@ export function explain(message) {
 /**
  * @param {ReturnType<typeof import('../store.mjs').openStore>} store
  * @param {ReturnType<typeof import('../providers.mjs').createProviderRegistry>} providers
+ * @param {{ concurrency?: Record<string, number>, retryDelays?: number[] }} options parallel jobs per provider
+ *   (default 3; LiteLLM 1, because the Gemini quota behind it answers parallel requests with 429) and the
+ *   waits before retrying a 429 (default 10 s and 30 s). A 429 is rejected before any work, so a retry costs nothing.
  * @returns the Playground operations used by the HTTP handler and the tests.
  */
-export function createPlayground(store, providers) {
+export function createPlayground(store, providers, { concurrency = { litellm: 1 }, retryDelays = [10000, 30000] } = {}) {
+  const lanes = new Map()
+  /** Runs `task` when its provider has a free slot. */
+  function inLane(provider, task) {
+    const lane = lanes.get(provider) ?? { active: 0, waiting: [] }
+    lanes.set(provider, lane)
+    return new Promise((resolve, reject) => {
+      const go = () => { lane.active++; task().then(resolve, reject).finally(() => { lane.active--; lane.waiting.shift()?.() }) }
+      if (lane.active < (concurrency[provider] ?? 3)) go(); else lane.waiting.push(go)
+    })
+  }
+  const isQuota = error => /\b429\b|kontingent|rate.?limit|resource.?exhausted/i.test(error?.message ?? '')
   const models = () => store.settings('playground:models').list ?? []
   const saveModels = list => store.setSettings('playground:models', { list })
   const runs = () => store.settings('playground:runs').list ?? []
@@ -82,9 +96,16 @@ export function createPlayground(store, providers) {
     try {
       // Chat-style providers place this label right before each image (Fit-Checker: role next to the image, not only in a list).
       const files = images.map((item, i) => { const role = roleNames[run.studio?.roles?.[run.referenceIds[i]]]; return { ...item.file, referenceLabel: `Image ${i + 1}${role ? ` (${role})` : ''}` } })
-      const result = variant.catalog
-        ? await providers.call(model.provider, 'generate', { model: variant.model, prompt: input.prompt, aspect: input.aspect_ratio ?? 'auto', references: files })
-        : await providers.call(model.provider, 'runModel', { variant, input, images: files })
+      const call = () => variant.catalog
+        ? providers.call(model.provider, 'generate', { model: variant.model, prompt: input.prompt, aspect: input.aspect_ratio ?? 'auto', references: files })
+        : providers.call(model.provider, 'runModel', { variant, input, images: files })
+      let result
+      for (let attempt = 0; ; attempt++) {
+        try { result = await inLane(model.provider, call); break } catch (error) {
+          if (!isQuota(error) || attempt >= retryDelays.length || stopped) throw error
+          await new Promise(resolve => setTimeout(resolve, retryDelays[attempt]))
+        }
+      }
       const description = [`Prompt: ${run.prompt}`, `Modell: ${model.title} über ${model.providerTitle}`, input.prompt && input.prompt !== run.prompt ? `Bildregie: ${input.prompt}` : '', images.length ? `Referenzen: ${images.map(item => item.title).join(', ')}` : ''].filter(Boolean).join('\n')
       if (stopped) return
       const assetIds = result.images.map(file => store.createAsset({

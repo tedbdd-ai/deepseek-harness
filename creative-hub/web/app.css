@@ -175,7 +175,10 @@ dialog .row { display: flex; gap: var(--s-2); justify-content: flex-end; }
 .pg-fig .meta { font-size: 12px; }
 .tile-r { position: relative; aspect-ratio: 1; border-radius: var(--r-tile); overflow: hidden; background: var(--c-fill); outline: none; }
 .tile-r img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.tile-acts { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+.tile-r img { cursor: zoom-in; }
+.tile-acts { position: absolute; left: var(--s-2); right: var(--s-2); bottom: var(--s-2); display: flex; flex-wrap: wrap; gap: var(--s-2); justify-content: flex-end; opacity: 0; transition: opacity var(--dur) ease; }
+.tile-r:hover .tile-acts, .tile-r:focus-within .tile-acts { opacity: 1; }
+.tile-acts .icon { background: rgba(17, 17, 18, .82); border-color: rgba(255, 255, 255, .16); }
 .pg-wait, .pg-fail { aspect-ratio: 1; border-radius: var(--r-tile); display: flex; flex-direction: column; justify-content: center; gap: var(--s-3); padding: var(--s-4); }
 .pg-wait { background: var(--c-fill-2); align-items: center; text-align: center; font-size: 13px; color: var(--c-ink-2); }
 .pg-fail { border: 1px solid var(--c-line); background: var(--c-panel); font-size: 13px; line-height: 18px; color: var(--c-ink-2); }
@@ -229,10 +232,13 @@ dialog .row { display: flex; gap: var(--s-2); justify-content: flex-end; }
 #pg-model-trigger span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 #pg-model-trigger svg { flex: none; }
 
-.image-frame { display: flex; flex-direction: column; gap: var(--s-1); min-width: 0; }
+.image-frame { position: relative; display: flex; flex-direction: column; gap: var(--s-1); min-width: 0; }
 .image-frame > .pick, .image-frame > .ref-thumb { display: block; }
 .image-frame > .pick { width: 100%; }
-.image-frame > .image-expand { align-self: flex-end; }
+.image-frame > .image-expand { position: absolute; top: var(--s-2); right: var(--s-2); opacity: 0; transition: opacity var(--dur) ease; background: rgba(17, 17, 18, .82); border-color: rgba(255, 255, 255, .16); }
+.image-frame:hover > .image-expand, .image-frame:focus-within > .image-expand { opacity: 1; }
+.image-frame > .ref-thumb ~ .image-expand, .image-frame > .styler-thumb ~ .image-expand { display: none; }
+@media (hover: none) { .image-frame > .image-expand, .tile-acts { opacity: 1; } }
 .image-expand.icon::after, .image-viewer-close.icon::after, .tile-acts .icon::after { inset: 0; }
 .ref-thumb + .image-expand.icon { width: 26px; height: 26px; }
 .ref-thumb + .image-expand.icon svg { width: 14px; height: 14px; }

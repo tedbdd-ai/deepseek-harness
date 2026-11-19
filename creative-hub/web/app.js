@@ -128,7 +128,8 @@ function fullscreenButton(url, title) {
 function withFullscreen(item, content) {
   const url = mediaUrl(item)
   if (!url || (item.media_type && !item.media_type.startsWith('image/'))) return content
-  return el('div', { class: 'image-frame' }, content, fullscreenButton(url, item.title))
+  // The expand button sits on the image and appears on hover or focus; a double-click opens it too.
+  return el('div', { class: 'image-frame', ondblclick: e => { e.preventDefault(); openImage(url, item.title) } }, content, fullscreenButton(url, item.title))
 }
 
 function tile(item, onOpen, { caption = true } = {}) {
@@ -428,7 +429,7 @@ function providerCard(provider) {
 /* Routing */
 let activeLeave = null
 /** Hub building blocks handed to page plugins that render a whole view (e.g. the Playground). */
-const shared = { get $() { return $ }, API, api, chev, get currentRoute() { return currentRoute }, dateLabel, el, errorState, fullscreenButton, header, icon, icons, loading, media, refreshCounts, state, tile, timeLabel, toast, view, withFullscreen }
+const shared = { get $() { return $ }, openImage, API, api, chev, get currentRoute() { return currentRoute }, dateLabel, el, errorState, fullscreenButton, header, icon, icons, loading, media, refreshCounts, state, tile, timeLabel, toast, view, withFullscreen }
 const currentRoute = () => (location.hash.match(/^#\/([\w-]+)/)?.[1]) || 'sammlung'
 function route() {
   closeInspector()

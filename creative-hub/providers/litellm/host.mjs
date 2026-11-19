@@ -55,7 +55,7 @@ export function apply(ctx, config = {}) {
         ...(aspect && aspect !== 'auto' ? { extra_body: { generationConfig: { imageConfig: { aspectRatio: aspect } } } } : {}),
       }
       const response = await request('LiteLLM', endpoint(env.settings.baseURL, '/v1/chat/completions'), {
-        method: 'POST', headers: await headers(env), body: JSON.stringify(body), timeout: 180000,
+        method: 'POST', headers: await headers(env), body: JSON.stringify(body), timeout: 240000,
       })
       const message = (await response.json()).choices?.[0]?.message ?? {}
       const urls = (message.images ?? []).map(image => image?.image_url?.url).filter(url => typeof url === 'string')

@@ -2,11 +2,11 @@
  * Browser module of the Playground plugin, loaded by the hub as a page (`#/playground`).
  * The hub passes its shared building blocks through `renderView(ctx)`; the plugin owns this UI.
  */
-let $, API, api, chev, currentRoute, dateLabel, el, errorState, fullscreenButton, header, icon, icons, loading, media, refreshCounts, state, tile, timeLabel, toast, view, withFullscreen
+let $, openImage, API, api, chev, currentRoute, dateLabel, el, errorState, fullscreenButton, header, icon, icons, loading, media, refreshCounts, state, tile, timeLabel, toast, view, withFullscreen
 
 /** Called by the hub on every visit; renders the whole view. */
 export function renderView(ctx) {
-  ;({ '$': $, API, api, chev, currentRoute, dateLabel, el, errorState, fullscreenButton, header, icon, icons, loading, media, refreshCounts, state, tile, timeLabel, toast, view, withFullscreen } = ctx)
+  ;({ '$': $, openImage, API, api, chev, currentRoute, dateLabel, el, errorState, fullscreenButton, header, icon, icons, loading, media, refreshCounts, state, tile, timeLabel, toast, view, withFullscreen } = ctx)
   Object.assign(icons, icons2)
   return renderPlayground()
 }
@@ -199,7 +199,10 @@ function resultTile(run, result, id) {
       el('button', { type: 'button', class: 'icon', 'aria-label': 'Variante erzeugen', title: 'Variante erzeugen', onclick: () => { pg.studio = { ...run.studio, roles: { [id]: 'Ausgangsbild' }, referenceLabels: { [id]: 1 } }; pg.modelParams = structuredClone(run.modelParams ?? {}); pg.params = run.params ?? {}; pg.refs = [id]; pg.scrabbleUndo = null; pg.prompt = /@Bild[1-9]\d*\b/i.test(run.prompt) ? 'Bearbeite @Bild1. ' : 'Bearbeite @Bild1. ' + run.prompt; if (pg.models.some(m => m.id === result.modelId)) selectModel(result.modelId); redrawComposer(); $('#pg-prompt')?.focus() } }, icon('variant')),
       el('a', { class: 'icon', href: `${API}/media/${id}`, download: result.title, 'aria-label': 'Herunterladen', title: 'Herunterladen' }, icon('down')))
   const inProjects = [...(state.members.get(id) ?? [])].map(pid => state.projects.find(p => p.id === pid)?.title).filter(Boolean)
-  return el('figure', { class: 'pg-fig' }, pic, actions, caption(result, inProjects.length ? 'in ' + inProjects.join(', ') : ''))
+  // Actions overlay the image (hover or keyboard focus); a click on the image opens it large.
+  pic.append(actions)
+  pic.querySelector('img').addEventListener('click', () => openImage(url, title))
+  return el('figure', { class: 'pg-fig' }, pic, caption(result, inProjects.length ? 'in ' + inProjects.join(', ') : ''))
 }
 
 async function rerun(run, modelId) {
@@ -510,7 +513,7 @@ function studioForRun(studio) {
   for (const key of ['setting', 'pose', 'locked', 'lookName', 'roleLocked']) delete active[key]
   if (active.vary && pg.count > 1) active.remixes = Array.from({ length: pg.count }, (_, i) => i === 0 ? null : drawRecipe(studio)).map((recipe, i) => i === 0
     ? { roles: studio.roles, situation: studio.situation, angle: studio.angle, lens: studio.lens, light: studio.light }
-    : { roles: recipe.roles, situation: recipe.situation, ...recipe.look })
+    : { roles: recipe.roles, situation: recipe.situation, angle: studio.angle, lens: studio.lens, light: studio.light })
   else delete active.remixes
   delete active.looks
   return active
@@ -560,10 +563,9 @@ function rollScrabble() {
     const person = pg.refs.find(id => recipe.roles[id] === 'Identität')
     pg.prompt = person ? `Fashion-Editorial: @Bild${pg.studio.referenceLabels?.[person] ?? 1} in einem neuen Outfit aus den anderen Bildern.` : 'Fashion-Editorial in einem neuen Outfit aus den Bildern.'
   }
-  pg.studio.lookName = recipe.look.name
-  for (const [key] of directionFields) if (!pg.studio.locked?.[key]) pg.studio[key] = recipe.look[key]
+  // Camera fields stay as the user set them: technical camera specs made remixes look staged.
   redrawComposer()
-  toast(`Remix: ${recipe.situation} · ${recipe.look.name}. Gesperrtes bleibt.`)
+  toast(`Remix: ${recipe.situation}. Gesperrtes bleibt.`)
 }
 
 function undoScrabble() {
@@ -700,7 +702,7 @@ function redrawComposer(showAdvanced = false) {
     el('div', { class: 'pg-bar' },
       el('span', { class: 'pill static', title: 'Verknüpfe Referenzen über ihre Bildmarke im Prompt.' }, icon(taskNow() === 'edit' ? 'edit' : 'text'), taskNow() === 'edit' ? 'Mit Bildreferenzen' : 'Text zu Bild'),
       ...modelPicker(selection, updateSelection),
-      el('button', { type: 'button', class: 'pill', title: 'Mischt deine Bilder neu: eine Person, aus jedem anderen Bild genau ein Outfit-Teil, dazu Situation und passender Look. Was du selbst festgelegt hast, bleibt.', onclick: rollScrabble }, icon('wand'), 'Scrabble'),
+      el('button', { type: 'button', class: 'pill', title: 'Mischt deine Bilder neu: eine Person, aus jedem anderen Bild ein Outfit-Teil, dazu eine zufällige Situation. Was du selbst festgelegt hast, bleibt.', onclick: rollScrabble }, icon('wand'), 'Scrabble'),
       el('button', { type: 'button', class: 'icon', 'aria-label': 'Letzten Wurf rückgängig machen', title: 'Letzten Wurf rückgängig', disabled: !pg.scrabbleUndo?.length || null, onclick: undoScrabble }, icon('undo')),
       settings,
       el('div', { class: 'seg', role: 'group', 'aria-label': 'Anzahl je Modell' }, [1, 2, 4].map(n => el('button', { type: 'button', 'aria-pressed': String(pg.count === n), onclick: () => { pg.count = n; redrawComposer() } }, n + '×'))),
