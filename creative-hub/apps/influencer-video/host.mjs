@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { defineApp } from '../define-app.mjs'
 import { readBody, readUpload, responder } from '../../http.mjs'
 import { InputError, httpUrl, mediaTypeOf } from '../../store.mjs'
@@ -13,7 +14,7 @@ const app = defineApp({
   description: 'Videos inszenieren, prüfen und weiterverwenden',
 }, import.meta.url)
 export const name = app.name
-export const inject = [...app.inject, 'creativeStore', 'creativeProviders']
+export const inject = [...app.inject, 'creativeStore', 'creativeProviders', 'creativeNodes']
 
 const base = '/creativity-influencer/api'
 const namespace = 'influencer-video:jobs'
@@ -82,6 +83,77 @@ async function seedanceInputs(store, body, prompt, hotapi = false) {
       audio: settings.audio !== false, filter: settings.filter !== false, lastFrame: settings.lastFrame === true,
       webSearch: mode === 'text' && settings.webSearch === true,
     } },
+  }
+}
+
+const seconds = ['4', '5', '6', '8', '10', '12', '15']
+const seedanceFields = (model, resolutions) => [
+  { key: 'resolution', label: 'Auflösung', type: 'enum', options: resolutions, default: '720p', model },
+  { key: 'aspect', label: 'Format', type: 'enum', options: seedanceAspects, default: 'adaptive', model },
+  { key: 'duration', label: 'Dauer (s)', type: 'enum', options: seconds, default: '5', model },
+  { key: 'audio', label: 'Ton erzeugen', type: 'boolean', default: true, model },
+  { key: 'lastFrame', label: 'Letztes Bild speichern', type: 'boolean', default: false, model },
+]
+
+/**
+ * The Flows node „Video“: one job of the Video Playground. Seedance picks its mode from the connections
+ * (Startbild → Start- und Endframe, Referenzen → multimodal, sonst Text zu Video); Kling animates the Startbild.
+ * The node waits for the provider and checks the job status every 8 s; status checks cost nothing.
+ */
+export function videoNode({ start, refresh, providers, stopped: unloaded, every = 8000 }) {
+  return {
+    type: 'video', title: 'Video', group: 'video', icon: 'video', paid: true, prompt: true,
+    description: 'Erzeugt einen Clip mit Seedance oder Kling aus dem Video Playground.',
+    inputs: [
+      { id: 'prompt', kind: 'text', label: 'Prompt', multiple: true },
+      { id: 'start', kind: 'image', label: 'Startbild' },
+      { id: 'end', kind: 'image', label: 'Endbild' },
+      { id: 'images', kind: 'image', label: 'Bildreferenzen', multiple: true },
+      { id: 'videos', kind: 'video', label: 'Videoreferenzen', multiple: true },
+      { id: 'audio', kind: 'audio', label: 'Tonreferenzen', multiple: true },
+    ],
+    outputs: [{ id: 'video', kind: 'video', label: 'Video' }, { id: 'frame', kind: 'image', label: 'Letztes Bild' }],
+    async fields() {
+      const hotapi = (await providers.list()).find(item => item.id === 'hotapi' && item.capabilities.includes('startVideo'))
+      // Like the Video Playground: an instance with HotAPI offers only its Seedance, otherwise Kie.ai with Seedance and Kling.
+      if (hotapi) return [{ key: 'modelId', label: 'Modell', type: 'enum', options: [{ value: 'seedance-hotapi', label: 'Seedance 2.5 Spicy · HotAPI' }], default: 'seedance-hotapi' },
+        ...seedanceFields('seedance-hotapi', [...seedanceResolutions, '1080p'])]
+      return [
+        { key: 'modelId', label: 'Modell', type: 'enum', options: [{ value: 'seedance', label: 'Seedance 2.5 Flash' }, { value: 'kling', label: 'Kling 2.6' }], default: 'seedance' },
+        ...seedanceFields('seedance', seedanceResolutions),
+        { key: 'duration', label: 'Dauer (s)', type: 'enum', options: ['5', '10'], default: '5', model: 'kling' },
+        { key: 'sound', label: 'Ton erzeugen', type: 'boolean', default: false, model: 'kling' },
+      ]
+    },
+    async run({ inputs, params, prompt, projectId, stopped }) {
+      const hotapi = (await providers.list()).some(item => item.id === 'hotapi' && item.capabilities.includes('startVideo'))
+      const model = hotapi ? 'seedance-hotapi' : ['seedance', 'kling'].includes(params.modelId) ? params.modelId : 'seedance'
+      const settings = params.settings?.[model] ?? {}
+      const text = [...inputs.prompt, prompt].map(part => String(part).trim()).filter(Boolean).join('\n\n')
+      const [first] = inputs.start
+      const [last] = inputs.end
+      const refs = { image: inputs.images, video: inputs.videos, audio: inputs.audio }
+      const hasRefs = Object.values(refs).some(list => list.length)
+      let body
+      if (model === 'kling') {
+        if (!first) throw new InputError('Verbinde ein Startbild. Kling animiert ein Bild.')
+        body = { model, mode: 'keyframe', imageId: first, prompt: text, duration: settings.duration ?? '5', sound: settings.sound === true }
+      } else {
+        if (first && hasRefs) throw new InputError('Seedance nimmt entweder Start- und Endbild oder Referenzen. Trenne eine der beiden Verbindungen.')
+        if (last && !first) throw new InputError('Ein Endbild braucht auch ein Startbild.')
+        body = { model, mode: first ? 'frames' : hasRefs ? 'references' : 'text', prompt: text, imageId: first, endId: last, referenceIds: refs,
+          settings: { resolution: settings.resolution ?? '720p', aspect: settings.aspect ?? 'adaptive', format: 'mp4', duration: Number(settings.duration ?? 5),
+            audio: settings.audio !== false, lastFrame: settings.lastFrame === true, task: 'auto' } }
+      }
+      let job = await start({ ...body, requestId: randomUUID(), projectId })
+      while (job.status === 'queued' || job.status === 'submitting') {
+        await new Promise(resolve => setTimeout(resolve, every))
+        if (stopped() || unloaded()) throw new InputError('Das Atelier wird neu gestartet. Der Auftrag erscheint im Video Playground.', 503)
+        job = await refresh(job.id)
+      }
+      if (job.status !== 'done') throw new InputError(job.error ?? 'Der Anbieter hat kein Video geliefert.')
+      return { outputs: { video: [job.assetId], frame: job.frameId ? [job.frameId] : [] }, credits: typeof job.credits === 'number' ? job.credits : null }
+    },
   }
 }
 
@@ -251,6 +323,8 @@ ${prompt}`
     refreshing.set(id, check)
     return check
   }
+
+  ctx.effect(() => ctx.creativeNodes.register(videoNode({ start, refresh, providers, stopped: () => stopped })))
 
   ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: '/creativity-influencer', auth: 'required', handler: async (req, res) => {
     const { json } = responder(req, res)

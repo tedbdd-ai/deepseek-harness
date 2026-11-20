@@ -3,7 +3,7 @@ export default {
   define: { 'process.env.IS_PREACT': 'false' },
   build: {
     rollupOptions: {
-      input: { board: 'web/board.jsx', storyboard: 'apps/storyboard/editor.jsx' },
+      input: { board: 'web/board.jsx', storyboard: 'apps/storyboard/editor.jsx', flows: 'apps/flows/editor.jsx' },
       preserveEntrySignatures: 'strict',
       output: {
         entryFileNames: 'assets/[name].js',

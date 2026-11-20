@@ -16,9 +16,9 @@ Der Hub verwendet die Anmeldung des Harness-Webprofils und speichert alles in ei
 
 | Plugin | Datei | Aufgabe |
 | :--- | :--- | :--- |
-| `creativity-core` | `core.mjs` | Öffnet die SQLite-Datei und stellt `creativeStore` (Ideen, App-Daten, Assets) und `creativeApps` (App-Registry und Snapshots) bereit. |
+| `creativity-core` | `core.mjs` | Öffnet die SQLite-Datei und stellt `creativeStore` (Ideen, App-Daten, Assets) `creativeApps` (App-Registry und Snapshots), `creativeProviders` (Anbieter) und `creativeNodes` (Knotenarten für Flows) bereit. |
 | `creativity-hub` | `host.mjs`, `web/` | Oberfläche und JSON-API unter `/creativity-hub`. |
-| `creativity-app-<id>` | `apps/<id>/host.mjs` | Je eine App: `moodboard`, `storyboard`, `schnitt` (Zeitleiste und Export per ffmpeg), `styler`, `influencer-video`. `checklist`, `light-plan` und `patch-sheet` nutzen noch die alte Schnittstelle und werden nicht angezeigt. |
+| `creativity-app-<id>` | `apps/<id>/host.mjs` | Je eine App: `flows` (Knoten-Canvas), `moodboard`, `storyboard`, `schnitt` (Zeitleiste und Export per ffmpeg), `styler`, `influencer-video`. `checklist`, `light-plan` und `patch-sheet` nutzen noch die alte Schnittstelle und werden nicht angezeigt. |
 
 Snapshots stehen in `snapshots.mjs`. Am Eintrag `creativity-core` ersetzt `config.snapshots` die Standardliste. Ein Snapshot darf eine App nennen, die noch fehlt, z. B. `video-review` oder `vr-scene`. Die Idee zeigt dann einen Hinweis mit einem fertigen Auftrag für Claude oder Codex.
 
@@ -67,6 +67,15 @@ Routen unter `/creativity-hub/api`: `GET /search?q&library&project&tags&exclude&
 
 Die Analyse (`asset-analysis.mjs`, `clip-vision.swift`) läuft für alle Bilder und Videos im Hintergrund; `analysis.labelThreshold` in der Plugin-Konfiguration von `creativity-hub` setzt die Mindestsicherheit für Vision-Labels (0.05–0.95).
 
+## Flows (Knoten-Canvas)
+
+Unter „Flows“ hat jedes Projekt eine Fläche, auf der Schritte als Knoten liegen und mit Linien verbunden werden, ähnlich wie bei ElevenLabs Flows. Konzept und Phasen: `plans/2026-11-20-flows-canvas.md`.
+
+- **Knotenarten sind Plugins.** Ein Plugin meldet seine Knotenart bei `creativeNodes` an (Beschreibung in `core.mjs`). Flows liefert Text, Aus der Library, Moodboard und Einstellung. Der Foto Playground liefert „Bild“, der Video Playground „Video“ (Seedance, Kling) und Schnitt „Komposition“ (FFmpeg, kostenlos).
+- **Ports** haben die Typen Text, Bild, Video und Ton, und verbunden werden nur gleiche Typen. Mehrere Linien an einem Eingang zählen von oben nach unten.
+- **Ausführen** startet einen Knoten nur auf Klick. „Mit fehlenden Schritten davor“ und „Ab hier alles danach“ fragen nach, sobald mehr als ein kostenpflichtiger Knoten läuft. Ändern sich die Eingaben, zeigt ein Ergebnis „Veraltet“. Die Ergebnisse landen in der Library und im Projekt, und die Läufe stehen weiter im Verlauf der Playgrounds.
+- **Speicher:** Der Flow liegt in `app_data(flow)`, der Laufzustand im Setting `flows:state:<projekt>`. Die Routen stehen im Kopf von `apps/flows/host.mjs`.
+
 ## Anbieter (Bildmodelle, Freistellen, Bildsuche)
 
 Jeder Anbieter ist ein Plugin unter `providers/<id>/host.mjs` und meldet sich bei `creativeProviders` (aus `core.mjs`, Beschreibung in `providers.mjs`) an. Ein Anbieter beschreibt seine Einstellungen (z. B. eine Adresse) und seine Schlüssel und bietet einige der Aktionen `models`, `generate`, `removeBackground` und `search` an. Der Hub speichert Einstellungen in der Datenbank und Schlüssel im Credential-Speicher des Harness (`ctx.credentials`) unter dem Namen, den das Plugin nennt. Ist kein Credential-Speicher geladen, liest er die gleichnamige Umgebungsvariable.
@@ -104,7 +113,7 @@ Bei einem HTML-Videoplayer bietet der Clipper im Popup und im Kontextmenü „Fr
 ## Tests
 
 ```bash
-node --test hub.test.mjs apps.test.mjs providers.test.mjs playground.test.mjs
+node --test *.test.mjs
 ```
 
 Die macOS- und iOS-App für die Notizen selbst sind noch nicht implementiert.

@@ -72,7 +72,7 @@ async function hasAudio(path) {
  * Renders the saved cut of a project and stores the result in the Library, assigned to the project.
  * @returns {{ id: string, seconds: number }} the new asset.
  */
-export async function exportCut(store, projectId, data) {
+export async function exportCut(store, projectId, data, { title } = {}) {
   const cut = normalizeCut(data)
   if (!cut.clips.length) throw new InputError('Der Schnitt ist leer. Lege zuerst Clips in die Bildspur.')
   const dir = await mkdtemp(join(tmpdir(), 'atelier-cut-'))
@@ -103,11 +103,44 @@ export async function exportCut(store, projectId, data) {
     const project = store.project(projectId)
     const seconds = cut.clips.reduce((sum, clip) => sum + clip.out - clip.in, 0)
     const { id } = store.createAsset({
-      library: 'generation', title: `Schnitt · ${project.title}`, description: `Schnitt aus ${cut.clips.length} Clips, ${Math.round(seconds)} s`,
+      library: 'generation', title: title ?? `Schnitt · ${project.title}`, description: `Schnitt aus ${cut.clips.length} Clips, ${Math.round(seconds)} s`,
       mediaType: 'video/mp4', projectId,
     }, { bytes })
     return { id, seconds }
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
+}
+
+/** Length of a stored video in seconds, read with ffprobe. */
+async function storedDuration(store, assetId) {
+  const file = store.media(assetId)
+  if (!file?.media_type.startsWith('video/')) throw new InputError('Ein verbundener Clip ist kein gespeichertes Video.', 409)
+  const dir = await mkdtemp(join(tmpdir(), 'atelier-probe-'))
+  try {
+    const path = join(dir, 'clip')
+    await writeFile(path, Buffer.from(file.media))
+    const { stdout } = await run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', path], { timeout: 10_000 })
+    const seconds = Number(stdout.trim())
+    if (!(seconds > 0)) throw new InputError('Die Länge eines Clips ließ sich nicht lesen.', 422)
+    return seconds
+  } catch (error) {
+    if (error.code === 'ENOENT') throw new InputError('Zum Zusammensetzen braucht Atelier FFmpeg.', 503)
+    throw error
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+}
+
+/**
+ * Joins whole clips in the given order and lays the audio files from the start; used by the Flows node „Komposition“.
+ * @param {string[]} clipIds stored videos.
+ * @param {string[]} audioIds stored audio or video files whose sound is mixed in from second 0.
+ * @returns {{ id: string, seconds: number }} the new asset.
+ */
+export async function composeClips(store, projectId, clipIds, audioIds) {
+  const clips = []
+  for (const assetId of clipIds) clips.push({ id: assetId, assetId, in: 0, out: await storedDuration(store, assetId) })
+  return exportCut(store, projectId, { clips, audio: audioIds.map(assetId => ({ id: assetId, assetId, start: 0 })) },
+    { title: `Komposition · ${store.project(projectId).title}` })
 }

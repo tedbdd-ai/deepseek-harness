@@ -20,6 +20,8 @@ Dunkles Kreativ-Werkzeug im Stil einer Mac-App: fast schwarzer, neutraler Grund,
 
 Projektfarben (Punkte): #FF6B57, #BF5AF2, #0A84FF, #30D158, #FF9F0A, #64D2FF, #FF375F.
 
+Porttypen in Flows (`--c-port-*`): Text #D2D2CE, Bild #64D2FF, Video #BF5AF2, Ton #FF9F0A. Sie färben nur Ports und Linien, und jeder Port trägt zusätzlich das Symbol seines Typs.
+
 ## Typografie
 Systemschrift (SF Pro). Titel 28/34 halbfett, Abschnitt 17–20 halbfett, Fließtext 15, Nebentext 12–13. Monospace nur für technische Kennungen hinter „Technische Details“.
 
@@ -47,6 +49,14 @@ Systemschrift (SF Pro). Titel 28/34 halbfett, Abschnitt 17–20 halbfett, Fließ
 - **Drei-Zustands-Tag** in der Mehrfachauswahl: aus, teilweise (Strich und Zahl), an.
 - **Stapel:** Titelbild mit Badge (Layers-Icon und Anzahl) unten rechts; Favorit trägt einen Stern unten links.
 - **Tastaturhinweise** als `kbd` in Tokenhöhe 24 px.
+
+### Flows-Canvas
+
+- **Knoten:** Kopfzeile außerhalb der Karte (Symbol, Typ, rechts das Modell). Die Karte enthält Vorschau oder Leerzustand, Prompt und den Ausführen-Split-Button. Erzeugerknoten sind 320 px breit, Quellknoten 256 px.
+- **Ports:** 24 px Punkt mit Typsymbol, Trefferfläche 44 px, Eingänge links, Ausgänge rechts.
+- **Werkzeugleiste unter dem gewählten Knoten:** Modell, „Einstellungen“ (beschriftete Felder aus dem Modellschema), Laden, Duplizieren, Löschen. Popover öffnen sich nach oben.
+- **Zustände am Knoten:** Wartet, Läuft (mit Sekunden), Fertig (mit Credits, wenn der Anbieter sie meldet), Fehler (Satz in Rot und „Erneut ausführen“), Veraltet (Orange, Ergebnis bleibt sichtbar).
+- **Dock unten mittig:** Auswählen, Verschieben, „Knoten hinzufügen“. Das Knotenmenü öffnet sich auch per Rechtsklick und beim Loslassen einer Linie im Leeren, dann gefiltert auf passende Knoten.
 
 ## Nicht verwenden
 Verläufe, Glow, Glas, Karten in Karten, mehrere Hauptknöpfe in einer Ansicht, Emoji, erfundene Zahlen, Gelb/Grün als zusätzliche Akzente.

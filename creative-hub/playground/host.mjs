@@ -12,6 +12,7 @@
  * - `GET /runs`, `POST /runs { prompt, modelIds, referenceIds?, params?, modelParams?, studio?, count?, projectId?, title?, template? }`
  *
  * Models live in the hub setting `playground:models`, runs (the last 40) in `playground:runs`.
+ * The plugin also registers the Flows node „Bild“ (`imageNode`), which starts one run and waits for it.
  */
 import { appearanceText, compileDirection, referenceMarks, referenceOnlyPrompt, referencePlan, roleNames } from './direction.mjs'
 import { randomUUID } from 'node:crypto'
@@ -23,7 +24,7 @@ import { pickParams } from '../providers/schema.mjs'
 import { InputError, httpUrl } from '../store.mjs'
 
 export const name = 'creativity-playground'
-export const inject = ['webServer', 'creativeStore', 'creativeProviders', 'creativeApps']
+export const inject = ['webServer', 'creativeStore', 'creativeProviders', 'creativeApps', 'creativeNodes']
 const base = '/creativity-playground'
 const hosts = { 'hotapi.ai': 'hotapi', 'api.hotapi.ai': 'hotapi', 'kie.ai': 'kie', 'docs.kie.ai': 'kie', 'fal.ai': 'fal', 'queue.fal.run': 'fal', 'fal.run': 'fal' }
 const keep = 40
@@ -192,6 +193,21 @@ export function createPlayground(store, providers, { concurrency = { litellm: 1 
         Object.keys(model.variants).map(task => [task, promptGuide(model, task)])) }))
     },
     runs,
+    /**
+     * Waits until no result of the run is still running.
+     * @param {string} id run id from `start()`.
+     * @param {() => boolean} [cancelled] stops waiting when it turns true.
+     * @returns the finished run.
+     */
+    async settle(id, cancelled = () => false) {
+      for (;;) {
+        if (stopped || cancelled()) throw new InputError('Das Atelier wird neu gestartet.', 503)
+        const run = runs().find(item => item.id === id)
+        if (!run) throw new InputError('Der Auftrag ist nicht mehr im Verlauf.', 404)
+        if (!run.results.some(result => result.status === 'running')) return run
+        await new Promise(resolve => setTimeout(resolve, 1000))
+      }
+    },
     /** Reads the models behind a provider page and adds them, merging variants into models already added. */
     async addModels(url) {
       let parsed
@@ -409,9 +425,50 @@ export function createHandler(playground) {
   }
 }
 
+/**
+ * The Flows node „Bild“: one Playground run with the connected prompt and reference images.
+ * Settings are the enum and boolean fields of each model's schema, stored per model.
+ */
+export function imageNode(playground) {
+  const settingFields = model => {
+    const fields = model.variants.text?.fields ?? model.variants.edit?.fields ?? []
+    return fields.filter(field => (field.type === 'enum' && field.options?.length) || field.type === 'boolean')
+      .map(field => ({ key: field.key, label: field.label, type: field.type, options: field.options, default: field.default, model: model.id }))
+  }
+  return {
+    type: 'image', title: 'Bild', group: 'image', icon: 'image', paid: true, prompt: true,
+    description: 'Erzeugt oder bearbeitet ein Bild mit einem Modell aus dem Foto Playground.',
+    inputs: [{ id: 'prompt', kind: 'text', label: 'Prompt', multiple: true }, { id: 'refs', kind: 'image', label: 'Referenzbilder', multiple: true }],
+    outputs: [{ id: 'image', kind: 'image', label: 'Bild' }],
+    async fields() {
+      const models = playground.models()
+      return [
+        { key: 'modelId', label: 'Modell', type: 'enum', options: models.map(model => ({ value: model.id, label: model.title })), default: models[0]?.id },
+        { key: 'count', label: 'Anzahl', type: 'enum', options: ['1', '2', '4'], default: '1' },
+        ...models.flatMap(settingFields),
+      ]
+    },
+    async run({ inputs, params, prompt, projectId, stopped }) {
+      const modelId = params.modelId ?? playground.models()[0]?.id
+      if (!modelId) throw new InputError('Füge im Foto Playground zuerst ein Bildmodell hinzu.')
+      const text = [...inputs.prompt, prompt].map(part => String(part).trim()).filter(Boolean).join('\n\n')
+      const run = await playground.start({
+        prompt: text, modelIds: [modelId], referenceIds: inputs.refs, modelParams: { [modelId]: params.settings?.[modelId] ?? {} },
+        count: Number(params.count ?? 1), projectId, title: text.slice(0, 120), template: 'flow',
+      })
+      const done = (await playground.settle(run.id, stopped)).results
+      const images = done.filter(result => result.status === 'done').flatMap(result => result.assetIds)
+      if (!images.length) throw new InputError(done.find(result => result.error)?.error ?? 'Das Modell hat kein Bild geliefert.')
+      const credits = done.reduce((sum, result) => typeof result.credits === 'number' ? (sum ?? 0) + result.credits : sum, null)
+      return { outputs: { image: images }, credits }
+    },
+  }
+}
+
 export function apply(ctx) {
   const playground = createPlayground(ctx.creativeStore, ctx.creativeProviders)
   ctx.effect(() => () => playground.stop())
+  ctx.effect(() => ctx.creativeNodes.register(imageNode(playground)))
   ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: base, auth: 'required', handler: createHandler(playground) }))
   // The plugin ships its own page; the hub lists it in the sidebar and hands it the shared building blocks.
   ctx.effect(() => ctx.creativeApps.register({ id: 'playground', title: 'Foto Playground', page: true, view: true, module: base + '/web.mjs',
