@@ -184,14 +184,16 @@ export function createEngine(store, registry) {
    * Lists the run nodes that `run(projectId, nodeId, scope)` would start.
    * - `node`: only this node.
    * - `upstream`: run nodes before it that have no current result, then this node.
-   * - `downstream`: this node and every run node after it.
+   * - `downstream`: this node and every run node after it; for a source node (Notiz, Datei …) the run nodes it feeds.
    */
   function plan(projectId, nodeId, scope) {
     const doc = flow(projectId)
     const state = readState(projectId)
     const node = doc.nodes.find(item => item.id === nodeId)
     if (!node) throw new InputError('Den Knoten gibt es im gespeicherten Flow nicht. Warte, bis „Gespeichert“ erscheint.', 404)
-    if (!registry.node(node.type)?.run) throw new InputError('Dieser Knoten liefert seine Werte ohne Ausführen.')
+    // A source node has nothing to run itself; „Ab hier ausführen“ runs the nodes it feeds.
+    const source = !registry.node(node.type)?.run
+    if (source && scope !== 'downstream') throw new InputError('Dieser Knoten liefert seine Werte ohne Ausführen.')
     const { up, down } = neighbours(doc)
     const ids = new Set([nodeId])
     if (scope === 'downstream') {
@@ -213,8 +215,10 @@ export function createEngine(store, registry) {
       }
       walk(nodeId)
     } else if (scope !== 'node') throw new InputError('Unbekannter Umfang für das Ausführen.')
-    return ordered(doc, ids).map(id => doc.nodes.find(n => n.id === id)).filter(item => registry.node(item.type)?.run)
+    const steps = ordered(doc, ids).map(id => doc.nodes.find(n => n.id === id)).filter(item => registry.node(item.type)?.run)
       .map(item => ({ id: item.id, type: item.type, title: registry.node(item.type).title, paid: Boolean(registry.node(item.type).paid) }))
+    if (source && !steps.length) throw new InputError('Mit diesem Knoten ist noch kein Knoten verbunden, der ausgeführt wird.')
+    return steps
   }
 
   async function execute(projectId, nodeId, waitFor) {

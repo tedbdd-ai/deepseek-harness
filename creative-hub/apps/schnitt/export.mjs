@@ -159,9 +159,14 @@ export async function blackVideo(store, projectId, audioId) {
     const output = join(dir, 'schwarz.mp4')
     await writeFile(input, Buffer.from(file.media))
     try {
-      await run('ffmpeg', ['-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=black:s=1280x720:r=24', '-i', input,
-        '-map', '0:v', '-map', '1:a', '-shortest', '-c:v', 'libx264', '-tune', 'stillimage', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', output], { timeout: 300_000 })
+      // The black picture gets exactly the sound's length; `-shortest` alone overshoots under load, which would shift the voice timing.
+      const { stdout: probed } = await run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', input], { timeout: 10_000 })
+      const length = Number(probed.trim())
+      if (!(length > 0)) throw new InputError('Die Länge der Tondatei ließ sich nicht lesen.', 422)
+      await run('ffmpeg', ['-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', `color=c=black:s=1280x720:r=24:d=${length.toFixed(3)}`, '-i', input,
+        '-map', '0:v', '-map', '1:a', '-t', length.toFixed(3), '-c:v', 'libx264', '-tune', 'stillimage', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', output], { timeout: 300_000 })
     } catch (error) {
+      if (error instanceof InputError) throw error
       if (error.code === 'ENOENT') throw new InputError('Für das schwarze Video braucht Atelier FFmpeg.', 503)
       throw new InputError('Die Tondatei ließ sich nicht in ein Video umwandeln.', 422)
     }

@@ -26,6 +26,7 @@ const staticFiles = new Map([
   [base + '/media-editor.js', ['media-editor.js', 'text/javascript; charset=utf-8']],
   [base + '/tags.js', ['tags.js', 'text/javascript; charset=utf-8']],
   [base + '/app.css', ['app.css', 'text/css; charset=utf-8']],
+  [base + '/fonts/inter-latin-wght-normal.woff2', ['fonts/inter-latin-wght-normal.woff2', 'font/woff2']],
 ])
 const buildTypes = { js: 'text/javascript', css: 'text/css', woff2: 'font/woff2', woff: 'font/woff', svg: 'image/svg+xml', png: 'image/png', json: 'application/json' }
 const uuid = '([0-9a-f-]{36})'

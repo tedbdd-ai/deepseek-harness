@@ -9,6 +9,8 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        // Atelier: Acid Lime (Linear) for the single main action of a view.
+        brand: "bg-[var(--c-primary)] text-[var(--c-bg)] hover:bg-[var(--c-primary-hover)] active:bg-[var(--c-primary-down)]",
         destructive:
           "bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:bg-destructive/60 dark:focus-visible:ring-destructive/40",
         outline:

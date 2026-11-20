@@ -14,7 +14,7 @@ import '@xyflow/react/dist/style.css'
 import './ui/flows.css'
 import {
   Archive, AudioLines, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Copy, Download, Hand, History, Image, LayoutGrid,
-  Link, MousePointer2, Palette, Play, Plus, Scissors, Sparkles, Trash2, Type, Upload, User, Video,
+  Link, MoreHorizontal, MousePointer2, Palette, Play, Plus, Scissors, SlidersHorizontal, Sparkles, Trash2, Type, Upload, User, Video, Volume2, VolumeX,
 } from 'lucide-react'
 import { BaseNode, BaseNodeContent, BaseNodeFooter, BaseNodeHeader, BaseNodeHeaderTitle } from '@/components/base-node'
 import { BaseHandle } from '@/components/base-handle'
@@ -23,6 +23,10 @@ import { Button } from '@/components/ui/button'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator,
+  DropdownMenuShortcut, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { cn } from '@/utils'
 import { absolute, adoptIntoFrames } from './engine/frames.mjs'
 
@@ -277,11 +281,20 @@ function NodeBody({ node, type }) {
   return null
 }
 
-function NameField({ node, type }) {
-  const { update } = useContext(Actions)
-  return <label><span className="sr-only">Name</span>
-    <input className="text-in h-9 w-40" placeholder={type.title} value={node.name ?? ''} maxLength={40} title="Name, mit dem du den Knoten per @ ansprichst"
-      onChange={e => update(node.id, n => ({ ...n, name: e.target.value }))}/></label>
+/** Header above the card (ElevenLabs layout): type icon and name left, model or a short fact right; doubles as drag handle and rename field. */
+function NodeHeader({ node, type, right, className }) {
+  const { rename, renaming, setRenaming } = useContext(Actions)
+  const editing = renaming === node.id
+  return <header className={cn('flow-drag flex h-7 cursor-grab items-center gap-1.5 px-1 text-xs text-muted-foreground', className)}>
+    <Icon name={type.icon} className="size-3.5 shrink-0"/>
+    {editing
+      ? <input autoFocus className="nodrag h-6 min-w-0 flex-1 rounded-sm border border-input bg-background px-1.5 text-xs text-foreground" defaultValue={node.name ?? ''} placeholder={type.title}
+        aria-label="Name des Knotens" maxLength={40}
+        onBlur={e => { rename(node.id, e.target.value.trim()); setRenaming(null) }}
+        onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') setRenaming(null) }}/>
+      : <span className="truncate font-medium text-secondary-foreground" onDoubleClick={() => setRenaming(node.id)} title="Doppelklick zum Umbenennen">{nodeName(node, type)}</span>}
+    {right && <span className="ml-auto max-w-[55%] truncate tabular-nums">{right}</span>}
+  </header>
 }
 
 /** A frame is a React Flow group node: its children (`parentId`) move with it and lie inside it. */
@@ -292,23 +305,80 @@ function FrameNode({ id, data, selected }) {
   return <section className={cn('flow-frame', selected && 'active')} aria-label={nodeName(node, type)}>
     <NodeResizer isVisible={selected} minWidth={320} minHeight={240} lineClassName="flow-resize-line" handleClassName="flow-resize-handle"
       onResizeEnd={(_, size) => update(id, n => ({ ...n, x: Math.round(size.x), y: Math.round(size.y), params: { ...n.params, width: Math.round(size.width / 8) * 8, height: Math.round(size.height / 8) * 8 } }), true)}/>
-    <header className="flow-frame-head flex items-center gap-2 text-[13px] font-semibold text-secondary-foreground"><Icon name="board"/><span>{nodeName(node, type)}</span>
-      <small className="ml-auto font-normal text-muted-foreground">{count === 1 ? '1 Wert darin' : `${count} Werte darin`}</small></header>
+    <NodeHeader node={node} type={type} right={count === 1 ? '1 Wert darin' : `${count} Werte darin`} className="flow-frame-head"/>
     <Ports ports={type.outputs} side="out" nodeId={id} connected={new Set(edges.filter(edge => edge.source === id).map(edge => edge.sourceHandle))}/>
     <NodeToolbar isVisible={selected} position={Position.Top} align="start" className="nodrag flex items-center gap-1 rounded-lg border bg-popover p-1">
-      <NameField node={node} type={type}/>
-      <Button variant="ghost" size="icon" className="text-destructive" aria-label="Rahmen löschen, Inhalt bleibt" title="Rahmen löschen (Inhalt bleibt)" onClick={() => remove(id)}><Trash2/></Button>
+      <NodeMenu node={node} type={type} view={view}/>
+      <Button variant="ghost" size="icon-sm" className="text-destructive" aria-label="Rahmen löschen, Inhalt bleibt" title="Rahmen löschen (Inhalt bleibt)" onClick={() => remove(id)}><Trash2/></Button>
     </NodeToolbar>
   </section>
 }
 
+/** Settings shown in the toolbar at all times: format, resolution, length, count and sound; the rest sits behind „Mehr“. */
+const quickKey = /aspect|resolution|duration|count|quality|size|format|^n$/i
+const valueLabel = (field, value) => {
+  const option = field.options?.find(item => String(optionValue(item)) === String(value))
+  const label = option ? optionLabel(option) : String(value)
+  if (/duration/i.test(field.key)) return label + ' s'
+  if (field.key === 'count') return label + '×'
+  return label
+}
+
+function QuickSetting({ node, field }) {
+  const { update } = useContext(Actions)
+  const value = fieldValue(node, field)
+  if (field.type === 'boolean') {
+    const Glyph = /audio|sound/i.test(field.key) ? (value ? Volume2 : VolumeX) : null
+    return <Button variant="ghost" size={Glyph ? 'icon-sm' : 'sm'} aria-pressed={Boolean(value)} aria-label={field.label} title={field.label}
+      className={cn(!value && 'text-muted-foreground')} onClick={() => update(node.id, n => withField(n, field, !fieldValue(n, field)))}>{Glyph ? <Glyph/> : field.label}</Button>
+  }
+  return <DropdownMenu>
+    <DropdownMenuTrigger asChild><Button variant="ghost" size="sm" className="px-2 tabular-nums" title={field.label} aria-label={`${field.label}: ${valueLabel(field, value)}`}>{valueLabel(field, value)}</Button></DropdownMenuTrigger>
+    <DropdownMenuContent align="start" className="min-w-40">
+      <DropdownMenuLabel className="text-xs text-muted-foreground">{field.label}</DropdownMenuLabel>
+      <DropdownMenuRadioGroup value={String(value)} onValueChange={next => update(node.id, n => withField(n, field, next))}>
+        {field.options.map(option => <DropdownMenuRadioItem key={optionValue(option)} value={String(optionValue(option))}>{valueLabel(field, optionValue(option))}</DropdownMenuRadioItem>)}
+      </DropdownMenuRadioGroup>
+    </DropdownMenuContent>
+  </DropdownMenu>
+}
+
+/** The ⋯ menu: rarely used node actions with their shortcuts, as in ElevenLabs Flows. */
+function NodeMenu({ node, type, view }) {
+  const { run, remove, duplicate, copyNodes, pasteNodes, focusNode, setRenaming, pick } = useContext(Actions)
+  const media = type.outputs.filter(port => port.kind !== 'text').flatMap(port => view?.outputs?.[port.id] ?? [])[0]
+  // The menu hands focus back to its trigger when it closes; a rename starts only after that, or the name field would lose focus at once.
+  const renameNext = useRef(false)
+  return <DropdownMenu>
+    <DropdownMenuTrigger asChild><Button variant="ghost" size="icon-sm" aria-label="Weitere Aktionen" title="Weitere Aktionen"><MoreHorizontal/></Button></DropdownMenuTrigger>
+    <DropdownMenuContent align="end" className="w-60" onCloseAutoFocus={event => { if (renameNext.current) { event.preventDefault(); renameNext.current = false; setRenaming(node.id) } }}>
+      {type.runs && <DropdownMenuItem onSelect={() => run(node.id, 'node')}>Ausführen<DropdownMenuShortcut>⌘↩</DropdownMenuShortcut></DropdownMenuItem>}
+      {!type.runs && !type.contains && <DropdownMenuItem onSelect={() => run(node.id, 'downstream')}>Ab hier ausführen</DropdownMenuItem>}
+      <DropdownMenuItem disabled={!media} asChild={Boolean(media)}>{media ? <a href={mediaUrl(media)} download>Download<DropdownMenuShortcut>⌘⇧D</DropdownMenuShortcut></a> : <span>Download</span>}</DropdownMenuItem>
+      {(view?.history?.length ?? 0) > 1 && <DropdownMenuSub>
+        <DropdownMenuSubTrigger>Frühere Ergebnisse</DropdownMenuSubTrigger>
+        <DropdownMenuSubContent>{view.history.map((entry, i) => <DropdownMenuItem key={entry.at + i} onSelect={() => pick(node.id, i)}>
+          {new Date(entry.at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}{i === 0 ? ' · neuestes' : ''}</DropdownMenuItem>)}</DropdownMenuSubContent>
+      </DropdownMenuSub>}
+      <DropdownMenuSeparator/>
+      <DropdownMenuItem onSelect={() => { renameNext.current = true }}>Umbenennen</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => copyNodes([node.id])}>Kopieren<DropdownMenuShortcut>⌘C</DropdownMenuShortcut></DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => pasteNodes()}>Einfügen<DropdownMenuShortcut>⌘V</DropdownMenuShortcut></DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => duplicate(node.id)}>Duplizieren<DropdownMenuShortcut>⌘D</DropdownMenuShortcut></DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => focusNode(node.id)}>Knoten fokussieren<DropdownMenuShortcut>⌘.</DropdownMenuShortcut></DropdownMenuItem>
+      <DropdownMenuSeparator/>
+      <DropdownMenuItem variant="destructive" onSelect={() => remove(node.id)}>Knoten löschen<DropdownMenuShortcut>⌫</DropdownMenuShortcut></DropdownMenuItem>
+    </DropdownMenuContent>
+  </DropdownMenu>
+}
+
 function FlowNode({ id, data, selected }) {
-  const { update, remove, duplicate, pick, edges, mentionNames } = useContext(Actions)
+  const { update, remove, duplicate, run, edges, mentionNames } = useContext(Actions)
   const { node, type, view } = data
   if (!type) {
-    return <BaseNode className="w-80 border-dashed"><BaseNodeHeader className="flow-drag"><BaseNodeHeaderTitle>Unbekannter Knoten</BaseNodeHeaderTitle></BaseNodeHeader>
-      <BaseNodeContent><p className="flow-error">Die Knotenart „{node.type}“ ist gerade nicht geladen. Prüfe, ob ihr Plugin läuft.</p>
-        <Button variant="outline" size="sm" className="nodrag self-start text-destructive" onClick={() => remove(id)}>Entfernen</Button></BaseNodeContent></BaseNode>
+    return <div className="w-80"><header className="flow-drag flex h-7 items-center px-1 text-xs text-muted-foreground">Unbekannter Knoten</header>
+      <BaseNode className="border-dashed"><BaseNodeContent><p className="flow-error">Die Knotenart „{node.type}“ ist gerade nicht geladen. Prüfe, ob ihr Plugin läuft.</p>
+        <Button variant="outline" size="sm" className="nodrag self-start text-destructive" onClick={() => remove(id)}>Entfernen</Button></BaseNodeContent></BaseNode></div>
   }
   const model = modelOf(node, type)
   const modelField = type.fields.find(field => field.key === 'modelId')
@@ -319,61 +389,61 @@ function FlowNode({ id, data, selected }) {
   const used = node.type === 'library' ? type.outputs.filter(port => view?.outputs?.[port.id]?.length || outbound.has(port.id)) : []
   const outputs = used.length ? used : type.outputs
   const settings = type.runs ? type.fields.filter(field => field.key !== 'modelId' && (field.type === 'enum' || field.type === 'boolean') && (!field.model || field.model === model)) : []
+  const quick = settings.filter(field => quickKey.test(field.key) || /audio|sound/i.test(field.key)).slice(0, 4)
+  const more = settings.filter(field => !quick.includes(field))
   const firstMedia = type.outputs.filter(port => port.kind !== 'text').flatMap(port => view?.outputs?.[port.id] ?? [])[0]
   const tall = Math.max(type.inputs.length, outputs.length)
   const state = view?.stale ? 'Veraltet' : statusNames[view?.status] ?? ''
   // Run nodes can mention what is connected to them; notes can mention every file node, resolved where the text arrives.
   const names = type.inputs.some(port => port.mark) ? [...new Set((view?.refs ?? []).map(ref => ref.name))] : node.type === 'text' ? mentionNames : []
   const status = view?.status === 'running' || view?.status === 'waiting' ? 'loading' : view?.status === 'failed' ? 'error' : 'initial'
+  const right = modelName || (node.type === 'text' ? `${(node.prompt ?? '').length} Zeichen` : node.name ? type.title : '')
+  const runsAfter = !type.runs && edges.some(edge => edge.source === id)
   return <>
-    <NodeStatusIndicator status={status}>
-      <BaseNode className={cn('flow-node', type.runs ? 'w-80' : 'w-64', node.type === 'text' && 'bg-popover')} style={{ minHeight: 56 + tall * 40 }}>
-        <BaseNodeHeader className="flow-drag cursor-grab border-b text-[13px]">
-          <Icon name={type.icon} className="size-4 text-muted-foreground"/>
-          <BaseNodeHeaderTitle className="truncate text-[13px]">{nodeName(node, type)}</BaseNodeHeaderTitle>
-          {(modelName || node.name) && <span className="max-w-[55%] truncate text-xs text-muted-foreground">{modelName || type.title}</span>}
-        </BaseNodeHeader>
-        <BaseNodeContent>
+    <div className={cn(type.runs ? 'w-80' : 'w-64')} style={{ minHeight: 28 + tall * 40 }}>
+      <NodeHeader node={node} type={type} right={right}/>
+      <NodeStatusIndicator status={status}>
+        <BaseNode className={cn('flow-node overflow-hidden rounded-xl', node.type === 'text' && 'bg-[var(--c-fill)]')}>
           {type.runs && type.outputs.some(port => port.kind !== 'text') && <Preview type={type} view={view}/>}
-          <References node={node} view={view}/>
-          <NodeBody node={node} type={type}/>
-          {type.prompt && <PromptField node={node} type={type} names={names}/>}
-          {type.fields.filter(field => field.type === 'longtext').map(field => <label key={field.key} className="nodrag [display:grid] gap-1 text-xs text-muted-foreground"><span>{field.label}</span>
-            <textarea className="flow-prompt nowheel" rows={3} placeholder={field.placeholder} value={node.params?.[field.key] ?? ''}
-              onChange={e => update(id, n => ({ ...n, params: { ...n.params, [field.key]: e.target.value } }))}/></label>)}
-          {(view?.warnings ?? []).map(text => <p key={text} className="flow-warning" role="status">{text}</p>)}
-          {view?.status === 'failed' && view.error && <p className="flow-error" role="alert">{view.error}</p>}
-          {view?.status === 'unknown' && <p className="flow-error">{view.error}</p>}
-        </BaseNodeContent>
-        {type.runs && <BaseNodeFooter className="flex-row justify-between">
-          <span className={cn('text-xs tabular-nums text-muted-foreground', view?.stale && 'text-[var(--c-port-audio)]')}>{state}{view?.status === 'done' && typeof view.credits === 'number' ? ` · ${view.credits} Credits` : ''}</span>
-          <RunButton node={node} view={view}/>
-        </BaseNodeFooter>}
-      </BaseNode>
-    </NodeStatusIndicator>
+          <BaseNodeContent className={cn(type.runs && type.outputs.some(port => port.kind !== 'text') && 'border-t')}>
+            <NodeBody node={node} type={type}/>
+            {type.fields.filter(field => field.type === 'longtext').map(field => <label key={field.key} className="nodrag [display:grid] gap-1 text-xs text-muted-foreground"><span>{field.label}</span>
+              <textarea className="flow-prompt nowheel" rows={3} placeholder={field.placeholder} value={node.params?.[field.key] ?? ''}
+                onChange={e => update(id, n => ({ ...n, params: { ...n.params, [field.key]: e.target.value } }))}/></label>)}
+            {type.prompt && <PromptField node={node} type={type} names={names}/>}
+            <References node={node} view={view}/>
+            {(view?.warnings ?? []).map(text => <p key={text} className="flow-warning" role="status">{text}</p>)}
+            {view?.status === 'failed' && view.error && <p className="flow-error" role="alert">{view.error}</p>}
+            {view?.status === 'unknown' && <p className="flow-error">{view.error}</p>}
+            {(type.runs || runsAfter) && <div className="flex items-center justify-between gap-2">
+              <span className={cn('text-xs tabular-nums text-muted-foreground', view?.stale && 'text-[var(--c-port-audio)]')}>{state}{view?.status === 'done' && typeof view.credits === 'number' ? ` · ${view.credits} Credits` : ''}</span>
+              {type.runs ? <RunButton node={node} view={view}/> : <Button size="sm" className="nodrag" onClick={() => run(id, 'downstream')}><Play/>Ab hier ausführen</Button>}
+            </div>}
+          </BaseNodeContent>
+        </BaseNode>
+      </NodeStatusIndicator>
+    </div>
     <Ports ports={type.inputs} side="in" connected={inbound} nodeId={id}/>
     <Ports ports={outputs} side="out" connected={outbound} nodeId={id}/>
-    <NodeToolbar isVisible={selected} position={Position.Bottom} className="nodrag flex items-center gap-1 rounded-lg border bg-popover p-1">
-      <NameField node={node} type={type}/>
+    {/* Always open, like ElevenLabs: model, the main settings and the actions; rare actions sit in ⋯. */}
+    <NodeToolbar isVisible position={Position.Bottom} offset={8} className="nodrag flex items-center gap-0.5 rounded-lg border bg-popover p-1 shadow-[var(--shadow-subtle-4,none)]">
       {modelField && <Picker field={modelField} value={String(model)} onChange={value => update(id, n => withField(n, modelField, value))}/>}
-      {settings.length > 0 && <Popover>
-        <PopoverTrigger asChild><Button variant="outline" size="sm">Einstellungen</Button></PopoverTrigger>
-        <PopoverContent className="[display:grid] w-80 gap-2">{settings.map(field => <label key={(field.model ?? '') + field.key} className="[display:grid] min-h-9 grid-cols-[1fr_144px] items-center gap-2 text-[13px] text-secondary-foreground">
+      {quick.map(field => <QuickSetting key={(field.model ?? '') + field.key} node={node} field={field}/>)}
+      {more.length > 0 && <Popover>
+        <PopoverTrigger asChild><Button variant="ghost" size="icon-sm" aria-label="Weitere Einstellungen" title="Weitere Einstellungen"><SlidersHorizontal/></Button></PopoverTrigger>
+        <PopoverContent className="[display:grid] w-80 gap-2">{more.map(field => <label key={(field.model ?? '') + field.key} className="[display:grid] min-h-9 grid-cols-[1fr_144px] items-center gap-2 text-[13px] text-secondary-foreground">
           <span>{field.label}</span>
           {field.type === 'enum'
             ? <select className={selectClass} value={String(fieldValue(node, field))} onChange={e => update(id, n => withField(n, field, e.target.value))}>
               {field.options.map(option => <option key={optionValue(option)} value={optionValue(option)}>{optionLabel(option)}</option>)}</select>
-            : <input type="checkbox" className="size-5 justify-self-end accent-[var(--c-focus)]" checked={Boolean(fieldValue(node, field))} onChange={e => update(id, n => withField(n, field, e.target.checked))}/>}
+            : <input type="checkbox" className="size-5 justify-self-end accent-[var(--c-ink-2)]" checked={Boolean(fieldValue(node, field))} onChange={e => update(id, n => withField(n, field, e.target.checked))}/>}
         </label>)}</PopoverContent>
       </Popover>}
-      {(view?.history?.length ?? 0) > 1 && <Popover>
-        <PopoverTrigger asChild><Button variant="outline" size="sm"><History/>Verlauf</Button></PopoverTrigger>
-        <PopoverContent className="w-64 p-1"><Command><CommandList>{view.history.map((entry, i) => <CommandItem key={entry.at + i} onSelect={() => pick(id, i)}>
-          {new Date(entry.at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}{i === 0 ? ' · neuestes' : ''}</CommandItem>)}</CommandList></Command></PopoverContent>
-      </Popover>}
-      {firstMedia && <Button asChild variant="ghost" size="icon" aria-label="Datei laden" title="Datei laden"><a href={mediaUrl(firstMedia)} download><Download/></a></Button>}
-      <Button variant="ghost" size="icon" aria-label="Knoten duplizieren" title="Duplizieren" onClick={() => duplicate(id)}><Copy/></Button>
-      <Button variant="ghost" size="icon" className="text-destructive" aria-label="Knoten löschen" title="Löschen" onClick={() => remove(id)}><Trash2/></Button>
+      {(modelField || quick.length > 0) && <span className="mx-1 h-5 w-px bg-border" aria-hidden="true"/>}
+      {firstMedia ? <Button asChild variant="ghost" size="icon-sm" aria-label="Download" title="Download"><a href={mediaUrl(firstMedia)} download><Download/></a></Button>
+        : !type.runs && <Button variant="ghost" size="icon-sm" aria-label="Duplizieren" title="Duplizieren" onClick={() => duplicate(id)}><Copy/></Button>}
+      <Button variant="ghost" size="icon-sm" aria-label="Knoten löschen" title="Löschen" onClick={() => remove(id)}><Trash2/></Button>
+      <NodeMenu node={node} type={type} view={view}/>
     </NodeToolbar>
   </>
 }
@@ -479,6 +549,7 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
   const [showTemplates, setShowTemplates] = useState(false)
   const [inserting, setInserting] = useState(false)
   const [hand, setHand] = useState(false)
+  const [renaming, setRenaming] = useState(null)
   // React Flow's own per-node state (measured size, selection, dragging, live resize), kept by its changesets.
   const [meta, setMeta] = useState({})
   const state = useRef({ data: initial.doc, saved: initial.changed ? null : initial.doc, revision: record.revision, timer: null, saving: null }).current
@@ -629,6 +700,7 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
       if (event.target.closest?.('input, textarea, select, [contenteditable]') || !shell.current?.isConnected) return
       const files = [...(event.clipboardData?.files ?? [])]
       const text = files.length ? '' : event.clipboardData?.getData('text/plain') ?? ''
+      if (text.startsWith(clipMark)) { event.preventDefault(); insertCopied(text); return }
       if (!files.length && !text.trim()) return
       event.preventDefault()
       const box = shell.current.getBoundingClientRect()
@@ -702,7 +774,68 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
   const frames = doc.nodes.filter(isFrame).sort((a, b) => (a.x - b.x) || (a.y - b.y))
   const mentionNames = [...new Set(doc.nodes.filter(node => typeOf.get(node.type)?.outputs.some(port => port.kind !== 'text') && !isFrame(node))
     .map(node => nodeName(node, typeOf.get(node.type))))]
-  const actions = { ctx, assets: view.assets, edges: doc.edges, update, remove, duplicate, run, pick, pickAssets, uploadAssets, mentionNames, portMenu }
+  /** Node clipboard: the chosen nodes and the lines between them, as text with a marker so a normal paste can tell them apart. */
+  const clipMark = 'atelier-flow-nodes:'
+  const clip = useRef(null)
+  function copyNodes(ids) {
+    const chosen = state.data.nodes.filter(node => ids.includes(node.id))
+    if (!chosen.length) return
+    const text = clipMark + JSON.stringify({ nodes: chosen, edges: state.data.edges.filter(edge => ids.includes(edge.source) && ids.includes(edge.target)) })
+    clip.current = text
+    navigator.clipboard?.writeText(text).catch(() => {})
+    ctx.toast(chosen.length === 1 ? 'Knoten kopiert.' : `${chosen.length} Knoten kopiert.`)
+  }
+  function insertCopied(text, offset = 48) {
+    const { nodes: copied, edges: lines } = JSON.parse(text.slice(clipMark.length))
+    const ids = new Map(copied.map(node => [node.id, crypto.randomUUID()]))
+    const map = new Map(state.data.nodes.map(node => [node.id, node]))
+    // Copies land beside the originals, at canvas positions; regrouping puts them into a frame if they lie in one.
+    const nodes = copied.map(node => { const at = absolute(node, map); const { parentId, ...rest } = node; return { ...rest, id: ids.get(node.id), x: at.x + offset, y: at.y + offset } })
+    const edges = lines.map(edge => ({ ...edge, id: crypto.randomUUID(), source: ids.get(edge.source), target: ids.get(edge.target) }))
+    change(d => ({ nodes: [...d.nodes, ...nodes], edges: [...d.edges, ...edges] }), true)
+  }
+  async function pasteNodes() {
+    const text = await navigator.clipboard?.readText().catch(() => null) ?? clip.current
+    if (text?.startsWith(clipMark)) insertCopied(text)
+    else if (clip.current) insertCopied(clip.current)
+    else ctx.toast('Kopiere zuerst einen Knoten.')
+  }
+  /** Renames a node and carries its `@` mentions along in every prompt and long text of the flow. */
+  function rename(id, name) {
+    const node = state.data.nodes.find(item => item.id === id)
+    if (!node) return
+    const before = nodeName(node, typeOf.get(node.type))
+    const after = name || typeOf.get(node.type)?.title || before
+    const pattern = new RegExp('@' + before.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![\\p{L}\\p{N}_])', 'gu')
+    const carry = text => typeof text === 'string' && before !== after ? text.replace(pattern, '@' + after) : text
+    change(d => ({ nodes: d.nodes.map(item => ({
+      ...item, ...(item.id === id && { name }), prompt: carry(item.prompt),
+      ...(item.params?.outfit !== undefined && { params: { ...item.params, outfit: carry(item.params.outfit) } }),
+    })) }))
+  }
+  const focusNode = id => flow.fitView({ nodes: [{ id }], padding: 0.4, maxZoom: 1.2, duration: 0 })
+  const selectedIds = () => Object.entries(meta).filter(([, value]) => value.selected).map(([id]) => id)
+  useEffect(() => {
+    // Shortcuts as in ElevenLabs Flows; inside text fields the keys keep their normal meaning.
+    const onKey = event => {
+      if (!(event.metaKey || event.ctrlKey) || event.target.closest?.('input, textarea, select, [contenteditable]') || !shell.current?.isConnected) return
+      const ids = selectedIds()
+      const one = ids.length === 1 ? ids[0] : null
+      const type = one && typeOf.get(state.data.nodes.find(node => node.id === one)?.type)
+      if (event.key === 'Enter' && one && type?.runs) { event.preventDefault(); run(one, 'node') }
+      else if (event.key === 'd' && !event.shiftKey && ids.length) { event.preventDefault(); ids.forEach(duplicate) }
+      else if (event.key === '.' && one) { event.preventDefault(); focusNode(one) }
+      else if (event.key === 'c' && ids.length && !String(window.getSelection())) { event.preventDefault(); copyNodes(ids) }
+      else if (event.key.toLowerCase() === 'd' && event.shiftKey && one) {
+        const media = type?.outputs.filter(port => port.kind !== 'text').flatMap(port => view.nodes[one]?.outputs?.[port.id] ?? [])[0]
+        if (media) { event.preventDefault(); Object.assign(document.createElement('a'), { href: mediaUrl(media), download: '' }).click() }
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  })
+  const actions = { ctx, assets: view.assets, edges: doc.edges, update, remove, duplicate, run, pick, pickAssets, uploadAssets, mentionNames, portMenu,
+    renaming, setRenaming, rename, copyNodes, pasteNodes, focusNode }
 
   return <Actions.Provider value={actions}>
     <div className="flow-shell" ref={shell}>
@@ -767,8 +900,8 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
         <strong>Dieses Projekt hat noch keinen Flow</strong>
         <p>Hier liegen Moodboard, Storyboard und alle KI-Schritte auf einer Fläche. Füge Bilder per Einfügen oder Hineinziehen ein, ordne sie in Rahmen und verbinde sie mit Bild- und Videoknoten. Kostenpflichtiges läuft nur, wenn du auf „Ausführen“ klickst.</p>
         {boards > 0
-          ? <div className="flex flex-wrap gap-2"><Button size="lg" onClick={importBoards}>Moodboard und Storyboard übernehmen</Button><Button size="lg" variant="outline" onClick={() => setShowTemplates(true)}>Mit Vorlage beginnen</Button></div>
-          : <div className="flex flex-wrap gap-2"><Button size="lg" onClick={() => setShowTemplates(true)}>Mit Vorlage beginnen</Button><Button size="lg" variant="outline" onClick={openCentered}>Knoten hinzufügen</Button></div>}
+          ? <div className="flex flex-wrap gap-2"><Button size="lg" variant="brand" onClick={importBoards}>Moodboard und Storyboard übernehmen</Button><Button size="lg" variant="outline" onClick={() => setShowTemplates(true)}>Mit Vorlage beginnen</Button></div>
+          : <div className="flex flex-wrap gap-2"><Button size="lg" variant="brand" onClick={() => setShowTemplates(true)}>Mit Vorlage beginnen</Button><Button size="lg" variant="outline" onClick={openCentered}>Knoten hinzufügen</Button></div>}
         {boards > 0 && <p className="text-[13px]">Aus den bisherigen Boards entstehen {boards} Knoten in Rahmen. Die alten Boards bleiben gespeichert.</p>}
       </div>}
       {menu && <AddMenu types={types} at={menu} filter={menu.filter} onClose={() => setMenu(null)} onPick={type => addNode(type, menu.position, menu.filter)}

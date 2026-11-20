@@ -13,22 +13,23 @@
 @custom-variant dark (&:is(.flow-shell *, [data-slot], [data-slot] *));
 
 .flow-shell {
+  /* shadcn roles on the Linear tokens: neutral white for buttons such as Ausführen (several per canvas), Acid Lime only via the `brand` button variant. */
   --background: var(--c-bg);
   --foreground: var(--c-ink);
-  --card: var(--c-fill);
+  --card: var(--c-panel);
   --card-foreground: var(--c-ink);
-  --popover: var(--c-panel);
+  --popover: var(--c-fill);
   --popover-foreground: var(--c-ink);
-  --primary: var(--c-primary);
+  --primary: var(--c-neutral);
   --primary-foreground: var(--c-bg);
   --secondary: var(--c-fill-2);
-  --secondary-foreground: var(--c-ink);
+  --secondary-foreground: var(--c-ink-2);
   --muted: var(--c-fill-2);
   --muted-foreground: var(--c-ink-3);
-  --accent: var(--c-fill-3);
+  --accent: var(--c-fill-2);
   --accent-foreground: var(--c-ink);
   --destructive: var(--c-danger);
-  --border: var(--c-fill-4);
+  --border: var(--c-line);
   --input: var(--c-line);
   --ring: var(--c-focus);
   --radius: 12px;
@@ -58,6 +59,7 @@
   --radius-lg: 12px;
   --radius-xl: 16px;
   --font-sans: var(--font);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 /*
@@ -70,9 +72,9 @@
   /* The part of Preflight the components rely on: buttons without the browser's own face and padding. */
   .flow-shell button, [data-slot] button, button[data-slot] { background-color: transparent; padding: 0; margin: 0; cursor: pointer; }
   .flow-shell :disabled, [data-slot] :disabled { cursor: default; }
-  [data-slot] { --background: var(--c-bg); --foreground: var(--c-ink); --popover: var(--c-panel); --popover-foreground: var(--c-ink); --primary: var(--c-primary);
-    --primary-foreground: var(--c-bg); --muted: var(--c-fill-2); --muted-foreground: var(--c-ink-3); --accent: var(--c-fill-3); --accent-foreground: var(--c-ink);
-    --border: var(--c-fill-4); --input: var(--c-line); --ring: var(--c-focus); --destructive: var(--c-danger); --secondary: var(--c-fill-2); --secondary-foreground: var(--c-ink); }
+  [data-slot] { --background: var(--c-bg); --foreground: var(--c-ink); --card: var(--c-panel); --popover: var(--c-fill); --popover-foreground: var(--c-ink); --primary: var(--c-neutral);
+    --primary-foreground: var(--c-bg); --muted: var(--c-fill-2); --muted-foreground: var(--c-ink-3); --accent: var(--c-fill-2); --accent-foreground: var(--c-ink);
+    --border: var(--c-line); --input: var(--c-line); --ring: var(--c-focus); --destructive: var(--c-danger); --secondary: var(--c-fill-2); --secondary-foreground: var(--c-ink-2); }
 }
 
 /*

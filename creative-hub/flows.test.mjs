@@ -309,7 +309,7 @@ test('the composition joins whole clips in order and sound becomes a black video
     execFileSync('ffmpeg', ['-nostdin', '-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=frequency=330:duration=2', tone])
     const voice = store.createAsset({ library: 'clips', title: 'Stimme', mediaType: 'audio/mpeg', media: readFileSync(tone).toString('base64') }).id
     const black = await blackVideo(store, project.id, voice)
-    assert.ok(Math.abs(black.seconds - 2) < 1, `Länge ${black.seconds}`)
+    assert.ok(Math.abs(black.seconds - 2) < 0.15, `Länge ${black.seconds}`)
     assert.equal(store.asset(black.id).title, 'Schwarzes Video · Stimme')
     assert.equal(store.media(black.id).media_type, 'video/mp4')
     store.close()

@@ -6,23 +6,27 @@ Quelle: Entwurf „Atelier Hub“ (claude.ai Design-Fläche, Ansicht 9 „Bedien
 Dunkles Kreativ-Werkzeug im Stil einer Mac-App: fast schwarzer, neutraler Grund, auf dem Bilder leuchten. Die Oberfläche tritt zurück; Farbe kommt nur aus Inhalten und den Projektpunkten. Vorbilder: Fotos (Dark Mode), Final Cut Pro, fal Sandbox für den Playground.
 
 ## Farben (`:root` in app.css)
+
+Das Atelier nutzt den Linear-Stil; Werte, Herkunft und Abweichungen stehen in `design/linear.md`.
+
 | Token | Wert | Rolle |
 | --- | --- | --- |
-| `--c-bg` | #111112 | Grund |
-| `--c-side` | #161618 | Seitenleiste |
-| `--c-panel` | #18181A | Details, Karten |
-| `--c-fill` / `-2` / `-3` / `-4` | #1E1E20 / #2A2A2D / #343437 / #3C3C40 | Bedienelemente: normal, Hover, gedrückt oder gewählt |
-| `--c-line` / `--c-hair` | weiß 12 % / 8 % | Ränder, Trennlinien |
-| `--c-ink` / `-2` / `-3` | #F2F2F0 / #D2D2CE / #9C9C98 | Text, Fließtext, Nebentext (≥ 6:1) |
-| `--c-primary` | #F2F2F0 | Hauptknopf (hell, dunkle Schrift), einer pro Ansicht |
-| `--c-focus` | #0A84FF | Fokusring, einzige Akzentfarbe |
-| `--c-danger` / `-fill` | #FF6961 / #3A1A19 | Löschen, getönt statt knallrot |
+| `--c-bg` | #08090A (Void) | Grund |
+| `--c-side` / `--c-panel` | #0F1011 (Carbon) | Seitenleiste, Karten, Knoten |
+| `--c-fill` / `-2` / `-3` / `-4` | #161718 / #23252A / #2C2E33 / #383B3F | Bedienelemente: normal, Hover, gedrückt oder gewählt |
+| `--c-line` / `--c-hair` | #23252A / weiß 5 % | Haarlinien statt Schatten |
+| `--c-ink` / `-2` / `-3` | #FFFFFF / #D0D6E0 / #8A8F98 | Überschriften, Fließtext, Nebentext |
+| `--c-primary` | #E4F222 (Acid Lime) | die eine Hauptaktion pro Ansicht, dunkle Schrift |
+| `--c-neutral` | #E5E5E6 | neutrale Knöpfe mit dunkler Schrift, etwa „Ausführen“ auf dem Canvas |
+| `--c-focus` | #D0D6E0 | Fokusring |
+| `--c-danger` / `-fill` | #EB5757 / #2A1515 | Löschen |
 
 Projektfarben (Punkte): #FF6B57, #BF5AF2, #0A84FF, #30D158, #FF9F0A, #64D2FF, #FF375F.
 
 Porttypen in Flows (`--c-port-*`): Text #D2D2CE, Bild #64D2FF, Video #BF5AF2, Ton #FF9F0A. Sie färben nur Ports und Linien, und jeder Port trägt zusätzlich das Symbol seines Typs.
 
 ## Typografie
+Inter Variable (`web/fonts`, OFL) mit `cv01`, `ss03`, `zero`; Gewichte 400, 510, 590, nie fett.
 Systemschrift (SF Pro). Titel 28/34 halbfett, Abschnitt 17–20 halbfett, Fließtext 15, Nebentext 12–13. Monospace nur für technische Kennungen hinter „Technische Details“.
 
 ## Maße
@@ -57,7 +61,8 @@ Der Canvas nutzt Standardbausteine statt eigener: React Flow, React Flow UI und 
 
 - **Knoten:** Kopfzeile außerhalb der Karte (Symbol, Typ, rechts das Modell). Die Karte enthält Vorschau oder Leerzustand, Prompt und den Ausführen-Split-Button. Erzeugerknoten sind 320 px breit, Quellknoten 256 px.
 - **Ports:** 24 px Punkt mit Typsymbol, Trefferfläche 44 px, Eingänge links, Ausgänge rechts.
-- **Werkzeugleiste unter dem gewählten Knoten:** Modell, „Einstellungen“ (beschriftete Felder aus dem Modellschema), Laden, Duplizieren, Löschen. Popover öffnen sich nach oben.
+- **Werkzeugleiste unter jedem Knoten, immer offen** (wie ElevenLabs Flows): Modell-Picker, die wichtigsten Einstellungen als Werte (Format, Auflösung, Dauer, Anzahl, Ton), „Weitere Einstellungen“ hinter dem Regler-Symbol, Download, Löschen und ⋯. Im ⋯-Menü stehen nur seltene Aktionen mit Kürzeln: Ausführen ⌘↩, Download ⌘⇧D, frühere Ergebnisse, Umbenennen, Kopieren ⌘C, Einfügen ⌘V, Duplizieren ⌘D, Knoten fokussieren ⌘., Löschen ⌫.
+- **Kopfzeile über der Karte:** Typ-Symbol und Name links, Modell oder Zeichenzahl rechts. Doppelklick benennt um; Erwähnungen (`@Name`) ziehen mit.
 - **Zustände am Knoten:** Wartet, Läuft (mit Sekunden), Fertig (mit Credits, wenn der Anbieter sie meldet), Fehler (Satz in Rot und „Erneut ausführen“), Veraltet (Orange, Ergebnis bleibt sichtbar).
 - **Rahmen:** durchscheinende Fläche mit 2-px-Rand, Kopfzeile oben links, Griffe zum Größenziehen nur bei Auswahl. Nur Kopfzeile, Ports und Griffe nehmen Klicks an. Wer den Rahmen verschiebt, verschiebt seinen Inhalt mit.
 - **Referenz-Chips:** 32 px hoch, Miniatur, Marke fett und Name. Ein Klick fügt `@Name` in den Prompt ein. Die `@`-Liste unter dem Prompt zeigt höchstens sechs Namen und lässt sich mit den Pfeiltasten und Enter bedienen.
