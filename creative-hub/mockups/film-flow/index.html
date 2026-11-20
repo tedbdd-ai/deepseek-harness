@@ -1,0 +1,590 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Filmprojekt-Ablauf</title>
+<style>
+/* Canvas um die Entwürfe herum (nicht Teil des App-Designs) */
+:root {
+  --canvas-bg: #0B0B0C; --canvas-ink: #F2F2F0; --canvas-muted: #9C9C98; --canvas-line: rgba(255,255,255,.12);
+  /* App-Tokens aus creative-hub/web/app.css */
+  --c-bg: #111112; --c-side: #161618; --c-panel: #18181A;
+  --c-fill: #1E1E20; --c-fill-2: #2A2A2D; --c-fill-3: #343437; --c-fill-4: #3C3C40;
+  --c-line: rgba(255,255,255,.12); --c-hair: rgba(255,255,255,.08);
+  --c-ink: #F2F2F0; --c-ink-2: #D2D2CE; --c-ink-3: #9C9C98;
+  --c-primary: #F2F2F0; --c-focus: #0A84FF;
+  --c-danger: #FF6961; --c-danger-fill: #3A1A19;
+  --h-lg: 44px; --h-md: 36px; --r-btn: 12px; --r-ctl: 8px; --r-tile: 12px;
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 24px; --s-6: 32px;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --frame-w: 1280px; --frame-h: 800px;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--canvas-bg); color: var(--canvas-ink); font: 15px/1.45 var(--font); -webkit-font-smoothing: antialiased; }
+.canvas-head { padding: var(--s-6) 48px 0; max-width: 1376px; }
+.canvas-head h1 { margin: 0 0 var(--s-1); font-size: 28px; line-height: 34px; font-weight: 600; }
+.canvas-head p { margin: 0; color: var(--canvas-muted); max-width: 72ch; }
+.flow { display: flex; gap: var(--s-2); align-items: center; margin-top: var(--s-4); color: var(--c-ink-2); font-size: 13px; flex-wrap: wrap; }
+.flow span { padding: var(--s-1) var(--s-3); border: 1px solid var(--canvas-line); border-radius: 16px; }
+.board { display: flex; flex-direction: column; gap: 64px; padding: var(--s-6) 48px 64px; }
+.variant { display: flex; flex-direction: column; gap: var(--s-3); }
+.variant-meta h2 { margin: 0; font-size: 20px; font-weight: 600; }
+.variant-meta p { margin: var(--s-1) 0 0; color: var(--canvas-muted); max-width: 90ch; }
+.switches { display: flex; gap: var(--s-4); flex-wrap: wrap; align-items: center; }
+.switches .grp { display: flex; gap: var(--s-1); padding: var(--s-1); border: 1px solid var(--canvas-line); border-radius: 12px; }
+.switches .lbl { font-size: 12px; color: var(--canvas-muted); margin-right: var(--s-1); align-self: center; padding-left: var(--s-2); }
+.switches button { height: 32px; padding: 0 var(--s-3); border-radius: var(--r-ctl); border: 0; background: transparent; color: var(--c-ink-2); font: inherit; font-size: 13px; cursor: pointer; }
+.switches button[aria-pressed="true"] { background: var(--c-fill-3); color: var(--c-ink); }
+
+/* ---------- App-Frame ---------- */
+.frame { position: relative; width: var(--frame-w); height: var(--frame-h); border-radius: 12px; overflow: hidden; background: var(--c-bg); color: var(--c-ink);
+  box-shadow: 0 0 0 1px var(--canvas-line); font-size: 15px; }
+.frame [data-screen] { display: none; }
+.frame [data-screen].on { display: grid; }
+.app { height: 100%; grid-template-columns: 232px minmax(0,1fr); grid-template-rows: minmax(0,1fr); }
+.app.rail { grid-template-columns: 56px minmax(0,1fr); }
+svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+svg.i.sm { width: 16px; height: 16px; }
+
+/* Seitenleiste nach Linear: dicht, ruhig, Projekt klappt seine Bereiche auf */
+.side { background: var(--c-side); border-right: 1px solid var(--c-hair); padding: var(--s-3) var(--s-2); display: flex; flex-direction: column; gap: 2px; font-size: 13px; overflow: hidden; }
+.side .ws { display: flex; align-items: center; gap: var(--s-2); height: var(--h-md); padding: 0 var(--s-2); font-weight: 600; font-size: 14px; }
+.side .ws b { width: 24px; height: 24px; border-radius: 6px; background: var(--c-fill-3); display: grid; place-items: center; font-size: 12px; }
+.side .find { display: flex; align-items: center; gap: var(--s-2); height: var(--h-md); padding: 0 var(--s-2); margin: var(--s-1) 0 var(--s-2); border: 1px solid var(--c-hair); border-radius: var(--r-ctl); color: var(--c-ink-3); }
+.side .find kbd { margin-left: auto; font: 12px var(--font); color: var(--c-ink-3); }
+.nav { display: flex; align-items: center; gap: var(--s-2); height: 32px; padding: 0 var(--s-2); border-radius: 6px; color: var(--c-ink-2); white-space: nowrap; }
+.nav svg { color: var(--c-ink-3); }
+.nav .n { margin-left: auto; color: var(--c-ink-3); font-variant-numeric: tabular-nums; font-size: 12px; }
+.nav.on { background: var(--c-fill-2); color: var(--c-ink); }
+.nav.on svg { color: var(--c-ink); }
+.nav.sub { padding-left: 32px; }
+.sect { margin: var(--s-4) var(--s-2) var(--s-1); font-size: 12px; color: var(--c-ink-3); font-weight: 500; }
+.dot { width: 8px; height: 8px; border-radius: 4px; flex: none; margin: 0 5px; }
+.side.rail { align-items: center; padding: var(--s-3) 0; gap: var(--s-1); }
+.side.rail .nav { width: 40px; height: 40px; justify-content: center; padding: 0; }
+
+/* Kopfzeile nach Linear: Pfad, Bereichs-Tabs, rechts Aktionen */
+.main { display: grid; grid-template-rows: auto minmax(0,1fr); min-width: 0; min-height: 0; }
+.top { display: flex; align-items: center; gap: var(--s-3); height: 56px; padding: 0 var(--s-4); border-bottom: 1px solid var(--c-hair); }
+.crumb { display: flex; align-items: center; gap: var(--s-2); font-size: 14px; color: var(--c-ink-3); white-space: nowrap; }
+.crumb b { color: var(--c-ink); font-weight: 600; }
+.tabs { display: flex; gap: 2px; margin-left: var(--s-3); }
+.tab { display: inline-flex; align-items: center; gap: var(--s-2); height: 32px; padding: 0 var(--s-3); border-radius: var(--r-ctl); font-size: 13px; color: var(--c-ink-3); border: 1px solid transparent; }
+.tab .n { font-variant-numeric: tabular-nums; color: var(--c-ink-3); }
+.tab.on { color: var(--c-ink); background: var(--c-fill-2); border-color: var(--c-hair); }
+.top .end { margin-left: auto; display: flex; gap: var(--s-2); align-items: center; }
+.content { position: relative; min-height: 0; min-width: 0; overflow: hidden; }
+
+/* Bedienelemente aus DESIGN.md */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--s-2); height: var(--h-md); padding: 0 var(--s-3); border-radius: var(--r-ctl); border: 1px solid var(--c-line); background: var(--c-fill); color: var(--c-ink); font: 500 13px var(--font); white-space: nowrap; cursor: pointer; }
+.btn.lg { height: var(--h-lg); padding: 0 var(--s-4); border-radius: var(--r-btn); font-size: 15px; }
+.btn.primary { background: var(--c-primary); color: #111112; border-color: transparent; }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--c-ink-2); }
+.btn.danger { color: var(--c-danger); background: var(--c-danger-fill); border-color: transparent; }
+.btn.paid::after { content: "kostenpflichtig"; font-size: 11px; color: var(--c-ink-3); font-weight: 400; }
+.btn.primary.paid::after { color: #4a4a48; }
+.ib { width: var(--h-md); height: var(--h-md); display: inline-grid; place-items: center; border-radius: var(--r-ctl); border: 1px solid transparent; background: transparent; color: var(--c-ink-2); cursor: pointer; }
+.ib.on { background: var(--c-fill-3); color: var(--c-ink); }
+.ib.box { border-color: var(--c-line); background: var(--c-fill); }
+.seg { display: inline-flex; padding: 2px; gap: 2px; background: var(--c-fill); border: 1px solid var(--c-hair); border-radius: var(--r-ctl); }
+.seg span { height: 28px; display: grid; place-items: center; padding: 0 var(--s-2); border-radius: 6px; font-size: 12px; color: var(--c-ink-3); }
+.seg span.on { background: var(--c-fill-3); color: var(--c-ink); }
+.field { display: grid; gap: var(--s-1); font-size: 12px; color: var(--c-ink-3); }
+.input { min-height: var(--h-md); padding: var(--s-2) var(--s-3); border-radius: var(--r-ctl); border: 1px solid var(--c-line); background: var(--c-fill); color: var(--c-ink-2); font-size: 13px; line-height: 20px; }
+.meta { font-size: 12px; color: var(--c-ink-3); font-variant-numeric: tabular-nums; }
+.tag { display: inline-flex; align-items: center; gap: var(--s-1); height: 24px; padding: 0 var(--s-2); border-radius: 12px; background: var(--c-fill-2); font-size: 12px; color: var(--c-ink-2); white-space: nowrap; }
+.tag.err { background: var(--c-danger-fill); color: var(--c-danger); }
+.tag.ref { background: transparent; border: 1px solid var(--c-line); }
+.kbd { font-size: 11px; color: var(--c-ink-3); border: 1px solid var(--c-line); border-radius: 4px; padding: 0 4px; }
+.sel { outline: 2px solid var(--c-focus); outline-offset: 2px; }
+img { display: block; }
+
+/* Status der Einstellungen: nur Icon + Graustufe, Rot für Fehler */
+.st { display: inline-flex; align-items: center; gap: var(--s-1); font-size: 12px; color: var(--c-ink-3); white-space: nowrap; }
+.st.done { color: var(--c-ink); }
+.st.err { color: var(--c-danger); }
+
+/* ---------- Leinwand (Milanote/Miro) ---------- */
+.plane { position: absolute; inset: 0; background-color: var(--c-bg); background-image: radial-gradient(var(--c-hair) 1px, transparent 1px); background-size: 24px 24px; overflow: hidden; }
+.it { position: absolute; }
+.card { background: var(--c-panel); border: 1px solid var(--c-hair); border-radius: var(--r-ctl); overflow: hidden; }
+.card img { width: 100%; height: auto; }
+.card .cap { padding: var(--s-2) var(--s-3); font-size: 12px; color: var(--c-ink-3); }
+.note { background: var(--c-panel); border: 1px solid var(--c-hair); border-radius: var(--r-ctl); padding: var(--s-3); font-size: 13px; line-height: 20px; color: var(--c-ink-2); }
+.note b { display: block; color: var(--c-ink); margin-bottom: var(--s-1); font-size: 14px; }
+.col { background: var(--c-panel); border: 1px solid var(--c-hair); border-radius: var(--r-ctl); padding: var(--s-2); display: grid; gap: var(--s-2); }
+.col > header { display: flex; align-items: center; justify-content: space-between; padding: var(--s-1) var(--s-1) 0; font-size: 13px; font-weight: 600; }
+.col > header .meta { font-weight: 400; }
+.col img { border-radius: 6px; width: 100%; }
+.swatches { display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--s-1); margin-top: var(--s-2); }
+.swatches i { height: 40px; border-radius: 6px; }
+.swatches small { font-size: 11px; color: var(--c-ink-3); font-variant-numeric: tabular-nums; }
+.linkcard { display: flex; gap: var(--s-2); align-items: center; }
+.toolrail { position: absolute; left: var(--s-3); top: 50%; translate: 0 -50%; display: grid; gap: var(--s-1); padding: var(--s-1); background: var(--c-panel); border: 1px solid var(--c-line); border-radius: var(--r-btn); z-index: 3; }
+.toolrail hr { border: 0; border-top: 1px solid var(--c-hair); margin: var(--s-1) var(--s-1); }
+.zoom { position: absolute; left: var(--s-3); bottom: var(--s-3); display: flex; align-items: center; gap: 2px; padding: 2px; background: var(--c-panel); border: 1px solid var(--c-line); border-radius: var(--r-ctl); z-index: 3; }
+.zoom .meta { width: 48px; text-align: center; }
+.float-bar { position: absolute; display: flex; gap: var(--s-1); padding: var(--s-1); background: var(--c-fill-2); border: 1px solid var(--c-line); border-radius: var(--r-btn); z-index: 4; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+.float-bar .btn { border-color: transparent; background: transparent; }
+.ai-hint { border: 1px dashed var(--c-line); border-radius: var(--r-ctl); padding: var(--s-3); font-size: 13px; color: var(--c-ink-3); display: grid; gap: var(--s-2); }
+
+/* Seitliche Ablage (Sammlung) */
+.tray { border-left: 1px solid var(--c-hair); background: var(--c-panel); display: flex; flex-direction: column; min-height: 0; }
+.tray > header { padding: var(--s-3) var(--s-4); display: grid; gap: var(--s-2); border-bottom: 1px solid var(--c-hair); }
+.tray > header b { font-size: 14px; }
+.tray .grid { padding: var(--s-3); display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-2); overflow: hidden; align-content: start; }
+.tray .grid img { width: 100%; aspect-ratio: 3/4; object-fit: cover; border-radius: 6px; }
+.tray .grid .used { position: relative; }
+.tray .grid .used::after { content: ""; position: absolute; inset: 0; border-radius: 6px; box-shadow: inset 0 0 0 2px var(--c-ink-3); }
+.tray footer { margin-top: auto; padding: var(--s-3) var(--s-4); border-top: 1px solid var(--c-hair); }
+
+/* Storyboard-Bogen */
+.sheet { position: absolute; inset: 0; overflow: auto; padding: var(--s-5) var(--s-6); display: grid; gap: var(--s-5); align-content: start; }
+.story { display: grid; grid-template-columns: 1fr auto; gap: var(--s-4); padding-bottom: var(--s-5); border-bottom: 1px solid var(--c-hair); }
+.story p { margin: var(--s-1) 0 0; color: var(--c-ink-2); max-width: 70ch; }
+.story .facts { display: grid; gap: var(--s-1); text-align: right; align-content: start; }
+.act > header { display: flex; align-items: baseline; gap: var(--s-3); margin-bottom: var(--s-3); }
+.act > header h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.shots { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: var(--s-4); }
+.shot { display: grid; gap: var(--s-2); align-content: start; }
+.shot .fr { position: relative; aspect-ratio: 16/9; border-radius: var(--r-ctl); overflow: hidden; background: var(--c-fill); border: 1px solid var(--c-hair); }
+.shot .fr img { width: 100%; height: 100%; object-fit: cover; }
+.shot .fr .no { position: absolute; left: var(--s-2); top: var(--s-2); min-width: 24px; height: 24px; padding: 0 6px; border-radius: 6px; background: rgba(17,17,18,.85); font-size: 12px; font-weight: 600; display: grid; place-items: center; font-variant-numeric: tabular-nums; }
+.shot .fr .dur { position: absolute; right: var(--s-2); bottom: var(--s-2); height: 24px; padding: 0 6px; border-radius: 6px; background: rgba(17,17,18,.85); font-size: 12px; display: grid; place-items: center; font-variant-numeric: tabular-nums; }
+.shot .fr.missing { border-style: dashed; border-color: var(--c-line); display: grid; place-items: center; background: transparent; }
+.shot .fr.missing div { display: grid; gap: var(--s-2); justify-items: center; color: var(--c-ink-3); font-size: 12px; }
+.shot h4 { margin: 0; font-size: 14px; font-weight: 600; }
+.shot p { margin: 0; font-size: 13px; line-height: 18px; color: var(--c-ink-3); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.shot .row { display: flex; align-items: center; justify-content: space-between; gap: var(--s-2); }
+.shot.add .fr { border-style: dashed; display: grid; place-items: center; color: var(--c-ink-3); background: transparent; }
+
+/* ---------- Schnitt ---------- */
+.cut { position: absolute; inset: 0; display: grid; grid-template-columns: 248px minmax(0,1fr) 288px; grid-template-rows: minmax(0,1fr) 264px; }
+.bin { border-right: 1px solid var(--c-hair); overflow: hidden; display: flex; flex-direction: column; }
+.bin h5, .insp h5 { margin: 0; padding: var(--s-3) var(--s-4) var(--s-2); font-size: 12px; font-weight: 500; color: var(--c-ink-3); }
+.bin .clip { display: grid; grid-template-columns: 64px 1fr; gap: var(--s-2); align-items: center; padding: 6px var(--s-4); font-size: 13px; }
+.bin .clip img, .bin .clip .ph { width: 64px; height: 36px; object-fit: cover; border-radius: 4px; background: var(--c-fill); }
+.bin .clip.on { background: var(--c-fill-2); }
+.bin .clip small { display: block; }
+.viewer { display: grid; grid-template-rows: minmax(0,1fr) auto; min-height: 0; padding: var(--s-4); gap: var(--s-3); min-width: 0; }
+.viewer .scr { min-height: 0; background: #000; border-radius: var(--r-ctl); overflow: hidden; display: grid; place-items: center; }
+.viewer .scr img { height: 100%; max-height: 100%; max-width: 100%; object-fit: contain; }
+.transport { display: flex; align-items: center; gap: var(--s-2); justify-content: center; }
+.transport .tc { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--c-ink-2); min-width: 128px; text-align: center; }
+.insp { border-left: 1px solid var(--c-hair); padding-bottom: var(--s-4); display: grid; align-content: start; gap: var(--s-3); overflow: hidden; }
+.insp .pad { padding: 0 var(--s-4); display: grid; gap: var(--s-3); }
+.insp .two { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: var(--s-2); }
+.insp .box { border: 1px solid var(--c-hair); border-radius: var(--r-ctl); padding: var(--s-3); display: grid; gap: var(--s-2); font-size: 13px; color: var(--c-ink-2); }
+.tl { grid-column: 1 / -1; border-top: 1px solid var(--c-hair); background: var(--c-panel); display: grid; grid-template-rows: 44px 24px 1fr; min-width: 0; }
+.tl .bar { display: flex; align-items: center; gap: var(--s-1); padding: 0 var(--s-3); border-bottom: 1px solid var(--c-hair); }
+.tl .bar .sep { width: 1px; height: 20px; background: var(--c-hair); margin: 0 var(--s-1); }
+.tl .bar .end { margin-left: auto; display: flex; align-items: center; gap: var(--s-2); }
+.ruler { position: relative; margin-left: 96px; border-bottom: 1px solid var(--c-hair); }
+.ruler span { position: absolute; top: 4px; font-size: 11px; color: var(--c-ink-3); font-variant-numeric: tabular-nums; translate: -50% 0; }
+.tracks { position: relative; display: grid; grid-auto-rows: 56px; align-content: start; padding: var(--s-2) 0; gap: var(--s-1); }
+.track { display: grid; grid-template-columns: 96px 1fr; align-items: stretch; }
+.track > b { font-size: 12px; font-weight: 500; color: var(--c-ink-3); display: flex; align-items: center; gap: var(--s-1); padding-left: var(--s-3); }
+.lane { position: relative; }
+.seg-clip { position: absolute; top: 0; bottom: 0; border-radius: 6px; overflow: hidden; border: 1px solid var(--c-line); background: var(--c-fill-2); display: flex; }
+.seg-clip img { height: 100%; width: auto; opacity: .9; }
+.seg-clip .lab { position: absolute; left: 6px; top: 4px; font-size: 11px; background: rgba(17,17,18,.85); padding: 0 4px; border-radius: 4px; white-space: nowrap; }
+.seg-clip.on { outline: 2px solid var(--c-focus); outline-offset: -1px; }
+.seg-clip.ext { background: repeating-linear-gradient(135deg, var(--c-fill-2) 0 6px, var(--c-fill-3) 6px 12px); border-style: dashed; }
+.seg-clip.aud { background: var(--c-fill); align-items: center; padding: 0 var(--s-2); }
+.seg-clip.aud svg { width: 100%; height: 32px; }
+.playhead { position: absolute; top: -24px; bottom: 0; width: 2px; background: var(--c-focus); z-index: 2; }
+.playhead::before { content: ""; position: absolute; top: 0; left: -5px; width: 12px; height: 12px; border-radius: 2px; background: var(--c-focus); }
+
+/* ---------- Variante B: alles auf einer Leinwand ---------- */
+.bframe { position: absolute; border: 1px solid var(--c-line); border-radius: var(--r-btn); background: rgba(24,24,26,.6); }
+.bframe > .ttl { position: absolute; top: -28px; left: 0; font-size: 13px; font-weight: 600; display: flex; gap: var(--s-2); align-items: center; }
+.bframe > .ttl .meta { font-weight: 400; }
+.bshot { position: absolute; width: 176px; }
+.bshot .fr { aspect-ratio: 16/9; border-radius: 6px; overflow: hidden; border: 1px solid var(--c-hair); background: var(--c-fill); }
+.bshot .fr img { width: 100%; height: 100%; object-fit: cover; }
+.bshot .fr.missing { border-style: dashed; border-color: var(--c-line); background: transparent; display: grid; place-items: center; color: var(--c-ink-3); font-size: 12px; }
+.bshot b { display: block; font-size: 12px; margin-top: 6px; }
+.bshot .st { margin-top: 2px; }
+.wires { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 1; }
+.wires path { fill: none; stroke: var(--c-ink-3); stroke-width: 1.5; }
+.wires path.dash { stroke-dasharray: 4 4; }
+.wires text { fill: var(--c-ink-3); font: 11px var(--font); }
+.topfloat { position: absolute; top: var(--s-3); left: var(--s-3); right: var(--s-3); display: flex; justify-content: space-between; z-index: 3; pointer-events: none; }
+.topfloat > div { display: flex; align-items: center; gap: var(--s-2); padding: var(--s-1) var(--s-1) var(--s-1) var(--s-3); background: var(--c-panel); border: 1px solid var(--c-line); border-radius: var(--r-btn); pointer-events: auto; }
+.minimap { position: absolute; right: var(--s-3); bottom: var(--s-3); width: 176px; height: 104px; background: var(--c-panel); border: 1px solid var(--c-line); border-radius: var(--r-ctl); z-index: 3; }
+.minimap i { position: absolute; background: var(--c-fill-3); border-radius: 2px; }
+.minimap .vp { background: transparent; border: 1.5px solid var(--c-focus); }
+.side-panel { position: absolute; top: 72px; right: var(--s-3); bottom: var(--s-3); width: 320px; background: var(--c-panel); border: 1px solid var(--c-line); border-radius: var(--r-btn); z-index: 4; display: grid; grid-template-rows: auto 1fr auto; box-shadow: 0 16px 40px rgba(0,0,0,.45); }
+.side-panel > header { display: flex; align-items: center; justify-content: space-between; padding: var(--s-3) var(--s-3) var(--s-3) var(--s-4); border-bottom: 1px solid var(--c-hair); }
+.side-panel .body { padding: var(--s-4); display: grid; gap: var(--s-3); align-content: start; overflow: hidden; }
+.side-panel footer { padding: var(--s-3) var(--s-4); border-top: 1px solid var(--c-hair); display: grid; gap: var(--s-2); }
+.drawer { position: absolute; left: 0; right: 0; bottom: 0; height: 344px; background: var(--c-panel); border-top: 1px solid var(--c-line); z-index: 5; display: grid; grid-template-columns: 1fr 360px; box-shadow: 0 -16px 40px rgba(0,0,0,.45); }
+.drawer .tl { grid-column: 1; border-top: 0; }
+.drawer .mini-viewer { border-left: 1px solid var(--c-hair); padding: var(--s-3); display: grid; grid-template-rows: auto minmax(0,1fr) auto; min-height: 0; gap: var(--s-2); }
+.drawer .mini-viewer .scr { min-height: 0; background: #000; border-radius: var(--r-ctl); overflow: hidden; display: grid; place-items: center; }
+.drawer .mini-viewer .scr img { height: 100%; object-fit: contain; }
+.dim::after { content: ""; position: absolute; inset: 0; background: rgba(0,0,0,.35); z-index: 2; }
+
+/* ---------- Variante C: Spalten-Look und Shotlist ---------- */
+.unsorted { display: flex; gap: var(--s-2); align-items: center; padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--c-hair); overflow: hidden; }
+.unsorted img { height: 56px; width: 42px; object-fit: cover; border-radius: 4px; }
+.unsorted .meta { white-space: nowrap; margin-right: var(--s-2); }
+.columns { position: absolute; inset: 81px 0 0 0; display: flex; gap: var(--s-4); padding: var(--s-4); overflow: hidden; align-items: flex-start; background-color: var(--c-bg); }
+.columns .col { width: 232px; flex: none; }
+.columns .col.add { border-style: dashed; background: transparent; color: var(--c-ink-3); font-size: 13px; place-items: center; height: 56px; }
+.list { position: absolute; inset: 0; display: grid; grid-template-columns: minmax(0,1fr) 360px; }
+.list .rows { overflow: hidden; }
+.lhead { display: grid; grid-template-columns: 32px 72px minmax(0,1fr) 152px 48px; gap: var(--s-3); align-items: center; height: 32px; padding: 0 var(--s-4); font-size: 12px; color: var(--c-ink-3); border-bottom: 1px solid var(--c-hair); }
+.lgroup { display: flex; align-items: center; gap: var(--s-2); height: 40px; padding: 0 var(--s-4); background: var(--c-panel); border-bottom: 1px solid var(--c-hair); font-size: 13px; font-weight: 600; }
+.lgroup .meta { font-weight: 400; }
+.lrow { display: grid; grid-template-columns: 32px 72px minmax(0,1fr) 152px 48px; gap: var(--s-3); align-items: center; min-height: 56px; padding: var(--s-2) var(--s-4); border-bottom: 1px solid var(--c-hair); font-size: 13px; }
+.lrow.on { background: var(--c-fill-2); box-shadow: inset 2px 0 0 var(--c-focus); }
+.lrow img, .lrow .ph { width: 72px; height: 40px; object-fit: cover; border-radius: 4px; background: var(--c-fill); border: 1px dashed var(--c-line); }
+.lrow img { border: 0; }
+.lrow .t { min-width: 0; }
+.lrow .t b { display: block; font-weight: 500; color: var(--c-ink); }
+.lrow .t span { display: block; color: var(--c-ink-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lrow .num { color: var(--c-ink-3); font-variant-numeric: tabular-nums; }
+.detail { border-left: 1px solid var(--c-hair); display: grid; grid-template-rows: auto minmax(0,1fr) auto; min-height: 0; }
+.detail > header { padding: var(--s-4); border-bottom: 1px solid var(--c-hair); display: grid; gap: var(--s-1); }
+.detail > header b { font-size: 17px; }
+.detail .body { padding: var(--s-4); display: grid; gap: var(--s-3); align-content: start; overflow: hidden; }
+.detail .body .fr { aspect-ratio: 16/9; border-radius: var(--r-ctl); overflow: hidden; }
+.detail .body .fr img { width: 100%; height: 100%; object-fit: cover; }
+.detail footer { padding: var(--s-3) var(--s-4); border-top: 1px solid var(--c-hair); display: grid; gap: var(--s-2); }
+.refs { display: flex; gap: var(--s-2); flex-wrap: wrap; }
+.refs .r { display: flex; align-items: center; gap: 6px; padding: 2px 8px 2px 2px; border: 1px solid var(--c-line); border-radius: 16px; font-size: 12px; color: var(--c-ink-2); }
+.refs .r img { width: 24px; height: 24px; border-radius: 12px; object-fit: cover; }
+.cut-c { position: absolute; inset: 0; display: grid; grid-template-rows: minmax(0,1fr) 312px; }
+.cut-c .upper { display: grid; grid-template-columns: minmax(0,1fr) 320px; min-height: 0; }
+.cut-c .tl { grid-column: auto; }
+.cut-c .tracks { grid-auto-rows: 64px; }
+
+/* ---------- Zustände ---------- */
+.state-layer { position: absolute; inset: 0; display: none; background: var(--c-bg); z-index: 8; }
+.frame[data-state="loading"] .state-layer.loading,
+.frame[data-state="empty"] .state-layer.empty,
+.frame[data-state="error"] .state-layer.error { display: block; }
+.sk { background: var(--c-fill); border-radius: var(--r-ctl); }
+.sk.l { height: 12px; border-radius: 6px; }
+.center { position: absolute; inset: 0; display: grid; place-items: center; }
+.msg { display: grid; gap: var(--s-3); justify-items: center; text-align: center; max-width: 440px; }
+.msg h3 { margin: 0; font-size: 20px; font-weight: 600; }
+.msg p { margin: 0; color: var(--c-ink-3); }
+.msg .acts { display: flex; gap: var(--s-2); margin-top: var(--s-2); }
+.msg .ic { width: 48px; height: 48px; border-radius: 24px; background: var(--c-fill-2); display: grid; place-items: center; color: var(--c-ink-2); }
+.msg .ic.err { background: var(--c-danger-fill); color: var(--c-danger); }
+.offline { position: absolute; left: 50%; top: var(--s-3); translate: -50% 0; z-index: 9; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="inbox" viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
+  <symbol id="library" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V2H6.5A2.5 2.5 0 0 0 4 4.5v15z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/></symbol>
+  <symbol id="image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></symbol>
+  <symbol id="video" viewBox="0 0 24 24"><path d="m22 8-6 4 6 4V8z"/><rect x="2" y="6" width="14" height="12" rx="2"/></symbol>
+  <symbol id="board" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M3 12h6"/></symbol>
+  <symbol id="film" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="2"/><path d="M7 2v20M17 2v20M2 12h20M2 7h5M2 17h5M17 17h5M17 7h5"/></symbol>
+  <symbol id="scissors" viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12"/></symbol>
+  <symbol id="note" viewBox="0 0 24 24"><path d="M4 7V4h16v3M9 20h6M12 4v16"/></symbol>
+  <symbol id="drop" viewBox="0 0 24 24"><path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z"/></symbol>
+  <symbol id="link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></symbol>
+  <symbol id="upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></symbol>
+  <symbol id="columns" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18"/></symbol>
+  <symbol id="spark" viewBox="0 0 24 24"><path d="M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z"/></symbol>
+  <symbol id="plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  <symbol id="play" viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></symbol>
+  <symbol id="skipb" viewBox="0 0 24 24"><path d="M19 20 9 12l10-8zM5 19V5"/></symbol>
+  <symbol id="skipf" viewBox="0 0 24 24"><path d="m5 4 10 8-10 8zM19 5v14"/></symbol>
+  <symbol id="music" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></symbol>
+  <symbol id="volume" viewBox="0 0 24 24"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></symbol>
+  <symbol id="check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+  <symbol id="alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></symbol>
+  <symbol id="circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke-dasharray="3 3"/></symbol>
+  <symbol id="more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+  <symbol id="cursor" viewBox="0 0 24 24"><path d="m4 4 7 17 2.5-7.5L21 11z"/></symbol>
+  <symbol id="refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16M8 16H3v5"/></symbol>
+  <symbol id="extend" viewBox="0 0 24 24"><path d="M3 12h12M11 8l4 4-4 4M19 5v14"/></symbol>
+  <symbol id="chev" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="wand" viewBox="0 0 24 24"><path d="m3 21 12-12M15 4V2M15 10V8M11 6H9M21 6h-2M18 3l-1 1M18 9l-1-1"/></symbol>
+  <symbol id="layers" viewBox="0 0 24 24"><path d="m12 2 10 5-10 5L2 7z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/></symbol>
+  <symbol id="download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></symbol>
+  <symbol id="wifi-off" viewBox="0 0 24 24"><path d="m2 2 20 20M8.5 16.5a5 5 0 0 1 7 0M5 12.9a10 10 0 0 1 5.2-2.8M19 12.9a10 10 0 0 0-2.4-1.7M2 8.8a15 15 0 0 1 4.2-2.6M22 8.8A15 15 0 0 0 11 4.5M12 20h.01"/></symbol>
+  <symbol id="grip" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></symbol>
+</svg>
+
+<header class="canvas-head">
+  <h1>Filmprojekt: Moodboard, Storyboard, Schnitt · 3 Richtungen</h1>
+  <p>Für dich als Einzelperson mit eigenem Studio: ein Film oder Clip entsteht aus gesammelter Inspiration, wird zu einer Abfolge von Einstellungen und am Ende geschnitten, wahlweise komplett mit KI erzeugt. Die App-Hülle folgt Linear (dichte Seitenleiste, Pfad und Bereichs-Tabs oben, eine Hauptaktion), die Flächen folgen Milanote und Miro. Tokens aus <code>web/app.css</code>, Icons Lucide. Projekt „Black Frame“, Bilder aus deiner Sammlung.</p>
+  <div class="flow"><span>Sammlung + Clipper</span><svg class="i sm"><use href="#chev"/></svg><span>Moodboard</span><svg class="i sm"><use href="#chev"/></svg><span>Storyboard</span><svg class="i sm"><use href="#chev"/></svg><span>Foto Playground: Startbild</span><svg class="i sm"><use href="#chev"/></svg><span>Video Playground: Clip, Verlängern</span><svg class="i sm"><use href="#chev"/></svg><span>Schnitt + Audio</span></div>
+</header>
+
+<main class="board" id="variants"></main>
+
+<script>
+const I = (id, cls = '') => `<svg class="i ${cls}"><use href="#${id}"/></svg>`
+const img = n => `img/p${n}.jpg`
+const shots = [
+  { n: 1, act: 1, t: 'Hinterhof, Nacht', d: 'Totale. Zwei Figuren in schwarzem Latex treten aus dem Tor, Regen auf dem Pflaster.', s: 5, p: 5, st: 'video' },
+  { n: 2, act: 1, t: 'Flur mit Neon', d: 'POV, langsame Fahrt. Neonröhren flackern, Schritte hallen.', s: 4, p: 11, st: 'video' },
+  { n: 3, act: 1, t: 'Behandlungsraum', d: 'Halbnah. Die Maske wird zurechtgerückt, die Handschuhe quietschen.', s: 6, p: 9, st: 'running' },
+  { n: 4, act: 1, t: 'Spiegel', d: 'Nah. Zwei Spiegelbilder, eine Figur dreht sich weg.', s: 5, p: 12, st: 'image' },
+  { n: 5, act: 2, t: 'Treppenhaus', d: 'Handkamera, Flucht nach oben, das Licht kippt ins Rot.', s: 8, p: null, st: 'none' },
+  { n: 6, act: 2, t: 'Hof im Morgengrauen', d: 'Totale, statisch. Eine Figur bleibt allein zurück.', s: 6, p: 13, st: 'error' },
+]
+const acts = { 1: 'Akt 1 · Ankunft', 2: 'Akt 2 · Flucht' }
+const status = {
+  video: `<span class="st done">${I('check', 'sm')}Video fertig</span>`,
+  running: `<span class="st">${I('clock', 'sm')}Video wird erzeugt</span>`,
+  image: `<span class="st">${I('image', 'sm')}Startbild da</span>`,
+  none: `<span class="st">${I('circle', 'sm')}Startbild fehlt</span>`,
+  error: `<span class="st err">${I('alert', 'sm')}Video fehlgeschlagen</span>`,
+}
+const tc = s => `0:${String(s).padStart(2, '0')}`
+
+/* Seitenleiste */
+function side(active, { projectOpen = true } = {}) {
+  const n = (icon, label, key, count = '') => `<div class="nav ${active === key ? 'on' : ''}">${I(icon)}<span>${label}</span>${count ? `<span class="n">${count}</span>` : ''}</div>`
+  const sub = (label, key, count) => `<div class="nav sub ${active === key ? 'on' : ''}"><span>${label}</span><span class="n">${count}</span></div>`
+  return `<nav class="side"><div class="ws"><b>A</b>Atelier</div>
+    <div class="find">${I('search', 'sm')}Suchen<kbd>⌘K</kbd></div>
+    ${n('inbox', 'Sammlung', 'sammlung', 132)}${n('library', 'Library', 'library', 412)}
+    ${n('image', 'Foto Playground', 'foto')}${n('video', 'Video Playground', 'videopg')}
+    <div class="sect">Projekte</div>
+    <div class="nav ${active.startsWith('p-') && !projectOpen ? 'on' : ''}"><i class="dot" style="background:#FF6B57"></i><span>Black Frame</span>${I('down', 'sm')}</div>
+    ${projectOpen ? sub('Moodboard', 'p-mood', 23) + sub('Storyboard', 'p-story', 6) + sub('Schnitt', 'p-cut', '0:34') : ''}
+    <div class="nav"><i class="dot" style="background:#BF5AF2"></i><span>Immersive Wearable</span></div>
+    <div class="nav"><i class="dot" style="background:#0A84FF"></i><span>Audio-reaktive Punktwolke</span></div>
+    <div class="nav"><i class="dot" style="background:#30D158"></i><span>Synths und Firmware</span></div>
+    <div class="nav"><i class="dot" style="background:#64D2FF"></i><span>VJ und Live Visuals</span></div>
+    <div style="margin-top:auto">${n('layers', 'Anbieter', 'anb')}</div></nav>`
+}
+function rail(active) {
+  const n = (icon, key, label) => `<div class="nav ${active === key ? 'on' : ''}" title="${label}" aria-label="${label}">${I(icon)}</div>`
+  return `<nav class="side rail"><div class="ws" style="padding:0"><b>A</b></div>${n('search', 's', 'Suchen')}${n('inbox', 'sammlung', 'Sammlung')}${n('library', 'lib', 'Library')}${n('image', 'foto', 'Foto Playground')}${n('video', 'vpg', 'Video Playground')}
+    <div style="height:1px;width:24px;background:var(--c-hair);margin:8px 0"></div>
+    <div class="nav on" aria-label="Black Frame"><i class="dot" style="background:#FF6B57;margin:0"></i></div>
+    <div class="nav" aria-label="Immersive Wearable"><i class="dot" style="background:#BF5AF2;margin:0"></i></div>
+    <div class="nav" aria-label="Audio-reaktive Punktwolke"><i class="dot" style="background:#0A84FF;margin:0"></i></div></nav>`
+}
+function topBar(tab, end, labels = ['Moodboard', 'Storyboard', 'Schnitt']) {
+  const counts = [23, 6, '0:34']
+  return `<div class="top"><div class="crumb"><i class="dot" style="background:#FF6B57;margin:0"></i><b>Black Frame</b></div>
+    <div class="tabs">${labels.map((l, i) => `<div class="tab ${tab === i ? 'on' : ''}">${l}<span class="n">${counts[i]}</span></div>`).join('')}</div>
+    <div class="end">${end}</div></div>`
+}
+
+/* Wiederverwendete Teile */
+const wave = (seed, w = 600, h = 32, bars = 120) => {
+  let x = seed, out = ''
+  for (let i = 0; i < bars; i++) { x = (x * 9301 + 49297) % 233280; const v = 4 + (x / 233280) * (h - 8) * (0.5 + 0.5 * Math.abs(Math.sin(i / 9))); out += `<rect x="${i * (w / bars)}" y="${(h - v) / 2}" width="${w / bars * 0.6}" height="${v}" rx="1"/>` }
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="fill:var(--c-ink-3)">${out}</svg>`
+}
+function timeline({ pxPerSec = 26, extended = true, sel = 3 } = {}) {
+  let x = 0
+  const clips = shots.map(s => { const w = s.s * pxPerSec; const c = `<div class="seg-clip ${s.n === sel ? 'on' : ''}" style="left:${x}px;width:${w - 2}px">${s.p ? [1, 2, 3].map(() => `<img src="${img(s.p)}" alt="">`).join('') : ''}<span class="lab">${s.n} · ${s.t}</span></div>`; x += w; return c }).join('')
+  const ext = extended ? `<div class="seg-clip ext" style="left:${x}px;width:${4 * pxPerSec - 2}px"><span class="lab">KI-Verlängerung 4 s</span></div>` : ''
+  const total = 34 + (extended ? 4 : 0)
+  const ticks = Array.from({ length: Math.floor(total / 5) + 1 }, (_, i) => `<span style="left:${i * 5 * pxPerSec}px">${tc(i * 5)}</span>`).join('')
+  return `<div class="tl"><div class="bar">
+      <button class="ib on" aria-label="Auswählen">${I('cursor')}</button><button class="ib" aria-label="Teilen">${I('scissors')}</button>
+      <span class="sep"></span>
+      <button class="btn ghost">${I('extend', 'sm')}Mit KI verlängern</button><button class="btn ghost">${I('music', 'sm')}Audiospur hinzufügen</button>
+      <div class="end"><span class="meta">${shots.length} Clips · ${tc(total)}</span><button class="ib" aria-label="Verkleinern">${I('minus')}</button><button class="ib" aria-label="Vergrößern">${I('plus')}</button></div></div>
+    <div class="ruler">${ticks}</div>
+    <div class="tracks"><div class="playhead" style="left:${96 + 12.5 * pxPerSec}px"></div>
+      <div class="track"><b>${I('video', 'sm')}Bild</b><div class="lane">${clips}${ext}</div></div>
+      <div class="track"><b>${I('music', 'sm')}Musik</b><div class="lane"><div class="seg-clip aud" style="left:0;width:${32 * pxPerSec}px"><span class="lab">Red Rose (Demo).wav</span>${wave(7, 600)}</div></div></div>
+      <div class="track"><b>${I('volume', 'sm')}Ton</b><div class="lane"><div class="seg-clip aud" style="left:${5 * pxPerSec}px;width:${15 * pxPerSec}px"><span class="lab">Atmo Neonbrummen</span>${wave(3, 300)}</div></div></div>
+    </div></div>`
+}
+function shotCard(s, { selected = false } = {}) {
+  const fr = s.p ? `<div class="fr ${selected ? 'sel' : ''}"><img src="${img(s.p)}" alt="Startbild Einstellung ${s.n}"><span class="no">${s.n}</span><span class="dur">${s.s} s</span></div>`
+    : `<div class="fr missing"><div>${I('image')}<span>Noch kein Startbild</span><span style="display:flex;gap:8px"><button class="btn">Aus Moodboard</button><button class="btn" aria-label="Startbild erzeugen">${I('wand', 'sm')}</button></span></div></div>`
+  const act = s.st === 'error' ? `<button class="btn">${I('refresh', 'sm')}Erneut</button>` : s.st === 'image' ? `<button class="btn">${I('video', 'sm')}Video erzeugen</button>` : `<button class="ib" aria-label="Mehr zu Einstellung ${s.n}">${I('more')}</button>`
+  return `<article class="shot">${fr}<div class="row"><h4>${s.n} · ${s.t}</h4></div><p>${s.d}</p><div class="row">${status[s.st]}${act}</div></article>`
+}
+function sammlungTray() {
+  return `<aside class="tray"><header><b>Sammlung</b><div class="input" style="display:flex;gap:8px;align-items:center;color:var(--c-ink-3)">${I('search', 'sm')}Suchen</div>
+    <div class="seg"><span class="on">Alle</span><span>Bilder</span><span>Generiert</span><span>Videos</span></div></header>
+    <div class="grid">${[1, 2, 4, 7, 8, 10, 14, 15].map((p, i) => `<img class="${i < 3 ? 'used' : ''}" src="${img(p)}" alt="">`).join('')}</div>
+    <footer class="meta">Auf das Board ziehen. Umrandet = liegt schon auf dem Board.</footer></aside>`
+}
+
+/* Zustände je Bildschirm */
+function layers(kind, empty) {
+  const sk = {
+    board: `<div style="position:absolute;inset:24px 24px 24px 88px">${[[0, 0, 220, 360], [248, 0, 180, 240], [456, 24, 240, 120], [456, 168, 240, 96], [248, 272, 160, 200]].map(([x, y, w, h]) => `<div class="sk" style="position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px"></div>`).join('')}</div>`,
+    sheet: `<div style="padding:24px 32px;display:grid;gap:24px"><div style="display:grid;gap:8px"><div class="sk l" style="width:120px"></div><div class="sk l" style="width:60%"></div><div class="sk l" style="width:48%"></div></div><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px">${'<div style="display:grid;gap:8px"><div class="sk" style="aspect-ratio:16/9"></div><div class="sk l" style="width:70%"></div><div class="sk l" style="width:90%"></div></div>'.repeat(8)}</div></div>`,
+    list: `<div>${'<div style="display:grid;grid-template-columns:40px 72px 1fr 120px 136px;gap:12px;align-items:center;height:56px;padding:0 16px;border-bottom:1px solid var(--c-hair)"><div class="sk l"></div><div class="sk" style="height:40px"></div><div class="sk l" style="width:60%"></div><div class="sk l"></div><div class="sk l"></div></div>'.repeat(9)}</div>`,
+    cut: `<div style="position:absolute;inset:0;display:grid;grid-template-rows:1fr 264px"><div style="display:grid;grid-template-columns:248px 1fr 288px;gap:16px;padding:16px"><div style="display:grid;gap:8px;align-content:start">${'<div class="sk" style="height:36px"></div>'.repeat(6)}</div><div class="sk"></div><div style="display:grid;gap:8px;align-content:start">${'<div class="sk" style="height:44px"></div>'.repeat(4)}</div></div><div style="padding:16px;display:grid;gap:8px;border-top:1px solid var(--c-hair)">${'<div class="sk" style="height:56px"></div>'.repeat(3)}</div></div>`,
+    canvas: `<div style="position:absolute;inset:80px 64px">${[[0, 40, 420, 380], [480, 40, 640, 220]].map(([x, y, w, h]) => `<div class="sk" style="position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px;opacity:.6"></div>`).join('')}</div>`,
+  }[kind]
+  return `<div class="state-layer loading" aria-busy="true" aria-label="Lädt">${sk}</div>
+    <div class="state-layer empty"><div class="center"><div class="msg"><div class="ic">${I(empty.icon)}</div><h3>${empty.h}</h3><p>${empty.p}</p><div class="acts">${empty.acts}</div></div></div></div>
+    <div class="state-layer error"><div class="center"><div class="msg"><div class="ic err">${I('alert')}</div><h3>${empty.errH}</h3><p>${empty.errP}</p><div class="acts"><button class="btn lg primary">${I('refresh', 'sm')}Erneut versuchen</button></div></div></div></div>`
+}
+const E = {
+  mood: { icon: 'board', h: 'Das Moodboard ist noch leer', p: 'Zieh Bilder aus der Sammlung herüber, leg Notizen und Farben an oder lass dir aus deiner Projektbeschreibung einen ersten Entwurf vorschlagen.', acts: `<button class="btn lg primary">${I('inbox', 'sm')}Aus Sammlung wählen</button><button class="btn lg">${I('spark', 'sm')}Mit KI vorschlagen</button>`, errH: 'Moodboard nicht geladen', errP: 'Der Hub hat nicht geantwortet. Deine letzte Änderung ist lokal gespeichert und wird übertragen, sobald er wieder erreichbar ist.' },
+  story: { icon: 'film', h: 'Noch keine Einstellungen', p: 'Schreib die Story in ein paar Sätzen. Daraus kannst du Einstellungen ableiten lassen oder sie einzeln anlegen.', acts: `<button class="btn lg primary">${I('plus', 'sm')}Einstellung anlegen</button><button class="btn lg">${I('spark', 'sm')}Story aufteilen</button>`, errH: 'Storyboard nicht geladen', errP: 'Der Hub hat nicht geantwortet. Nichts ist verloren gegangen.' },
+  cut: { icon: 'scissors', h: 'Noch nichts zum Schneiden', p: 'Hier landen die Videos deiner Einstellungen. Erzeuge im Storyboard das erste Video oder zieh eine Datei von deinem Mac herein.', acts: `<button class="btn lg primary">${I('film', 'sm')}Zum Storyboard</button><button class="btn lg">${I('upload', 'sm')}Video hochladen</button>`, errH: 'Schnitt nicht geladen', errP: 'Die Videos konnten nicht geladen werden. Der Schnitt selbst ist gespeichert.' },
+  canvas: { icon: 'board', h: 'Leere Leinwand', p: 'Leg links Referenzen ab und baue rechts die Abfolge deiner Einstellungen. Beides bleibt auf einer Fläche.', acts: `<button class="btn lg primary">${I('inbox', 'sm')}Aus Sammlung wählen</button><button class="btn lg">${I('spark', 'sm')}Mit KI vorschlagen</button>`, errH: 'Leinwand nicht geladen', errP: 'Der Hub hat nicht geantwortet. Deine letzte Änderung ist lokal gespeichert.' },
+}
+
+/* ===================== Variante A ===================== */
+const A = {
+  name: 'A · Projekt-Etappen',
+  why: 'Linear-Hülle mit drei Tabs pro Projekt, die genau den Ablauf abbilden. Moodboard als freie Milanote-Fläche mit Sammlung rechts, Storyboard als klassischer Bogen nach Akten, Schnitt als eigener Arbeitsplatz. Am vertrautesten, jede Etappe hat ihren Platz.',
+  screens: {
+    Moodboard: () => `<div class="app" style="display:grid">${side('p-mood')}<div class="main">${topBar(0, `<button class="btn">${I('spark', 'sm')}Mit KI vorschlagen</button><button class="btn primary">${I('plus', 'sm')}Hinzufügen</button>`)}
+      <div class="content" style="display:grid;grid-template-columns:1fr 248px"><div style="position:relative;overflow:hidden"><div class="plane">
+        <div class="toolrail"><button class="ib on" aria-label="Auswählen">${I('cursor')}</button><button class="ib" aria-label="Notiz">${I('note')}</button><button class="ib" aria-label="Bild hochladen">${I('upload')}</button><button class="ib" aria-label="Farbe">${I('drop')}</button><button class="ib" aria-label="Spalte">${I('columns')}</button><button class="ib" aria-label="Link">${I('link')}</button><hr><button class="ib" aria-label="Mit KI vorschlagen">${I('spark')}</button></div>
+        <div class="it col" style="left:80px;top:24px;width:208px"><header>Orte<span class="meta">3</span></header><img src="${img(3)}" alt=""><img src="${img(5)}" alt=""><img src="${img(6)}" alt=""></div>
+        <div class="it card sel" style="left:312px;top:72px;width:176px"><img src="${img(1)}" alt=""><div class="cap">Figur A · Mantel</div></div>
+        <div class="float-bar" style="left:312px;top:20px"><button class="btn">${I('film', 'sm')}Als Einstellung</button><button class="btn">${I('wand', 'sm')}Variieren</button><button class="ib" aria-label="Mehr">${I('more')}</button></div>
+        <div class="it card" style="left:504px;top:24px;width:160px"><img src="${img(2)}" alt=""></div>
+        <div class="it note" style="left:504px;top:272px;width:248px"><b>Licht und Ton</b>Kaltes Neon, grünes Streulicht, harte Schatten. Analoges Korn wie 16 mm. Farbe nur an den roten Handschuhen.</div>
+        <div class="it note" style="left:680px;top:24px;width:200px"><b>Palette</b><div class="swatches"><i style="background:#0F1412"></i><i style="background:#2E3B33"></i><i style="background:#8FA39A"></i><i style="background:#B3201C"></i><i style="background:#E9E6DF"></i></div></div>
+        <div class="it card" style="left:312px;top:380px;width:176px"><img src="${img(4)}" alt=""><div class="cap">Maske, Variante 2</div></div>
+        <div class="it note linkcard" style="left:680px;top:176px;width:200px">${I('link', 'sm')}<span><b style="margin:0">Referenzfilm</b><span class="meta">vimeo.com</span></span></div>
+        <div class="it col" style="left:776px;top:424px;width:208px"><header>Figuren<span class="meta">4</span></header><img src="${img(7)}" alt=""></div>
+        <div class="zoom"><button class="ib" aria-label="Verkleinern">${I('minus')}</button><span class="meta">80 %</span><button class="ib" aria-label="Vergrößern">${I('plus')}</button></div>
+      </div>${layers('board', E.mood)}</div>${sammlungTray()}</div></div></div>`,
+    Storyboard: () => `<div class="app" style="display:grid">${side('p-story')}<div class="main">${topBar(1, `<button class="btn">${I('spark', 'sm')}Story aufteilen</button><button class="btn primary">${I('plus', 'sm')}Einstellung</button>`)}
+      <div class="content"><div class="sheet">
+        <div class="story"><div><span class="meta">Story</span><p>Eine Nacht in einer verlassenen Gummiklinik. Zwei Figuren kommen an, eine erkennt sich im Spiegel nicht wieder und flieht. Am Morgen bleibt die andere allein im Hof.</p></div>
+          <div class="facts"><span class="meta">6 Einstellungen · ${tc(34)}</span><span class="meta">Look: 23 Referenzen aus dem Moodboard</span><span class="meta">Videomodell: Seedance 2.5</span></div></div>
+        ${[1, 2].map(a => `<section class="act"><header><h3>${acts[a]}</h3><span class="meta">${shots.filter(s => s.act === a).reduce((n, s) => n + s.s, 0)} s</span></header><div class="shots">${shots.filter(s => s.act === a).map(s => shotCard(s, { selected: s.n === 3 })).join('')}${a === 2 ? `<article class="shot add"><div class="fr"><span style="display:flex;gap:8px;align-items:center">${I('plus', 'sm')}Einstellung</span></div></article>` : ''}</div></section>`).join('')}
+      </div>${layers('sheet', E.story)}</div></div></div>`,
+    Schnitt: () => `<div class="app" style="display:grid">${side('p-cut')}<div class="main">${topBar(2, `<button class="btn">${I('play', 'sm')}Vorschau</button><button class="btn primary">${I('download', 'sm')}Film exportieren</button>`)}
+      <div class="content"><div class="cut">
+        <aside class="bin"><h5>Einstellungen</h5>${shots.map(s => `<div class="clip ${s.n === 3 ? 'on' : ''}">${s.p ? `<img src="${img(s.p)}" alt="">` : '<span class="ph"></span>'}<span>${s.n} · ${s.t}<small>${status[s.st]}</small></span></div>`).join('')}
+          <h5>Audio</h5><div class="clip"><span class="ph" style="display:grid;place-items:center">${I('music', 'sm')}</span><span>Red Rose (Demo)<small class="meta">0:32</small></span></div></aside>
+        <div class="viewer"><div class="scr"><img src="${img(9)}" alt="Vorschau Einstellung 3"></div>
+          <div class="transport"><button class="ib" aria-label="Zurück">${I('skipb')}</button><button class="ib box" aria-label="Abspielen">${I('play')}</button><button class="ib" aria-label="Vor">${I('skipf')}</button><span class="tc">0:12 / 0:38</span></div></div>
+        <aside class="insp"><h5>Einstellung 3 · Behandlungsraum</h5><div class="pad">
+          <div class="two"><label class="field">Anfang<span class="input">0:00</span></label><label class="field">Ende<span class="input">0:06</span></label></div>
+          <div class="box"><b style="color:var(--c-ink)">Mit KI verlängern</b><span>Nimmt das letzte Bild als Start und erzeugt die nächsten Sekunden im selben Look.</span>
+            <div class="two"><span class="input">+ 4 s</span><span class="input">Seedance 2.5</span></div><button class="btn paid">${I('extend', 'sm')}Verlängern</button></div>
+          <div class="box"><b style="color:var(--c-ink)">Video wird erzeugt</b><span>Kie.ai meldet den Stand, sobald der Clip fertig ist. Du kannst weiterschneiden.</span></div>
+          <button class="btn">${I('film', 'sm')}Im Storyboard öffnen</button></div></aside>
+        ${timeline()}
+      </div>${layers('cut', E.cut)}</div></div></div>`,
+  },
+}
+
+/* ===================== Variante B ===================== */
+function bCanvas({ zoomed = false } = {}) {
+  const sx = zoomed ? 1.35 : 1, ox = zoomed ? -380 : 24, oy = zoomed ? -40 : 0
+  const at = (x, y) => `left:${x * sx + ox}px;top:${y * sx + oy}px`
+  const shotPos = shots.map((s, i) => [520 + (i % 3) * 200, 136 + Math.floor(i / 3) * 176])
+  return `<div class="plane" style="background-size:${24 * sx}px ${24 * sx}px">
+    <div class="bframe" style="${at(64, 104)};width:${400 * sx}px;height:${520 * sx}px"><span class="ttl">${I('board', 'sm')}Moodboard<span class="meta">23</span></span></div>
+    <div class="it card" style="${at(80, 120)};width:${116 * sx}px"><img src="${img(1)}" alt=""></div>
+    <div class="it card" style="${at(208, 120)};width:${116 * sx}px"><img src="${img(2)}" alt=""></div>
+    <div class="it card" style="${at(336, 120)};width:${112 * sx}px"><img src="${img(4)}" alt=""></div>
+    <div class="it card" style="${at(80, 296)};width:${180 * sx}px"><img src="${img(3)}" alt=""></div>
+    <div class="it note" style="${at(272, 296)};width:${176 * sx}px;font-size:12px;line-height:18px"><b>Licht und Ton</b>Kaltes Neon, grünes Streulicht, analoges Korn.</div>
+    <div class="it note" style="${at(80, 440)};width:${180 * sx}px"><b>Palette</b><div class="swatches"><i style="background:#0F1412;height:24px"></i><i style="background:#2E3B33;height:24px"></i><i style="background:#8FA39A;height:24px"></i><i style="background:#B3201C;height:24px"></i><i style="background:#E9E6DF;height:24px"></i></div></div>
+    <div class="it card" style="${at(272, 424)};width:${176 * sx}px"><img src="${img(6)}" alt=""></div>
+    <div class="bframe" style="${at(496, 104)};width:${632 * sx}px;height:${392 * sx}px"><span class="ttl">${I('film', 'sm')}Storyboard<span class="meta">6 Einstellungen · ${tc(34)}</span></span></div>
+    ${shots.map((s, i) => `<div class="bshot" style="${at(...shotPos[i])};width:${176 * sx}px"><div class="fr ${s.p ? '' : 'missing'} ${s.n === 3 && zoomed ? 'sel' : ''}">${s.p ? `<img src="${img(s.p)}" alt="">` : 'Startbild fehlt'}</div><b>${s.n} · ${s.t}</b>${status[s.st]}</div>`).join('')}
+    <div class="it note" style="${at(496, 520)};width:${632 * sx}px;font-size:13px"><b>Story</b>Eine Nacht in einer verlassenen Gummiklinik. Zwei Figuren kommen an, eine erkennt sich im Spiegel nicht wieder und flieht.</div>
+    <svg class="wires"><path class="dash" d="M ${448 * sx + ox} ${190 * sx + oy} C ${560 * sx + ox} ${40 * sx + oy}, ${900 * sx + ox} ${40 * sx + oy}, ${1008 * sx + ox} ${132 * sx + oy}"/><text x="${860 * sx + ox}" y="${70 * sx + oy}">Startbild für 3</text>
+      <path class="dash" d="M ${260 * sx + ox} ${480 * sx + oy} C ${470 * sx + ox} ${520 * sx + oy}, ${470 * sx + ox} ${330 * sx + oy}, ${608 * sx + ox} ${312 * sx + oy}"/><text x="${474 * sx + ox}" y="${470 * sx + oy}">Look für 4</text>
+      ${shotPos.map(([x, y], i) => i % 3 === 2 ? '' : `<path d="M ${(x + 180) * sx + ox} ${(y + 50) * sx + oy} L ${(x + 196) * sx + ox} ${(y + 50) * sx + oy}"/>`).join('')}</svg>
+  </div>`
+}
+const bTop = end => `<div class="topfloat"><div><i class="dot" style="background:#FF6B57;margin:0"></i><b style="font-size:14px">Black Frame</b><span class="meta">Leinwand</span><button class="ib" aria-label="Projekt-Menü">${I('down', 'sm')}</button></div><div>${end}</div></div>`
+const bRail = `<div class="toolrail"><button class="ib on" aria-label="Auswählen">${I('cursor')}</button><button class="ib" aria-label="Notiz">${I('note')}</button><button class="ib" aria-label="Bild">${I('image')}</button><button class="ib" aria-label="Farbe">${I('drop')}</button><button class="ib" aria-label="Rahmen">${I('board')}</button><button class="ib" aria-label="Einstellung">${I('film')}</button><button class="ib" aria-label="Link">${I('link')}</button><hr><button class="ib" aria-label="Sammlung öffnen">${I('inbox')}</button><button class="ib" aria-label="Mit KI vorschlagen">${I('spark')}</button></div>`
+const bZoom = z => `<div class="zoom" style="left:72px"><button class="ib" aria-label="Verkleinern">${I('minus')}</button><span class="meta">${z}</span><button class="ib" aria-label="Vergrößern">${I('plus')}</button></div>
+  <div class="minimap"><i style="left:12px;top:24px;width:56px;height:68px"></i><i style="left:80px;top:24px;width:88px;height:52px"></i><i class="vp" style="left:6px;top:14px;width:164px;height:84px"></i></div>`
+const B = {
+  name: 'B · Eine Leinwand',
+  why: 'Miro-Prinzip: Moodboard und Storyboard sind zwei Rahmen auf derselben Fläche, Verbindungslinien zeigen, welche Referenz zu welcher Einstellung gehört. Details kommen als schwebendes Panel, der Schnitt fährt von unten herein. Die Seitenleiste schrumpft zur Icon-Leiste, damit die Fläche Platz hat.',
+  screens: {
+    Leinwand: () => `<div class="app rail" style="display:grid">${rail('p')}<div class="content">${bCanvas()}${bTop(`<button class="btn">${I('scissors', 'sm')}Schnitt</button><button class="btn primary">${I('spark', 'sm')}Story aufteilen</button>`)}${bRail}${bZoom('62 %')}${layers('canvas', E.canvas)}</div></div>`,
+    'Einstellung offen': () => `<div class="app rail" style="display:grid">${rail('p')}<div class="content">${bCanvas({ zoomed: true })}${bTop(`<button class="btn">${I('scissors', 'sm')}Schnitt</button><button class="btn">${I('spark', 'sm')}Story aufteilen</button>`)}${bRail}${bZoom('84 %')}
+      <aside class="side-panel"><header><b>Einstellung 3 · Behandlungsraum</b><button class="ib" aria-label="Schließen">${I('x')}</button></header>
+        <div class="body"><img src="${img(9)}" alt="" style="width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:8px">
+          <label class="field">Szenenprompt<span class="input" style="min-height:88px">Halbnah, langsamer Push-in. @Look1 setzt die Maske zurecht, Handschuhe quietschen, Neon flackert im Hintergrund.</span></label>
+          <label class="field">Referenzen vom Moodboard<span class="refs"><span class="r"><img src="${img(1)}" alt="">@Look1</span><span class="r"><img src="${img(3)}" alt="">@Ort2</span><span class="r"><img src="${img(4)}" alt="">@Maske</span></span></label>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><label class="field">Dauer<span class="input">6 s</span></label><label class="field">Modell<span class="input">Seedance 2.5</span></label></div>
+          <span class="st">${I('clock', 'sm')}Video wird erzeugt · Kie.ai meldet den Stand</span></div>
+        <footer><button class="btn lg">${I('wand', 'sm')}Startbild neu erzeugen</button><button class="btn lg primary">${I('video', 'sm')}Im Video Playground öffnen</button></footer></aside>${layers('canvas', E.canvas)}</div></div>`,
+    Schnitt: () => `<div class="app rail" style="display:grid">${rail('p')}<div class="content dim">${bCanvas()}${bTop(`<button class="btn" style="background:var(--c-fill-3)">${I('scissors', 'sm')}Schnitt</button><button class="btn">${I('spark', 'sm')}Story aufteilen</button>`)}${bRail}
+      <div class="drawer">${timeline({ pxPerSec: 22 })}<div class="mini-viewer"><div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:14px">Vorschau</b><button class="ib" aria-label="Schnitt schließen">${I('down')}</button></div><div class="scr"><img src="${img(9)}" alt=""></div>
+        <div class="transport"><button class="ib box" aria-label="Abspielen">${I('play')}</button><span class="tc">0:12 / 0:38</span><button class="btn primary">${I('download', 'sm')}Exportieren</button></div></div></div>${layers('cut', E.cut)}</div></div>`,
+  },
+}
+
+/* ===================== Variante C ===================== */
+const C = {
+  name: 'C · Regie-Liste',
+  why: 'Am nächsten an Linear: Das Storyboard ist eine Shotlist mit Status je Einstellung, gruppiert nach Akten, rechts das Detail. Der Look ist ein Milanote-Spaltenboard mit Ablage oben. Der Schnitt stellt die Zeitleiste groß in den Vordergrund. Am dichtesten, am besten für viele Einstellungen und KI-Läufe.',
+  screens: {
+    Look: () => `<div class="app" style="display:grid">${side('p-mood')}<div class="main">${topBar(0, `<button class="btn">${I('spark', 'sm')}Mit KI vorschlagen</button><button class="btn primary">${I('plus', 'sm')}Spalte</button>`, ['Look', 'Shotlist', 'Schnitt'])}
+      <div class="content"><div class="unsorted"><span class="meta">Ungeordnet aus der Sammlung · 9</span>${[10, 14, 15, 16, 17, 18, 8, 2, 7].map(p => `<img src="${img(p)}" alt="">`).join('')}<button class="btn ghost" style="margin-left:auto">Alle zeigen</button></div>
+        <div class="columns">
+          <div class="col"><header>Orte<span class="meta">3</span></header><img src="${img(3)}" alt=""><img src="${img(5)}" alt=""><img src="${img(6)}" alt=""></div>
+          <div class="col"><header>Figuren<span class="meta">4</span></header><img src="${img(1)}" alt=""><img src="${img(4)}" alt="" style="height:160px;object-fit:cover"></div>
+          <div class="col"><header>Licht und Ton<span class="meta">2</span></header><div class="note" style="border:0;padding:4px">Kaltes Neon, grünes Streulicht, harte Schatten. Analoges Korn wie 16 mm.</div><img src="${img(11)}" alt=""></div>
+          <div class="col"><header>Palette<span class="meta">5</span></header><div class="swatches" style="grid-template-columns:1fr;margin:0">${[['#0F1412', 'Ruß'], ['#2E3B33', 'Fliese'], ['#8FA39A', 'Neon'], ['#B3201C', 'Handschuh'], ['#E9E6DF', 'Kittel']].map(([c, n]) => `<div style="display:flex;gap:8px;align-items:center"><i style="background:${c};width:40px;height:32px"></i><small>${n} ${c}</small></div>`).join('')}</div></div>
+          <div class="col add">${I('plus', 'sm')} Spalte</div>
+        </div>${layers('board', E.mood)}</div></div></div>`,
+    Shotlist: () => `<div class="app" style="display:grid">${side('p-story')}<div class="main">${topBar(1, `<div class="seg"><span class="on">Liste</span><span>Bogen</span></div><button class="btn">${I('spark', 'sm')}Story aufteilen</button><button class="btn primary">${I('plus', 'sm')}Einstellung</button>`, ['Look', 'Shotlist', 'Schnitt'])}
+      <div class="content"><div class="list"><div class="rows">
+        <div class="lhead"><span>Nr.</span><span>Startbild</span><span>Einstellung</span><span>Video</span><span>Dauer</span></div>
+        ${[1, 2].map(a => `<div class="lgroup">${I('down', 'sm')}${acts[a]}<span class="meta">${shots.filter(s => s.act === a).length} · ${shots.filter(s => s.act === a).reduce((n, s) => n + s.s, 0)} s</span></div>` + shots.filter(s => s.act === a).map(s => `<div class="lrow ${s.n === 3 ? 'on' : ''}"><span class="num">${s.n}</span>${s.p ? `<img src="${img(s.p)}" alt="">` : '<span class="ph" title="Startbild fehlt"></span>'}<span class="t"><b>${s.t}</b><span>${s.d}</span></span>
+          <span>${s.st === 'video' ? `<span class="st done">${I('check', 'sm')}Fertig</span>` : s.st === 'running' ? `<span class="st">${I('clock', 'sm')}Wird erzeugt</span>` : s.st === 'error' ? `<span class="st err">${I('alert', 'sm')}Fehlgeschlagen</span>` : `<span class="st">${I('circle', 'sm')}Offen</span>`}</span>
+          <span class="num">${s.s} s</span></div>`).join('')).join('')}
+      </div>
+      <aside class="detail"><header><span class="meta">Einstellung 3 · Akt 1</span><b>Behandlungsraum</b></header>
+        <div class="body"><div class="fr"><img src="${img(9)}" alt=""></div>
+          <label class="field">Szenenprompt<span class="input" style="min-height:72px">Halbnah, langsamer Push-in. @Look1 setzt die Maske zurecht, Neon flackert.</span></label>
+          <label class="field">Look-Referenzen<span class="refs"><span class="r"><img src="${img(1)}" alt="">@Look1</span><span class="r"><img src="${img(3)}" alt="">@Ort2</span><span class="r">${I('plus', 'sm')}Aus Look</span></span></label>
+          <span class="st">${I('clock', 'sm')}Video wird erzeugt · Kie.ai meldet den Stand</span></div>
+        <footer><button class="btn lg">${I('wand', 'sm')}Startbild im Foto Playground</button><button class="btn lg">${I('video', 'sm')}Im Video Playground öffnen</button></footer></aside>
+      </div>${layers('list', E.story)}</div></div></div>`,
+    Schnitt: () => `<div class="app" style="display:grid">${side('p-cut')}<div class="main">${topBar(2, `<button class="btn primary">${I('download', 'sm')}Film exportieren</button>`, ['Look', 'Shotlist', 'Schnitt'])}
+      <div class="content"><div class="cut-c"><div class="upper">
+        <div class="viewer"><div class="scr"><img src="${img(9)}" alt=""></div><div class="transport"><button class="ib" aria-label="Zurück">${I('skipb')}</button><button class="ib box" aria-label="Abspielen">${I('play')}</button><button class="ib" aria-label="Vor">${I('skipf')}</button><span class="tc">0:12 / 0:38</span></div></div>
+        <aside class="insp"><h5>Auswahl · Einstellung 3</h5><div class="pad">
+          <div class="two"><label class="field">Anfang<span class="input">0:00</span></label><label class="field">Ende<span class="input">0:06</span></label></div>
+          <button class="btn">${I('scissors', 'sm')}Am Abspielkopf teilen</button>
+          <div class="box"><b style="color:var(--c-ink)">Verlängern</b><span>Hängt am Ende neue Sekunden im selben Look an.</span><div class="two"><span class="input">+ 4 s</span><span class="input">Seedance 2.5</span></div><button class="btn paid">${I('extend', 'sm')}Verlängern</button></div>
+          <div class="box"><b style="color:var(--c-ink)">Ton</b><div class="two"><span class="input">Clip-Ton 60 %</span><span class="input">Musik 100 %</span></div></div></div></aside></div>
+        ${timeline({ pxPerSec: 30 })}
+      </div>${layers('cut', E.cut)}</div></div></div>`,
+  },
+}
+
+/* Canvas aufbauen */
+const board = document.getElementById("variants")
+for (const v of [A, B, C]) {
+  const names = Object.keys(v.screens)
+  const wrap = document.createElement('div'); wrap.className = 'variant'
+  wrap.innerHTML = `<div class="variant-meta"><h2>${v.name}</h2><p>${v.why}</p></div>
+    <div class="switches"><div class="grp" data-g="screen"><span class="lbl">Ansicht</span>${names.map((n, i) => `<button type="button" aria-pressed="${i === 0}" data-v="${n}">${n}</button>`).join('')}</div>
+      <div class="grp" data-g="state"><span class="lbl">Zustand</span>${[['ideal', 'Ideal'], ['loading', 'Lädt'], ['empty', 'Leer'], ['error', 'Fehler'], ['offline', 'Offline']].map(([k, l], i) => `<button type="button" aria-pressed="${i === 0}" data-v="${k}">${l}</button>`).join('')}</div></div>
+    <section class="frame" data-state="ideal">${names.map((n, i) => `<div data-screen="${n}" class="${i === 0 ? 'on' : ''}" style="height:100%">${v.screens[n]()}</div>`).join('')}
+      <div class="offline" hidden><span class="tag" style="height:32px;padding:0 12px;background:var(--c-fill-3)">${I('wifi-off', 'sm')}Offline · zeigt den Stand von 17:42, Änderungen werden später übertragen</span></div></section>`
+  board.append(wrap)
+  const frame = wrap.querySelector('.frame')
+  wrap.querySelectorAll('.grp').forEach(g => g.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return
+    g.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b)))
+    if (g.dataset.g === 'screen') frame.querySelectorAll('[data-screen]').forEach(s => s.classList.toggle('on', s.dataset.screen === b.dataset.v))
+    else { frame.dataset.state = b.dataset.v === 'offline' ? 'ideal' : b.dataset.v; frame.querySelector('.offline').hidden = b.dataset.v !== 'offline' }
+  }))
+}
+</script>
+</body>
+</html>

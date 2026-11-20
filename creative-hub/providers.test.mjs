@@ -123,7 +123,8 @@ test('LiteLLM provider sends chat image requests and reads the model list', asyn
       if (req.url === '/v1/models') return res.end(JSON.stringify({ data: [{ id: 'gemini-3.8-flash' }, { id: 'nano-banana-2.1' }] }))
       // The proxy repeats the image, as Gemini image models behind LiteLLM do.
       const image = { image_url: { url: 'data:image/png;base64,' + png.toString('base64') } }
-      res.end(JSON.stringify({ choices: [{ message: { content: '', images: [image, image] } }] }))
+      res.end(JSON.stringify({ choices: [{ message: { content: '', images: [] } },
+        { message: { content: [{ type: 'image_url', ...image }], images: [image] } }] }))
     })
   })
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -137,7 +138,7 @@ test('LiteLLM provider sends chat image requests and reads the model list', asyn
   const chat = seen.find(item => item.url === '/v1/chat/completions')
   assert.equal(chat.auth, 'Bearer sk-proxy')
   assert.equal(chat.body.model, 'nano-banana-2.1')
-  assert.deepEqual(chat.body.modalities, ['text', 'image'])
+  assert.deepEqual(chat.body.modalities, ['image'])
   assert.equal(chat.body.extra_body.generationConfig.imageConfig.aspectRatio, '4:5')
 })
 
@@ -248,4 +249,38 @@ test('Re-encoded copies with slightly different pixels count as the same image',
   const other = makePng((x, y) => [255 - x * 4, 255 - y * 4, 20])
   assert.equal(sameImage(original, copy), true)
   assert.equal(sameImage(original, other), false)
+})
+
+test('Kie imports the Kling Image 4.0 page as the still-image and long-format endpoints', async t => {
+  const { harness } = setup(t)
+  harness.mount(await import('./providers/kie/host.mjs'))
+  const expected = ['image', 'long-image']
+  const calls = []
+  t.mock.method(globalThis, 'fetch', async address => {
+    calls.push(address)
+    const endpoint = address.split('/').at(-1).replace('.md', '')
+    return new Response('# Kling 4.0\n```yaml\n' + `paths:
+  /api/v1/jobs/createTask:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              properties:
+                model:
+                  default: kling-4-0/${endpoint}
+                input:
+                  properties:
+                    prompt:
+                      type: string
+                    image_urls:
+                      type: array
+                      maxItems: 10
+                      items:
+                        type: string` + '\n```')
+  })
+  const models = await harness.ctx.creativeProviders.call('kie', 'resolveModels', { url: 'https://kie.ai/kling-image-4-0' })
+  assert.deepEqual(calls, expected.map(endpoint => 'https://docs.kie.ai/market/kling-4-0/' + endpoint + '.md'))
+  assert.deepEqual(models.map(model => model.variants.text.model), expected.map(endpoint => 'kling-4-0/' + endpoint))
+  assert.deepEqual(models.map(model => model.variants.edit.fields.find(field => field.key === 'image_urls').maxItems), [10, 10])
 })

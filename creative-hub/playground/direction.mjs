@@ -2,6 +2,9 @@ import { InputError } from '../store.mjs'
 
 const mention = /@Bild([1-9]\d*)\b/gi
 
+export const referenceMarks = prompt => [...prompt.matchAll(mention)].map(([, label]) => Number(label))
+export const referenceOnlyPrompt = positions => [...positions.keys()].map(label => '@Bild' + label).join(' ')
+
 // Each reference controls only the attributes assigned to it, in provider input order.
 const roles = new Map(Object.entries({
   Ausgangsbild: 'Use this as the image to edit. Preserve its people, identity, body shape, framing, wardrobe and setting wherever the requested edit leaves them unchanged.',
@@ -58,8 +61,8 @@ export function referencePlan(prompt, studio, ids) {
     }
     positions.set(label, i + 1)
   }
-  for (const [, label] of prompt.matchAll(mention)) {
-    if (!positions.has(Number(label))) throw new InputError(`@Bild${label} ist nicht angehängt. Ergänze das Bild oder entferne die Marke aus dem Prompt.`)
+  for (const label of referenceMarks(prompt)) {
+    if (!positions.has(label)) throw new InputError(`@Bild${label} ist nicht angehängt. Ergänze das Bild oder entferne die Marke aus dem Prompt.`)
   }
   return positions
 }
@@ -71,12 +74,27 @@ const english = new Map(Object.entries({
   Fensterlicht: 'soft window light', Direktblitz: 'direct on-camera flash', 'Golden Hour': 'golden hour sunlight', Streiflicht: 'raking side light', Neonlicht: 'neon light', Softbox: 'large softbox studio light',
 }))
 
-export function compileDirection(prompt, studio, ids, positions, model, provider, index = 0, count = 1) {
+export function appearanceText(value) {
+  return typeof value === 'string' ? value.trim().slice(0, 700) : ''
+}
+
+export function compileDirection(prompt, studio, ids, positions, model, provider, index = 0, count = 1, params = {}) {
   const falFlux = provider === 'fal' && /(?:^|\/)flux-2(?:[-/]|$)/i.test(model)
-  const lines = [prompt.replace(mention, (_, label) => {
+  // Scrabble with 2×/4× writes one scene per image.
+  if (Array.isArray(studio?.prompts) && typeof studio.prompts[index] === 'string' && studio.prompts[index].trim()) prompt = studio.prompts[index]
+  const translate = text => text.replace(mention, (_, label) => {
     const position = positions.get(Number(label))
+    if (provider === 'kie' && model === 'kling-4-0/long-image' && params.skill === 'webpage') {
+      return ['@style', '@subject'][position - 1] ?? `@image_${position}`
+    }
+    if (provider === 'kie' && /^kling-4-0\/(?:image|long-image)$/.test(model)) return `@image_${position}`
     return falFlux ? `@image${position}` : `Image ${position}`
-  })]
+  })
+  const appearance = appearanceText(studio?.appearance)
+  const onlyReferences = ids.length > 0 && !prompt.replace(mention, '').trim()
+  const hotapi = provider === 'hotapi'
+  const lines = [hotapi && onlyReferences ? 'Create one still image using the attached references.' : translate(prompt)]
+  if (appearance) lines.push('Fixed subject appearance: ' + translate(appearance))
   // With `looks` (one per image of a 2×/4× run) each image gets its own camera look;
   // with `remixes` each image also gets its own garment jobs and situation.
   const remix = Array.isArray(studio?.remixes) ? studio.remixes[index] : undefined
@@ -88,16 +106,35 @@ export function compileDirection(prompt, studio, ids, positions, model, provider
     const value = look?.[key] ?? studio?.[key]
     if (typeof value === 'string' && value.trim()) lines.push(label + ': ' + (english.get(value.trim()) ?? value.trim().slice(0, 500)))
   }
-  if (ids.length) {
+  const hasLegacyRoles = ids.some(id => roles.has(studio?.roles?.[id]))
+  if (hotapi && ids.length) {
+    if (hasLegacyRoles || onlyReferences) lines.push('Image numbers refer to the attached files in their supplied order.')
+    ids.forEach((id,i) => {
+      const role = studio?.roles?.[id]
+      if (!roles.has(role)) return
+      const guidance = role === 'Pose'
+        ? 'Use this image for pose and gaze only. Preserve the chosen subject’s face and body proportions.'
+        : roles.get(role)
+      lines.push(`Image ${i + 1} — ${roleNames[role]}: ${guidance}`)
+    })
+    const subjectCount = ids.filter(id => studio?.roles?.[id] === 'Identität').length
+    if (subjectCount > 1) lines.push('Keep the separately designated subjects visually distinct.')
+    if (hasLegacyRoles || appearance) lines.push('Keep the pose anatomically plausible, with a natural balance and consistent perspective and lighting.')
+    return lines.join('\n')
+  }
+  if (hasLegacyRoles) {
     // Models disagree most on who is in the picture; name the main subjects explicitly.
     const people = ids.map((id, i) => [studio?.roles?.[id], i + 1]).filter(([role]) => role === 'Identität' || role === 'Ausgangsbild').map(([, n]) => n)
     if (people.length === 1) lines.push(`One main person: the person from Image ${people[0]}.`)
     // People from one image and a place from another (or a drawn situation) tend to look pasted on.
     if (people.length && (situation || ids.some(id => studio?.roles?.[id] === 'Ort'))) lines.push('Photograph the person inside the scene, not in front of it: the same light, colour and shadows fall on the person and the surroundings, perspective and scale match, the person touches or uses the space (floor contact, leaning, sitting), and focus falls off naturally. It should look like one candid frame from a real shoot, not a composite.')
     if (people.length) lines.push('Natural photo look: real skin texture, true colours, no glossy retouching, no HDR or plastic sheen.')
-    else if (people.length > 1) lines.push(`Main subjects: ${people.length} different people, one each from ${people.map(n => 'Image ' + n).join(', ')}. Keep every person distinct; never merge their faces.`)
+    if (people.length > 1) lines.push(`Main subjects: ${people.length} different people, one each from ${people.map(n => 'Image ' + n).join(', ')}. Keep every person distinct; never merge their faces.`)
     const parts = ids.filter(id => garmentRoles.includes(studio?.roles?.[id]))
     if (parts.length > 1) lines.push('Mix these pieces into one outfit; the other people and backgrounds in those images are not part of the picture.')
+  }
+  // Keep the reference-only request neutral so the model can compose from the inputs.
+  if (hasLegacyRoles || onlyReferences) {
     lines.push('Image numbers refer to the attached files in the order supplied. Follow the purpose given to each image in the request.')
     ids.forEach((id, i) => {
       const role = studio?.roles?.[id]

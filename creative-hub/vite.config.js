@@ -3,10 +3,10 @@ export default {
   define: { 'process.env.IS_PREACT': 'false' },
   build: {
     rollupOptions: {
-      input: 'web/board.jsx',
+      input: { board: 'web/board.jsx', storyboard: 'apps/storyboard/editor.jsx' },
       preserveEntrySignatures: 'strict',
       output: {
-        entryFileNames: 'assets/board.js',
+        entryFileNames: 'assets/[name].js',
         assetFileNames: asset => asset.names.some(name => name.endsWith('.css'))
           ? 'assets/board.css'
           : 'assets/[name]-[hash][extname]',

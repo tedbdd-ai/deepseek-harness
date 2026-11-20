@@ -34,6 +34,7 @@ async function start() {
   }
 
   if (!/^https?:/.test(tab?.url ?? '')) { $('count').textContent = '· auf dieser Seite nicht möglich'; return }
+  void showPlayers(tab).catch(error=>say(error.message,true))
   let images = []
   try { images = await ask({ type: 'images', tab }) } catch (error) { say(error.message, true) }
   $('count').textContent = images.length ? '· ' + images.length : '· keine gefunden'
@@ -57,6 +58,28 @@ async function start() {
     }
     return button
   }))
+}
+
+async function showPlayers(tab) {
+  const players = await ask({type:'players',tab})
+  if (!players.length) return
+  const select = $('players')
+  select.replaceChildren(...players.map((player,index)=>{
+    const label = (index+1)+'. '+(player.title || 'Video')+(player.playing ? ' · läuft' : '')
+    return new Option(label,String(index))
+  }))
+  $('videos').hidden=false
+  for (const [id,type] of [['video','saveVideo'],['frame','saveFrame']]) {
+    $(id).onclick=async () => {
+      $('video').disabled=$('frame').disabled=true
+      say(id==='video'?'Lädt das vollständige Video …':'Sichert den aktuellen Frame …')
+      try {
+        await ask({type,tab,player:players[Number(select.value)]})
+        say(id==='video'?'Video in der Sammlung gesichert.':'Frame in der Sammlung gesichert.')
+      } catch(error) {say(error.message,true)}
+      finally {$('video').disabled=$('frame').disabled=false}
+    }
+  }
 }
 
 start().catch(error => say(error.message, true))

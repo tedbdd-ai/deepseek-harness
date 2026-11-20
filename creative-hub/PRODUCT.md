@@ -9,7 +9,7 @@ Eine Person, Kreative mit eigenem Studio: Film- und Videodrehs (Licht, Kamera, S
 ## Kernaufgaben
 1. **Sammeln:** mit dem Safari-Clipper Bilder, Reels und Seiten in die Sammlung legen.
 2. **Ordnen:** Grabs und Generiertes Projekten zuordnen (Film, Clip, App, Mode, Basteln).
-3. **Generieren:** im Playground einen Prompt an ein oder mehrere Bildmodelle schicken, Grabs als Referenzen mit Rolle (@Bild1 · Kleidung).
+3. **Generieren:** im Playground einen Prompt an ein oder mehrere Bildmodelle schicken, Bildquellen im Prompt über Marken wie `@Bild1` zuordnen und mit Scrabble aus Stichworten eine Szene entwerfen.
 4. **Anprobieren:** im Styler Kleidung an einer Fashion-Referenz der Person anprobieren.
 5. **Weiterverwenden:** Ergebnisse landen in der Library und im Projekt.
 

@@ -1,13 +1,14 @@
 /**
- * Media provider "Kie.ai" (https://docs.kie.ai): image generation and background removal.
+ * Media provider "Kie.ai" (https://docs.kie.ai): image and video generation and background removal.
  *
  * Kie.ai runs asynchronous tasks: `POST /api/v1/jobs/createTask`, then `GET /api/v1/jobs/recordInfo`
  * until `state` is `success` or `fail`. Errors arrive with HTTP 200 and a `code` in the body.
  * Model inputs take public URLs, so local references are uploaded first through
- * `/api/file-base64-upload` on the upload host (Kie.ai deletes uploads after 24 hours). One task yields one image.
+ * `/api/file-base64-upload` on the upload host (Kie.ai deletes uploads after 24 hours). A task may return multiple images.
  */
 import { setTimeout as sleep } from 'node:timers/promises'
 import { ProviderError } from '../../providers.mjs'
+import { fitReferenceImage } from '../../media-edit.mjs'
 import { dataUrl, download, request } from '../http.mjs'
 import { catalog, taskFor } from './models.mjs'
 import { fieldsOf, parseYaml } from '../schema.mjs'
@@ -64,6 +65,9 @@ async function docPages(url) {
   const slug = url.pathname.split('/').filter(Boolean).pop()
   const wanted = url.searchParams.get('model')
   if (!slug && !wanted) throw new ProviderError('Gib die Adresse einer Modellseite auf kie.ai an, z. B. kie.ai/gpt-image-2-6.', 400)
+  if (slug === 'kling-image-4-0') {
+    return ['image', 'long-image'].map(variant => docs + '/market/kling-4-0/' + variant + '.md')
+  }
   const index = await (await request('Kie.ai-Doku', docs + '/llms.txt', { timeout: 20000 })).text()
   const links = [...index.matchAll(/\((https:\/\/docs\.kie\.ai\/market\/[^)]+\.md)\)/g)].map(match => match[1])
   const name = link => link.split('/').pop().replace(/\.md$/, '')
@@ -73,20 +77,50 @@ async function docPages(url) {
   return [...new Set(hits)]
 }
 
-/** @param {{ pollMs?: number, timeoutMs?: number }} config polling interval (default 2 s) and limit (default 10 min). */
-async function runTask(env, model, input, { pollMs = 2000, timeoutMs = 600000 } = {}) {
+async function createTask(env, model, input) {
   const { taskId } = await call(env, '/api/v1/jobs/createTask', { model, input })
-  if (!taskId) throw new ProviderError('Kie.ai hat keinen Auftrag angelegt.')
+  if (typeof taskId !== 'string' || !taskId) throw new ProviderError('Kie.ai hat keine Auftrags-ID geliefert.')
+  return taskId
+}
+
+async function taskStatus(env, taskId) {
+  const record = await call(env, '/api/v1/jobs/recordInfo?taskId=' + encodeURIComponent(taskId))
+  if (record.state === 'fail') return { status: 'failed', error: record.failMsg || 'Kie.ai hat den Auftrag abgelehnt.' }
+  if (record.state !== 'success') return { status: 'queued' }
+  let result
+  try { result = JSON.parse(record.resultJson ?? '{}') } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error
+    throw new ProviderError('Kie.ai hat ein unlesbares Ergebnis geliefert.')
+  }
+  if (!Array.isArray(result?.resultUrls) || !result.resultUrls.length) throw new ProviderError('Kie.ai hat kein Ergebnis geliefert.')
+  return { status: 'done', urls: result.resultUrls, lastFrameUrl: Array.isArray(result.lastFrameUrl) ? result.lastFrameUrl[0] : result.lastFrameUrl, credits: record.creditsConsumed == null ? null : Number(record.creditsConsumed) || 0 }
+}
+
+const uploadExtensions = {
+  'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif',
+  'video/mp4': 'mp4', 'video/quicktime': 'mov', 'audio/mpeg': 'mp3', 'audio/wav': 'wav',
+}
+
+async function uploadVideoInput(env, file) {
+  const form = new FormData()
+  form.set('file', new Blob([file.read ? file.read() : file.data], { type: file.mediaType }), 'reference.' + uploadExtensions[file.mediaType])
+  form.set('uploadPath', 'atelier')
+  const response = await request('Kie.ai', uploadBase + '/api/file-stream-upload', {
+    method: 'POST', headers: { Authorization: 'Bearer ' + await env.secret('apiKey') }, body: form,
+  })
+  const json = await response.json()
+  if (json.code !== 200 || !json.data?.downloadUrl) throw new ProviderError('Kie.ai konnte die Referenzdatei nicht hochladen.')
+  return json.data.downloadUrl
+}
+
+/** @param {{ pollMs?: number, timeoutMs?: number }} config polling interval and limit. */
+async function runTask(env, model, input, { pollMs = 2000, timeoutMs = 600000 } = {}) {
+  const taskId = await createTask(env, model, input)
   for (const started = Date.now(); Date.now() - started < timeoutMs;) {
     await sleep(pollMs)
-    const record = await call(env, '/api/v1/jobs/recordInfo?taskId=' + encodeURIComponent(taskId))
-    if (record.state === 'fail') throw new ProviderError(`Kie.ai-Auftrag fehlgeschlagen: ${record.failMsg || 'ohne Begründung'}`)
-    if (record.state === 'success') {
-      let urls = []
-      try { urls = JSON.parse(record.resultJson || '{}').resultUrls ?? [] } catch { urls = [] }
-      if (!urls.length) throw new ProviderError('Kie.ai hat kein Ergebnis geliefert.')
-      return { urls, credits: Number(record.creditsConsumed) || 0 }
-    }
+    const result = await taskStatus(env, taskId)
+    if (result.status === 'failed') throw new ProviderError(`Kie.ai-Auftrag fehlgeschlagen: ${result.error}`)
+    if (result.status === 'done') return { ...result, credits: result.credits ?? 0 }
   }
   throw new ProviderError(`Kie.ai hat nach ${Math.round(timeoutMs / 60000)} Minuten kein Ergebnis geliefert. Auftrag ${taskId} steht unter kie.ai/logs.`)
 }
@@ -113,6 +147,49 @@ export function apply(ctx, config = {}) {
       const result = await runTask(env, task.model, task.input, timing)
       return { images: await Promise.all(result.urls.map(url => download('Kie.ai', url))), credits: result.credits }
     },
+    async startVideo(env, { mode, image, motion, prompt, duration, sound, resolution, orientation, seedance }) {
+      if (seedance) {
+        const model = 'bytedance/seedance-2-5-flash'
+        const { first, last, refs, settings } = seedance
+        const input = {
+          resolution: settings.resolution, aspect_ratio: settings.aspect, duration: settings.duration,
+          output_format: settings.format, generate_audio: settings.audio, return_last_frame: settings.lastFrame,
+          nsfw_checker: settings.filter,
+        }
+        if (prompt) input.prompt = prompt
+        if (mode === 'frames') {
+          input.first_frame_url = await uploadVideoInput(env, first)
+          if (last) input.last_frame_url = await uploadVideoInput(env, last)
+        } else if (mode === 'references') {
+          const fields = { image: 'reference_image_urls', video: 'reference_video_urls', audio: 'reference_audio_urls' }
+          for (const [kind, field] of Object.entries(fields)) {
+            if (!refs[kind].length) continue
+            input[field] = []
+            for (const file of refs[kind]) input[field].push(await uploadVideoInput(env, file))
+          }
+          input.omni_reference_task_type = settings.task
+        } else input.web_search = settings.webSearch
+        return { taskId: await createTask(env, model, input), model }
+      }
+      const model = mode === 'motion' ? 'kling-2.6/motion-control' : 'kling-2.6/image-to-video'
+      const imageUrl = await publicUrl(env, image)
+      const input = mode === 'motion'
+        ? { prompt, input_urls: [imageUrl], video_urls: [await uploadVideoInput(env, motion)], mode: resolution, character_orientation: orientation }
+        : { prompt, image_urls: [imageUrl], duration, sound }
+      if (!prompt) delete input.prompt
+      return { taskId: await createTask(env, model, input), model }
+    },
+    async videoStatus(env, { taskId, format }) {
+      const result = await taskStatus(env, taskId)
+      if (result.status !== 'done') return result
+      const file = await download('Kie.ai', result.urls[0], format === 'mov' ? 'video/quicktime' : 'video/mp4')
+      const output = { status: 'done', credits: result.credits, file }
+      if (result.lastFrameUrl) {
+        try { output.frame = await download('Kie.ai', result.lastFrameUrl, 'image/jpeg') }
+        catch (error) { output.frameError = error.message }
+      }
+      return output
+    },
     async resolveModels(env, { url }) {
       const pages = await docPages(new URL(url))
       const models = new Map()
@@ -122,7 +199,9 @@ export function apply(ctx, config = {}) {
         const id = 'kie:' + group
         const takesImages = doc.fields.some(field => field.type === 'images' || field.type === 'image')
         const task = takesImages && (/image[ -]to[ -]image|edit/i.test(doc.title + ' ' + doc.model) || doc.fields.some(field => (field.type === 'images' || field.type === 'image') && field.required)) ? 'edit' : 'text'
-        const entry = models.get(id) ?? { id, title: group.replace(/[-/]/g, ' '), provider: 'kie', providerTitle: 'Kie.ai', page: url, variants: {} }
+        const label = doc.model === 'kling-4-0/image' ? 'Kling Image 4.0' :
+          doc.model === 'kling-4-0/long-image' ? 'Kling Image 4.0 · Langformat' : group.replace(/[-/]/g, ' ')
+        const entry = models.get(id) ?? { id, title: label, provider: 'kie', providerTitle: 'Kie.ai', page: url, variants: {} }
         entry.variants[task] = { model: doc.model, fields: doc.fields, doc: page }
         if (takesImages && task === 'text') entry.variants.edit ??= entry.variants.text
         models.set(id, entry)
@@ -132,13 +211,41 @@ export function apply(ctx, config = {}) {
     async runModel(env, { variant, input, images }) {
       const field = variant.fields.find(item => item.type === 'images') ?? variant.fields.find(item => item.type === 'image')
       const body = { ...input }
-      if (images.length) {
+      const kling = variant.model === 'kling-4-0/image'
+      const long = variant.model === 'kling-4-0/long-image'
+      const referenceUrl = async file => {
+        if (!kling && !long) return publicUrl(env, file)
+        if (['image/png', 'image/jpeg'].includes(file.mediaType) && file.url) return file.url
+        if (['image/png', 'image/jpeg'].includes(file.mediaType) && file.data.length <= 20_000_000) return uploadVideoInput(env, file)
+        return uploadVideoInput(env, { mediaType: 'image/png', data: await fitReferenceImage(file.data, 20_000_000) })
+      }
+      if (kling) {
+        body.count ??= body.mode === 'series' ? 2 : 1
+        const min = body.mode === 'series' ? 2 : 1
+        const max = body.mode === 'series' ? 10 : 9
+        if (body.count < min || body.count > max) throw new ProviderError(`Für diesen Kling-Modus sind ${min} bis ${max} Bilder möglich.`, 400)
+      }
+      if (long) {
+        body.skill ??= images.length ? 'ecommerce' : 'webpage'
+        if (body.skill === 'ecommerce' && !images.length) throw new ProviderError('Für eine Produktseite braucht Kling mindestens ein Produktbild.', 400)
+        if (body.skill === 'webpage') {
+          if (images.length > 2) throw new ProviderError('Für Webdesign sind höchstens zwei Bilder möglich: Stil und Motiv.', 400)
+          delete body.length
+          const [style, subject] = await Promise.all(images.map(referenceUrl))
+          if (style) body.style_image = style
+          if (subject) body.subject_image = subject
+        }
+      }
+      if (images.length && !(long && body.skill === 'webpage')) {
         if (!field) throw new ProviderError('Dieses Modell nimmt keine Bilder.', 400)
-        const urls = await Promise.all(images.map(file => publicUrl(env, file)))
+        const urls = await Promise.all(images.map(referenceUrl))
         body[field.key] = field.type === 'images' ? urls.slice(0, field.maxItems ?? urls.length) : urls[0]
       }
       const result = await runTask(env, variant.model, body, timing)
-      return { images: await Promise.all(result.urls.map(url => download('Kie.ai', url))), credits: result.credits }
+      const limit = kling || long ? 48 * 1024 * 1024 : undefined
+      const files = await Promise.all(result.urls.map(url => download('Kie.ai', url, undefined, { limit })))
+      if (files.some(file => !file.mediaType.startsWith('image/'))) throw new ProviderError('Kie.ai hat kein Bild geliefert.')
+      return { images: files, credits: result.credits, ...(limit && { limit }) }
     },
     async removeBackground(env, { image }) {
       const result = await runTask(env, env.settings.removeBackgroundModel, { image: await publicUrl(env, image) }, timing)

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Atelier Clipper",
-  "version": "0.2.0",
-  "description": "Bilder, Webseiten, Auswahl und Links mit einem Klick in Mymind deines Ateliers sichern.",
+  "version": "0.3.0",
+  "description": "Videos, Videoframes, Bilder, Webseiten, Auswahl und Links mit einem Klick in Mymind deines Ateliers sichern.",
   "permissions": ["activeTab", "contextMenus", "scripting", "storage", "tabs", "nativeMessaging"],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "background.js" },

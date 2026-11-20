@@ -13,6 +13,11 @@
   <label class="field">Ziel<select id="idea"><option value="">Nur Mymind</option></select></label>
   <button type="button" id="page" class="primary">Seite sichern (Screenshot)</button>
   <p id="status" role="status" aria-live="polite"></p>
+  <section id="videos" hidden>
+    <h2>Videos dieser Seite</h2>
+    <label class="field">Player<select id="players"></select></label>
+    <div class="video-actions"><button type="button" id="frame">Frame sichern</button><button type="button" id="video">Ganzes Video sichern</button></div>
+  </section>
   <h2>Bilder dieser Seite <span id="count" class="muted"></span></h2>
   <p class="muted hint">Klick auf ein Bild sichert es. Rechtsklick auf Bilder, Links oder markierten Text geht auch.</p>
   <div id="images" class="images"></div>

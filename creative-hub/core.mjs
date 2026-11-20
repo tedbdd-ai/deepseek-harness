@@ -53,7 +53,7 @@ export function createAppRegistry(snapshots) {
  */
 export function apply(ctx, config = {}) {
   const registry = createAppRegistry(config.snapshots ?? defaultSnapshots)
-  const store = openStore(config.databasePath ?? join(homedir(), '.creativity-hub', 'hub.sqlite'))
+  const store = openStore(config.databasePath ?? join(homedir(), process.env.ATELIER_INSTANCE === 'nsfw' ? '.creativity-hub-nsfw' : '.creativity-hub', 'hub.sqlite'))
   ctx.effect(() => () => store.close())
   ctx.provide('creativeStore', store)
   ctx.provide('creativeApps', registry)

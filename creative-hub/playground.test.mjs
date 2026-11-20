@@ -176,6 +176,36 @@ test('Inline references resolve against the outgoing image order and missing ima
   assert.deepEqual(runs.at(-1).images.map(file => file.referenceLabel), ['Image 1 (identity)', 'Image 2 (garment)'])
 })
 
+test('Partial batches retry just the missing slots in place with the original prompt', async t => {
+  const h = setup(t)
+  const api = '/creativity-playground/api'
+  await h.json('POST', api + '/models', { url: 'https://kie.ai/fake-edit' }, 201)
+  const ref = await h.json('POST', '/creativity-hub/api/assets', {
+    library: 'clips', title: 'Tasse', media: png.toString('base64'), mediaType: 'image/png',
+  }, 201)
+  const provider = h.ctx.creativeProviders
+  const originalCall = provider.call.bind(provider)
+  const sent = []
+  t.mock.method(provider, 'call', async (id, action, input) => {
+    assert.equal(action, 'runModel')
+    sent.push(input.input)
+    if (sent.length === 1 || sent.length === 3) throw Error('Kein Bild geliefert.')
+    return originalCall(id, action, input)
+  })
+  const run = await h.json('POST', api + '/runs', { prompt: 'Eine Tasse wie @Bild7.', modelIds: ['kie:fake'],
+    count: 4, referenceIds: [ref.id], studio: { referenceLabels: { [ref.id]: 7 } }, params: { aspect_ratio: '16:9' } }, 201)
+  const [partial] = await settled(h)
+  assert.deepEqual(partial.results.map(r => r.status), ['failed', 'done', 'failed', 'done'])
+  const retry = () => h.json('POST', api + '/runs/' + run.id + '/retry', {})
+  await Promise.all([retry(), retry()])
+  const [done] = await settled(h)
+  assert.deepEqual(done.results.map(r => r.status), Array(4).fill('done'))
+  for (const i of [1, 3]) assert.deepEqual(done.results[i], partial.results[i])
+  for (const i of [0, 2]) assert.equal(done.results[i].attempt, 1)
+  await retry()
+  assert.deepEqual(sent, Array(6).fill({ prompt: 'Eine Tasse wie Image 1.', aspect_ratio: '16:9' }))
+})
+
 test('Remix direction gives each image one garment job and a situation per image', async () => {
   const { compileDirection, referencePlan } = await import('./playground/direction.mjs')
   const ids = ['a', 'b', 'c']
@@ -196,4 +226,126 @@ test('Remix direction gives each image one garment job and a situation per image
   assert.match(second, /Camera angle: low angle/)
   assert.match(second, /Reference 2: Use its top/)
   assert.match(second, /Reference 3: Use its trims/)
+})
+
+test('Scrabble uses the original brief and active endpoint while keeping exact reference labels', async t => {
+  const harness = setup(t)
+  const api = '/creativity-playground/api'
+  const [person, location] = await Promise.all(['Person', 'Leuchtturm'].map(title => harness.json('POST', '/creativity-hub/api/assets', {
+    library: 'clips', title, media: png.toString('base64'), mediaType: 'image/png',
+  }, 201)))
+  const prompts = ['Die Person aus @Bild5 steht links neben den Seekarten in der Küche aus @Bild2.', 'Die Person aus @Bild5 steht in der Küche aus @Bild2 zwischen Seekarten im Vordergrund und einem runden Fenster.']
+  let reply = [prompts[0]]
+  const calls = []
+  harness.ctx.creativeProviders.register({ id: 'text', title: 'Test-Textmodell', chat(_, input) {
+    calls.push(input)
+    return { text: JSON.stringify({ prompts: reply }), model: 'vision-test' }
+  } })
+  await harness.json('POST', api + '/models', { url: 'https://kie.ai/fake-edit' }, 201)
+  const [model] = await harness.json('GET', api + '/models')
+  assert.ok(model.guides.edit.tip)
+  assert.equal(model.guides.edit.source, 'https://kie.ai/fake-edit')
+  const body = { prompt: 'Mein eigener Text', modelIds: [model.id], referenceIds: [person.id, location.id], labels: { [person.id]: 5, [location.id]: 2 }, words: 'Sturm, Seekarten, Küche', count: 2, previous: ['Alte Bildfassung'], camera: { angle: 'Augenhöhe', light: 'Fensterlicht' } }
+  assert.deepEqual(await harness.json('POST', api + '/scrabble', body), { prompts: [prompts[0]], model: 'vision-test' })
+  assert.equal(calls.length, 1)
+  assert.deepEqual(calls[0].images.map(file => file.referenceLabel), ['@Bild5', '@Bild2'])
+  assert.deepEqual(JSON.parse(calls[0].prompt), { count: 1, keywords: body.words, references: ['@Bild5', '@Bild2'],
+    originalPrompt: body.prompt, targetModels: [{ model: 'fake/edit', provider: 'kie', task: 'edit', tip: model.guides.edit.tip, schemaHint: '', settings: {} }], previousScenes: ['Alte Bildfassung'] })
+  assert.match(calls[0].system, /visible in the finished frame/)
+  assert.match(calls[0].system, /Keep unspecified visual choices open/)
+  reply = ['Eine erfundene Marke @Bild1 neben @Bild2.']
+  assert.match((await harness.json('POST', api + '/scrabble', body, 502)).error, /Bildmarken/)
+  assert.equal((await harness.json('GET', api + '/runs')).length, 0)
+
+  const run = await harness.json('POST', api + '/runs', {
+    prompt: 'Mein geänderter Text mit @Bild5 und @Bild2.',
+    modelIds: ['kie:fake'], count: 2, referenceIds: body.referenceIds,
+    studio: { referenceLabels: body.labels, prompts },
+  }, 201)
+  assert.match(run.results[0].sentPrompt, /^Mein geänderter Text mit Image 1 und Image 2\./)
+  assert.match(run.results[1].sentPrompt, /^Die Person aus Image 1 steht in der Küche aus Image 2/)
+  assert.doesNotMatch(run.results[1].sentPrompt, /Reference 1:|Natural photo look/)
+  await settled(harness)
+})
+
+test('An empty prompt with four references repeats the reference-only request four times', async t => {
+  const harness = setup(t)
+  const api = '/creativity-playground/api'
+  await harness.json('POST', api + '/models', { url: 'https://kie.ai/fake-edit' }, 201)
+  const ids = []
+  for (const title of ['Ref 1', 'Ref 2', 'Ref 3', 'Ref 4']) {
+    const item = await harness.json('POST', '/creativity-hub/api/assets', { library: 'clips', title, media: png.toString('base64'), mediaType: 'image/png' }, 201)
+    ids.push(item.id)
+  }
+  const studio = { referenceLabels: Object.fromEntries(ids.map((id, i) => [id, i + 4])) }
+  const draft = await harness.json('POST', api + '/scrabble', { referenceIds: ids, labels: studio.referenceLabels })
+  assert.deepEqual(draft, { prompts: ['@Bild4 @Bild5 @Bild6 @Bild7'], model: '' })
+  const run = await harness.json('POST', api + '/runs', {
+    prompt: ' ', referenceIds: ids, studio, modelIds: ['kie:fake'], count: 4, params: { aspect_ratio: '16:9' },
+  }, 201)
+  assert.equal(run.prompt, draft.prompts[0])
+  const expected = [
+    'Image 1 Image 2 Image 3 Image 4',
+    'Image numbers refer to the attached files in the order supplied. Follow the purpose given to each image in the request.',
+    ...[1, 2, 3, 4].map(number => `Reference ${number}: Use it only for the purpose specified in the request or as broad visual context.`),
+    'Keep each source separate. A source used for clothing, pose, style, location or lighting supplies only those attributes. Do not transfer the source wearer’s identity or body shape from such images. When editing an existing scene, preserve the original person and all details outside the requested change.',
+  ].join('\n')
+  assert.deepEqual(run.results.map(result => result.sentPrompt), Array(4).fill(expected))
+  await settled(harness)
+  const start = runs.length
+  await harness.json('POST', api + '/runs', {
+    prompt: '', referenceIds: ids, studio: { ...studio, lens: '35 mm Reportage' }, modelIds: ['kie:fake'], count: 4, params: { aspect_ratio: '16:9' },
+  }, 201)
+  await settled(harness)
+  const sent = runs.slice(start)
+  assert.equal(sent.length, 4)
+  assert.ok(sent.every(job => job.input.aspect_ratio === '16:9' && job.input.prompt.includes('Lens: 35mm reportage lens')))
+  assert.equal(new Set(sent.map(job => job.input.prompt)).size, 1)
+})
+
+test('HotAPI receives the locked appearance and each assigned role in attachment order', async t => {
+  const harness = setup(t)
+  const path = '/creativity-playground/api'
+  const calls = []
+  harness.ctx.creativeProviders.register({
+    id: 'abliteration', title: 'Abliteration AI',
+    chat(_, input) {
+      calls.push(input)
+      return { text: JSON.stringify({ prompts: ['Die Person aus @Bild5 steht bei Fensterlicht und trägt den Mantel aus @Bild2.'] }) }
+    },
+  })
+  const sent = []
+  harness.ctx.creativeProviders.register({
+    id: 'hotapi', title: 'HotAPI',
+    resolveModels: async () => [{
+      id: 'hotapi:seedream', provider: 'hotapi', title: 'Seedream', providerTitle: 'HotAPI',
+      variants: { edit: { model: 'seedream-5.0-pro-spicy/image-edit', fields: [...fields, { key: 'image', type: 'images', maxItems: 10 }] } },
+    }],
+    runModel: async (_, request) => {
+      sent.push(request)
+      return { images: [{ mediaType: 'image/png', data: png }] }
+    },
+  })
+  const [person, coat] = await Promise.all(['Person', 'Mantel'].map(title => harness.json('POST', '/creativity-hub/api/assets', {
+    library: 'clips', title, media: png.toString('base64'), mediaType: 'image/png',
+  }, 201)))
+  const referenceIds = [coat.id, person.id]
+  const labels = { [person.id]: 5, [coat.id]: 2 }
+  const roles = { [person.id]: 'Identität', [coat.id]: 'Kleidung' }
+  const appearance = '@Bild5 mit kurzen schwarzen Haaren und Sommersprossen.'
+  const draft = await harness.json('POST', path + '/scrabble', { referenceIds, labels, roles, appearance, words: 'Fensterlicht' })
+  assert.deepEqual(calls[0].images, [])
+  const ask = JSON.parse(calls[0].prompt)
+  assert.equal(ask.fixedSubjectAppearance, appearance)
+  assert.deepEqual(ask.referenceRoles, { '@Bild2': 'garment', '@Bild5': 'identity' })
+  await harness.json('POST', path + '/models', { url: 'https://hotapi.ai/models/seedream-5.0-pro-spicy/image-edit' }, 201)
+  await harness.json('POST', path + '/runs', { modelIds: ['hotapi:seedream'], prompt: draft.prompts[0], referenceIds,
+    studio: { roles, appearance, referenceLabels: labels },
+  }, 201)
+  await settled(harness)
+  assert.match(sent[0].input.prompt, /Fixed subject appearance: Image 2 mit kurzen schwarzen Haaren und Sommersprossen\./)
+  assert.match(sent[0].input.prompt, /Image 1 — garment:.*Do not transfer the wearer/)
+  assert.match(sent[0].input.prompt, /Image 2 — identity:.*Preserve this person’s identity/)
+  assert.match(sent[0].input.prompt, /anatomically plausible/)
+  assert.doesNotMatch(sent[0].input.prompt, /Image undefined|@Bild/)
 })

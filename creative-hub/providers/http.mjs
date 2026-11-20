@@ -37,8 +37,7 @@ export async function request(service, url, { timeout = 120000, ...options } = {
 }
 
 /** Downloads an http(s) or data URL into `{ mediaType, data }` (bounded by the hub media limits). */
-export async function download(service, url, expectedType) {
-  const limit = mediaLimit(expectedType)
+export async function download(service, url, expectedType, { limit = mediaLimit(expectedType) } = {}) {
   let data
   if (url.startsWith('data:')) {
     const comma = url.indexOf(',')

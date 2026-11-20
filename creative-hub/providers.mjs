@@ -20,12 +20,18 @@
  *     `[{ id, title, provider, providerTitle, page, variants: { text?, edit? } }]`, each variant
  *     `{ model, fields }` with `fields` from `providers/schema.mjs`
  *   - `referenceMedia(env, { kind, image })` → `{ file: { mediaType, data }, model }` for model clips and GLB files
+ *   - `chat(env, { system, prompt, images })` → `{ text }`: a text answer from a language model that may look at
+ *     the images (`[{ mediaType, data, referenceLabel? }]`); used by Playground Scrabble to write scenes.
+ *     A provider whose model really reads `images` sets `chatImages: true` (needed for AI tagging).
+ *   - `startVideo(env, { mode, image, motion?, prompt, duration?, sound?, resolution?, orientation?, seedance? })`
+ *     → `{ taskId, model }` for an asynchronous image-to-video or motion-transfer job
+ *   - `videoStatus(env, { taskId, format? })` → `{ status: 'queued'|'failed'|'done', error?, file?, frame?, frameError?, credits? }`
  *   - `runModel(env, { variant, input, images })` → `{ images, credits? }`; `input` holds only fields
  *     the variant declares, `images` are reference files `[{ mediaType, data, url? }]`
  */
 import { InputError, idPattern } from './store.mjs'
 
-const actions = ['models', 'generate', 'removeBackground', 'search', 'resolveModels', 'runModel', 'referenceMedia']
+const actions = ['models', 'generate', 'removeBackground', 'search', 'resolveModels', 'runModel', 'referenceMedia', 'chat', 'startVideo', 'videoStatus']
 const credentialName = /^[A-Z_][A-Z0-9_]{0,127}$/
 
 /** Thrown by providers for failures the user can fix or should read (missing key, quota, upstream error). */
@@ -68,6 +74,9 @@ export function createProviderRegistry(store, credentials) {
       if (!idPattern.test(provider.id)) throw new Error(`Ungültige Anbieter-ID "${provider.id}".`)
       if (providers.has(provider.id)) throw new Error(`Anbieter "${provider.id}" ist bereits registriert.`)
       const entry = { settings: [], secrets: [], description: '', ...provider }
+      if (process.env.ATELIER_INSTANCE === 'nsfw') {
+        entry.secrets = entry.secrets.map(secret => ({ ...secret, credential: 'NSFW_' + secret.credential }))
+      }
       for (const secret of entry.secrets) if (!credentialName.test(secret.credential)) throw new Error(`Ungültiger Credential-Name "${secret.credential}".`)
       providers.set(provider.id, entry)
       return () => { if (providers.get(provider.id) === entry) providers.delete(provider.id) }
@@ -83,6 +92,7 @@ export function createProviderRegistry(store, credentials) {
           title: provider.title,
           description: provider.description,
           capabilities: actions.filter(action => typeof provider[action] === 'function'),
+          chatImages: Boolean(provider.chatImages),
           settings: provider.settings.map(field => ({ key: field.key, label: field.label, placeholder: field.placeholder ?? field.default ?? '', value: settings[field.key] })),
           secrets: await Promise.all(provider.secrets.map(async field => {
             const info = service ? await service.describe(field.credential) : { configured: Boolean(process.env[field.credential]?.trim()), writable: false }

@@ -18,7 +18,7 @@ export function createHarness() {
   async function request(method, path, body, site = 'same-origin', headers = {}) {
     const route = [...routes.values()].filter(entry => path.startsWith(entry.path)).sort((a, b) => b.path.length - a.path.length)[0]
     if (!route) throw new Error('Keine Route für ' + path)
-    const request = Readable.from(body ? [Buffer.from(JSON.stringify(body))] : [])
+    const request = Readable.from(body ? [Buffer.isBuffer(body) ? body : Buffer.from(JSON.stringify(body))] : [])
     Object.assign(request, { method, url: path, headers: { 'content-type': 'application/json', 'sec-fetch-site': site, ...headers } })
     let status
     let result

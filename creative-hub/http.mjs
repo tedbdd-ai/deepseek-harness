@@ -46,3 +46,16 @@ export function responder(req, res) {
   }
   return { send, json: (body, status = 200) => send(status, 'application/json; charset=utf-8', JSON.stringify(body)) }
 }
+
+export async function readUpload(req, limit) {
+  if (req.headers['sec-fetch-site'] && req.headers['sec-fetch-site'] !== 'same-origin') throw new InputError('Schreibzugriff aus dieser Quelle ist gesperrt.', 403)
+  if (Number(req.headers['content-length']) > limit) throw new InputError('Die Datei ist zu groß.', 413)
+  let size = 0
+  const chunks = []
+  for await (const chunk of req.iterator({ destroyOnReturn: false })) {
+    size += chunk.length
+    if (size > limit) throw new InputError('Die Datei ist zu groß.', 413)
+    chunks.push(chunk)
+  }
+  return Buffer.concat(chunks, size)
+}

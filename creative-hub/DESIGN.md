@@ -37,8 +37,16 @@ Systemschrift (SF Pro). Titel 28/34 halbfett, Abschnitt 17–20 halbfett, Fließ
 ## Muster
 - **Seitenleiste** gleich auf jeder Ansicht: Suche ⌘K, Sammlung, Library, Plugin-Seiten (Playground, Styler …), Projekte mit „+“, unten Anbieter.
 - **Details rechts** (340 px) für das gewählte Element; Esc schließt.
-- **Playground:** Verlauf aus Läufen (Karte links, Ergebnisse rechts), schwebende Eingabe unten; Bildmarken @Bild1… mit Rolle direkt an der Marke; Scrabble würfelt nur Kamera-Looks.
+- **Playground:** Verlauf aus Läufen (Karte links, Ergebnisse rechts), schwebende Eingabe unten; Bildmarken wie `@Bild1` werden in den Prompt eingefügt. Scrabble schreibt aus Stichworten und Anhängen bearbeitbare Szenen.
 - **Pflicht-Zustände** jeder Ansicht: Laden (Skeleton in Form des Inhalts), Leer (Grund und nächste Aktion), Filter ohne Treffer, Fehler mit Klartext und „Erneut versuchen“ bzw. „Prompt bearbeiten“.
+
+### Tags, Filter und Stapel
+
+- **Filterleiste:** je Gruppe ein `.pill` mit Popover (Mehrfachauswahl, Zahl je Tag, Suchfeld); aktive Filter als `.chip` mit Schließen-Icon; „Alle Filter entfernen“ als `.btn.ghost`. Filter stehen in der URL.
+- **Tag-Chip:** bestätigt = ausgefüllter Chip mit Entfernen-Icon; Vorschlag = gestrichelter Rand, daneben Häkchen (übernehmen) und Schließen (ablehnen). Herkunft im Tooltip.
+- **Drei-Zustands-Tag** in der Mehrfachauswahl: aus, teilweise (Strich und Zahl), an.
+- **Stapel:** Titelbild mit Badge (Layers-Icon und Anzahl) unten rechts; Favorit trägt einen Stern unten links.
+- **Tastaturhinweise** als `kbd` in Tokenhöhe 24 px.
 
 ## Nicht verwenden
 Verläufe, Glow, Glas, Karten in Karten, mehrere Hauptknöpfe in einer Ansicht, Emoji, erfundene Zahlen, Gelb/Grün als zusätzliche Akzente.

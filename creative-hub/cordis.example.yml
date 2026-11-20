@@ -23,3 +23,5 @@
       name: '/absolute/path/to/deepseek-harness/creative-hub/playground/host.mjs'
     - id: creativity-app-styler
       name: '/absolute/path/to/deepseek-harness/creative-hub/apps/styler/host.mjs'
+    - id: creativity-app-influencer-video
+      name: '/absolute/path/to/deepseek-harness/creative-hub/apps/influencer-video/host.mjs'

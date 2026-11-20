@@ -84,11 +84,27 @@ export function registerTools(server, store) {
     inputSchema: { id: z.string(), app: z.string(), revision: z.number().int(), data: z.record(z.string(), z.any()) },
   }, tool(({ id, app, revision, data }) => store.setAppData(id, app, { revision, data })))
   server.registerTool('search_assets', {
-    description: 'Searches Inspiration (library "clips") and Library (library "generation") by title, source and description. Empty filters match everything; ideaId limits to assets of one idea.',
+    description: 'Searches Inspiration (library "clips") and Library (library "generation"). The query understands tag words and synonyms ("latex neon outdoor" becomes the tags Latex, Neon, Outdoor plus free text); tags are tag ids from list_tags, e.g. "mode:latex". Empty filters match everything; ideaId limits to assets of one idea. Discarded assets are hidden unless rating is "all" or "-1".',
     inputSchema: {
       query: z.string().optional(), library: z.enum(['clips', 'generation']).optional(), ideaId: z.string().optional(),
+      tags: z.array(z.string()).optional(), rating: z.enum(['all', '1', '-1']).optional(), limit: z.number().int().min(1).max(200).optional(),
     },
-  }, tool(({ query = '', library = '', ideaId = '' }) => store.assets(library, query, ideaId)))
+  }, tool(({ query = '', library = '', ideaId = '', tags = [], rating = '', limit = 50 }) => {
+    const { items } = store.search({ q: query, library, project: ideaId, tags, rating, limit })
+    return items.map(({ id, library, title, source, description, tagList }) => ({ id, library, title, source, description: description.slice(0, 300), tags: tagList.map(tag => `${tag.facet}:${tag.name}${tag.state === 'vorschlag' ? '?' : ''}`) }))
+  }))
+  server.registerTool('list_tags', {
+    description: 'Lists the tag vocabulary by facet (art, motiv, mode, ort, licht, kamera, farbe, quelle, modell, frei) with tag ids, synonyms and usage counts.',
+    inputSchema: {},
+  }, tool(() => store.tagVocabulary().map(facet => ({ facet: facet.id, name: facet.name, tags: facet.tags.map(({ id, name, aliases, count }) => ({ id, name, aliases, count })) }))))
+  server.registerTool('tag_assets', {
+    description: 'Confirms (state "bestaetigt"), rejects ("abgelehnt") or removes ("entfernt") tags on assets. Use tag ids from list_tags; unknown names can be created in facet "frei" with the name argument.',
+    inputSchema: { ids: z.array(z.string()).min(1).max(200), tags: z.array(z.string()).optional(), newTags: z.array(z.string()).optional(), state: z.enum(['bestaetigt', 'abgelehnt', 'entfernt']).optional() },
+  }, tool(({ ids, tags = [], newTags = [], state = 'bestaetigt' }) => {
+    const tagIds = [...tags, ...newTags.map(name => store.resolveTag(name, { create: true }))]
+    if (!tagIds.length) throw new Error('Gib tags oder newTags an.')
+    return store.setTagState({ assetIds: ids, tagIds, state })
+  }))
   server.registerTool('add_inspiration', {
     description: 'Saves an inspiration: a web link (source) and/or a text note (description), optionally into an idea.',
     inputSchema: {
@@ -103,7 +119,7 @@ export function registerTools(server, store) {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const store = openStore(process.env.CREATIVITY_HUB_DB || join(homedir(), '.creativity-hub', 'hub.sqlite'))
+  const store = openStore(process.env.CREATIVITY_HUB_DB || join(homedir(), process.env.ATELIER_INSTANCE === 'nsfw' ? '.creativity-hub-nsfw' : '.creativity-hub', 'hub.sqlite'))
   const server = new McpServer({ name: 'creativity-hub', version: '0.1.0' })
   registerTools(server, store)
   await server.connect(new StdioServerTransport())

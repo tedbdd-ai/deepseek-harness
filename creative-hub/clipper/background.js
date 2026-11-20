@@ -8,6 +8,8 @@ const maxBytes = 12 * 1024 * 1024
 let nativeToken = ''
 
 const menus = [
+  ['atelier-frame', 'Aktuellen Videoframe ins Atelier', ['video']],
+  ['atelier-video', 'Ganzes Video ins Atelier', ['video']],
   ['atelier-image', 'Bild ins Atelier', ['image']],
   ['atelier-page', 'Seite ins Atelier (Screenshot)', ['page']],
   ['atelier-selection', 'Auswahl ins Atelier', ['selection']],
@@ -21,8 +23,7 @@ ext.runtime.onInstalled.addListener(() => {
 })
 
 /** The hub token: typed into the options, else read by the Safari app. */
-async function token() {
-  const { token: typed = '' } = await ext.storage.local.get('token')
+async function token(typed) {
   if (typed) return typed
   if (nativeToken) return nativeToken
   try {
@@ -36,14 +37,17 @@ async function token() {
   return nativeToken
 }
 
-async function hubFetch(path, method = 'GET', body) {
-  const { port = 3080 } = await ext.storage.local.get('port')
+async function hubFetch(path, method = 'GET', body, destination) {
+  const settings = destination ?? await ext.storage.local.get(['port','token'])
+  const port = settings.port ?? 3080
+  const key = await token(settings.token)
+  const binary = body instanceof Blob
   let response
   try {
     response = await fetch(`http://127.0.0.1:${port}/creativity-launcher/api/${path}`, {
-      method,
-      headers: { Authorization: 'Bearer ' + await token(), ...(body && { 'Content-Type': 'application/json' }) },
-      ...(body && { body: JSON.stringify(body) }),
+      method, redirect: 'error',
+      headers: { Authorization: 'Bearer ' + key, ...(body && { 'Content-Type': binary ? 'application/octet-stream' : 'application/json' }) },
+      ...(body && { body: binary ? body : JSON.stringify(body) }),
     })
   } catch {
     throw new Error(`Der Hub antwortet nicht auf Port ${port}. Läuft start.command?`)
@@ -145,6 +149,121 @@ async function saveLink(url, text) {
   return hubFetch('assets', 'POST', { library: 'clips', title: (text || hostOf(url) || url).slice(0, 200), source: httpOnly(url), ...(await target()) })
 }
 
+// Executed in the isolated world of each frame. Tokens identify DOM players even
+// when several of them share the same URL or the page reorders its elements.
+function inspectPlayers(action, selector) {
+  const keys = globalThis.__atelierVideoKeys ??= new WeakMap()
+  const videos = [...document.querySelectorAll('video')]
+  function info(video) {
+    if (!keys.has(video)) keys.set(video, crypto.randomUUID?.() ?? String(Math.random()))
+    return { key:keys.get(video), src:video.currentSrc || video.src, time:video.currentTime,
+      title:video.getAttribute('aria-label') || video.title || document.title,
+      playing:!video.paused && !video.ended, ready:video.readyState >= 2 }
+  }
+  if (action === 'list') return videos.map(info)
+  const matches = videos.filter(v=>selector.key ? keys.get(v) === selector.key :
+    !selector.src || (v.currentSrc || v.src) === selector.src)
+  const video = matches.find(v=>v.matches(':hover')) ?? (matches.length===1 ? matches[0] : null)
+  if (!video) return {error:'Der Player hat gewechselt. Öffne den Clipper erneut.'}
+  const item = info(video)
+  if (video.mediaKeys) return {error:'Dieser Player verwendet geschützte Medien.'}
+  if (action === 'video') return item
+  if (!item.ready || !video.videoWidth) return {error:'Starte das Video, bis ein Bild sichtbar ist.'}
+  const canvas = document.createElement('canvas')
+  const scale = Math.min(1,4096/Math.max(video.videoWidth,video.videoHeight))
+  canvas.width = Math.max(1,Math.round(video.videoWidth*scale))
+  canvas.height = Math.max(1,Math.round(video.videoHeight*scale))
+  try {
+    canvas.getContext('2d').drawImage(video,0,0,canvas.width,canvas.height)
+    return {...item, image:canvas.toDataURL('image/jpeg',0.94)}
+  } catch (e) {
+    if (e.name !== 'SecurityError') return {error:'Der Videoframe konnte nicht gelesen werden.'}
+    const rect=video.getBoundingClientRect()
+    return {...item,rect:{x:rect.x,y:rect.y,w:rect.width,h:rect.height}}
+  }
+}
+
+// Each document supplies geometry in its own viewport. The child index path
+// connects nested players to the top viewport without reading a foreign DOM.
+function frameGeometry() {
+  const path=[]
+  for (let child=window; child!==child.parent; child=child.parent) {
+    const parent=child.parent
+    let index=0
+    while (index<parent.length && parent[index]!==child) index++
+    path.unshift(index)
+  }
+  const children={}
+  for (const frame of document.querySelectorAll('iframe,frame')) {
+    let index=0
+    while(index<frames.length && frames[index]!==frame.contentWindow) index++
+    const r=frame.getBoundingClientRect()
+    const sx=r.width/(frame.offsetWidth||1), sy=r.height/(frame.offsetHeight||1)
+    children[index]={x:r.x+frame.clientLeft*sx,y:r.y+frame.clientTop*sy,w:frame.clientWidth*sx,h:frame.clientHeight*sy}
+  }
+  return {path,children,w:innerWidth,h:innerHeight}
+}
+
+async function visibleFrame(tab,frameId,rect) {
+  const active = async () => (await ext.tabs.query({active:true,windowId:tab.windowId}))[0]?.id===tab.id
+  if (!await active()) throw new Error('Öffne den Videotab im Vordergrund.')
+  const frames=await ext.scripting.executeScript({target:{tabId:tab.id,allFrames:true},func:frameGeometry})
+  let frame=frames.find(f=>f.frameId===frameId)?.result
+  while(frame) {
+    const x=Math.max(0,rect.x), y=Math.max(0,rect.y)
+    rect={x,y,w:Math.min(frame.w,rect.x+rect.w)-x,h:Math.min(frame.h,rect.y+rect.h)-y}
+    if(rect.w<1 || rect.h<1) throw new Error('Scrolle den Player in den sichtbaren Bereich.')
+    if(!frame.path.length) break
+    const parent=frames.find(f=>String(f.result?.path)===String(frame.path.slice(0,-1)))?.result
+    const box=parent?.children[frame.path.at(-1)]
+    if(!box) throw new Error('Der eingebettete Player lässt sich nicht als sichtbarer Bereich erfassen.')
+    rect={x:box.x+rect.x*box.w/frame.w,y:box.y+rect.y*box.h/frame.h,w:rect.w*box.w/frame.w,h:rect.h*box.h/frame.h}
+    frame=parent
+  }
+  if(!frame) throw new Error('Der Player ist nicht mehr sichtbar.')
+  const screenshot=await ext.tabs.captureVisibleTab(tab.windowId,{format:'png'})
+  if(!await active()) throw new Error('Der aktive Tab hat gewechselt.')
+  const bitmap=await createImageBitmap(await (await fetch(screenshot)).blob())
+  try {
+    const x=bitmap.width/frame.w,y=bitmap.height/frame.h
+    const canvas=new OffscreenCanvas(Math.max(1,Math.round(rect.w*x)),Math.max(1,Math.round(rect.h*y)))
+    canvas.getContext('2d').drawImage(bitmap,rect.x*x,rect.y*y,rect.w*x,rect.h*y,0,0,canvas.width,canvas.height)
+    return base64(await (await canvas.convertToBlob({type:'image/jpeg',quality:.94})).arrayBuffer())
+  } finally { bitmap.close() }
+}
+
+async function videoFile(src) {
+  if (!/^https?:\/\//i.test(src) || /\.(m3u8|mpd)(?:[?#]|$)/i.test(src)) throw new Error('Dieser Player liefert einen Stream ohne direkte Videodatei. Du kannst einen Frame sichern.')
+  const limit=80*1024*1024
+  const response=await fetch(src,{credentials:'include'})
+  if (!response.ok || response.status===206 || !response.body) throw new Error('Die vollständige Videodatei ist nicht abrufbar.')
+  const reader=response.body.getReader()
+  let size=0
+  const parts=[]
+  try {
+    if (Number(response.headers.get('Content-Length'))>limit) throw new Error('Das Video ist größer als 80 MiB.')
+    for (;;) {
+      const {done,value}=await reader.read()
+      if(done) break
+      size+=value.length
+      if(size>limit) throw new Error('Das Video ist größer als 80 MiB.')
+      parts.push(value)
+    }
+  } finally { await reader.cancel().catch(()=>{}) }
+  return new Blob(parts,{type:'application/octet-stream'})
+}
+
+async function savePlayer(tab,player,action) {
+  const destination = await ext.storage.local.get(['port','token','ideaId'])
+  const [frame]=await ext.scripting.executeScript({target:{tabId:tab.id,frameIds:[player.frameId]},func:inspectPlayers,args:[action,player]})
+  const item=frame?.result
+  if(!item || item.error) throw new Error(item?.error || 'Der Player ist nicht erreichbar.')
+  const metadata={title:(item.title||tab.title||'Video').slice(0,160),source:httpOnly(tab.url),projectId:destination.ideaId || ''}
+  if(action==='video') return hubFetch('clips/video?'+new URLSearchParams(metadata),'POST',await videoFile(item.src),destination)
+  const media=item.image?.split(',')[1] ?? await visibleFrame(tab,player.frameId,item.rect)
+  return hubFetch('assets','POST',{...metadata,library:'clips',title:metadata.title+' · '+item.time.toFixed(2)+' s',media,mediaType:'image/jpeg'},destination)
+}
+
 function setBadge(text, color) {
   ext.action.setBadgeBackgroundColor?.({ color })
   ext.action.setBadgeText({ text })
@@ -165,6 +284,7 @@ async function report(work) {
 
 ext.contextMenus.onClicked.addListener((info, tab) => {
   if (!tab) return
+  if (['atelier-video','atelier-frame'].includes(info.menuItemId)) report(() => savePlayer(tab,{frameId:info.frameId ?? 0,src:info.srcUrl},info.menuItemId === 'atelier-video' ? 'video' : 'frame'))
   if (info.menuItemId === 'atelier-image') report(() => saveImage(info.srcUrl, info.pageUrl || tab.url, tab.title))
   if (info.menuItemId === 'atelier-page') report(() => savePage(tab))
   if (info.menuItemId === 'atelier-selection') report(() => saveText(tab, info.selectionText || ''))
@@ -174,6 +294,12 @@ ext.contextMenus.onClicked.addListener((info, tab) => {
 ext.runtime.onMessage.addListener((message, sender, reply) => {
   const run = async () => {
     switch (message.type) {
+      case 'players': {
+        const frames=await ext.scripting.executeScript({target:{tabId:message.tab.id,allFrames:true},func:inspectPlayers,args:['list',{}]})
+        return frames.flatMap(frame=>(frame.result ?? []).map(player=>({...player,frameId:frame.frameId}))).sort((a,b)=>Number(b.playing)-Number(a.playing))
+      }
+      case 'saveVideo': return savePlayer(message.tab,message.player,'video')
+      case 'saveFrame': return savePlayer(message.tab,message.player,'frame')
       case 'ideas': return hubFetch('projects')
       case 'images': return pageImages(message.tab.id)
       case 'savePage': return savePage(message.tab)

@@ -2,11 +2,11 @@
  * Browser module of the Playground plugin, loaded by the hub as a page (`#/playground`).
  * The hub passes its shared building blocks through `renderView(ctx)`; the plugin owns this UI.
  */
-let $, openImage, uploadButton, API, api, chev, currentRoute, dateLabel, el, errorState, fullscreenButton, header, icon, icons, loading, media, refreshCounts, state, tile, timeLabel, toast, view, withFullscreen
+let $, openImage, uploadButton, uploadFiles, API, api, chev, currentRoute, dateLabel, el, errorState, fullscreenButton, header, icon, icons, loading, media, refreshCounts, state, tile, timeLabel, toast, view, withFullscreen
 
 /** Called by the hub on every visit; renders the whole view. */
 export function renderView(ctx) {
-  ;({ '$': $, openImage, uploadButton, API, api, chev, currentRoute, dateLabel, el, errorState, fullscreenButton, header, icon, icons, loading, media, refreshCounts, state, tile, timeLabel, toast, view, withFullscreen } = ctx)
+  ;({ '$': $, openImage, uploadButton, uploadFiles, API, api, chev, currentRoute, dateLabel, el, errorState, fullscreenButton, header, icon, icons, loading, media, refreshCounts, state, tile, timeLabel, toast, view, withFullscreen } = ctx)
   Object.assign(icons, icons2)
   return renderPlayground()
 }
@@ -64,7 +64,13 @@ function updateReferences(ids) {
   const removed = pg.refs.filter(id => !next.has(id))
   const labels = new Set(removed.map(id => pg.studio.referenceLabels?.[id]))
   if (removed.length) {
-    pg.prompt = removeReferenceMarks(pg.prompt, labels)
+    setPrompt(removeReferenceMarks(pg.prompt, labels))
+    if (pg.studio.appearance) pg.studio.appearance = removeReferenceMarks(pg.studio.appearance, labels)
+    pg.scenes = pg.scenes?.map(scene => removeReferenceMarks(scene, labels))
+    for (const draft of pg.scrabbleUndo ?? []) {
+      draft.prompt = removeReferenceMarks(draft.prompt, labels)
+      draft.scenes = draft.scenes?.map(scene => removeReferenceMarks(scene, labels))
+    }
     for (const id of removed) {
       delete pg.studio.roles?.[id]
       delete pg.studio.referenceLabels?.[id]
@@ -76,7 +82,7 @@ function updateReferences(ids) {
 
 function syncReferenceLabels() {
   const previous = pg.studio.referenceLabels ?? {}
-  const used = new Set([...pg.prompt.matchAll(referenceMark)].map(match => Number(match[1])))
+  const used = new Set([...(pg.prompt + '\n' + (pg.studio.appearance ?? '')).matchAll(referenceMark)].map(match => Number(match[1])))
   const labels = Object.fromEntries(Object.entries(previous).filter(([id, number]) => pg.refs.includes(id) || used.has(number)))
   const reserved = new Set([...used, ...Object.values(labels)])
   let next = 1
@@ -103,11 +109,19 @@ async function assetById(id) {
 // Parameters belong to the model, not to the mode: a format chosen for text-to-image also applies once an image is attached.
 const paramKey = m => m.id
 const taskNow = () => pg.refs.length ? 'edit' : 'text'
+const selectedModels = () => pg.models.filter(model => pg.modelIds.includes(model.id))
+const usesModelCount = models => models.length === 1 && models[0].variants[taskNow()]?.model === 'kling-4-0/image'
+const parameterLabels = { aspect_ratio: 'Seitenverhältnis', image_size: 'Bildformat', resolution: 'Auflösung', mode: 'Modus',
+  count: 'Bildanzahl', skill: 'Typ', length: 'Länge' }
+const optionLabel = (field, value) => ({
+  mode: { default: 'Einzelbilder', series: 'Zusammenhängende Serie' },
+  skill: { ecommerce: 'Produktseite', webpage: 'Webdesign' },
+  length: { short: 'Kurz', medium: 'Mittel', long: 'Lang' },
+  resolution: { '1k': '1K', '2k': '2K', '4k': '4K', '8k': '8K' },
+}[field.key]?.[value] ?? value)
 const minutes = ms => { const s = Math.round(ms / 1000); return s < 60 ? `${s} s` : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} min` }
 const ago = iso => { const s = (Date.now() - new Date(iso)) / 1000; return s < 60 ? 'gerade eben' : s < 3600 ? `vor ${Math.round(s / 60)} Minuten` : dateLabel(iso) + ', ' + timeLabel(iso) }
 const icons2 = {
-  lock: '<rect width="16" height="11" x="4" y="11" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
-  unlock: '<rect width="16" height="11" x="4" y="11" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/>',
   undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-1"/>',
   folder: '<path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><path d="M12 10v6"/><path d="M9 13h6"/>',
   variant: '<path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/>',
@@ -121,15 +135,25 @@ const icons2 = {
 }
 
 async function renderPlayground() {
-  const ref = new URLSearchParams(location.hash.split('?')[1] || '').get('ref')
-  if (ref && pg.refs.length < 16 && !pg.refs.includes(ref)) pg.refs.push(ref)
+  const query = new URLSearchParams(location.hash.split('?')[1] || '')
+  // Links from the Storyboard: `refs` (comma separated asset ids), `prompt` and `project` prefill the composer, nothing runs.
+  for (const ref of [query.get('ref'), ...(query.get('refs') || '').split(',')]) {
+    if (ref && pg.refs.length < 16 && !pg.refs.includes(ref)) pg.refs.push(ref)
+  }
+  if (query.get('prompt')) pg.prompt = query.get('prompt').slice(0, 4000)
+  if (query.get('project') && state.projects.some(p => p.id === query.get('project'))) { pg.projectId = query.get('project'); store('project', pg.projectId) }
   const feed = el('div', { class: 'pg-feed' }, el('div', { class: 'skel', style: 'height:220px' }))
   const projectSel = el('select', { 'aria-label': 'Ziel-Projekt', onchange: e => { pg.projectId = e.target.value; store('project', pg.projectId) } },
     el('option', { value: '' }, 'Kein Projekt'), state.projects.map(p => el('option', { value: p.id, selected: p.id === pg.projectId || null }, p.title)))
   const tools = el('div', { class: 'tools' }, el('label', { class: 'pill' }, el('span', { class: 'meta' }, 'Ziel'), projectSel, chev()), el('button', { type: 'button', class: 'btn sm', onclick: modelsDialog }, 'Modelle verwalten'))
-  view.replaceChildren(...header('Playground', null, tools), el('div', { class: 'pg' }, feed, composer()))
+  const studio = el('div', { class: 'photo-studio' },
+    el('div', { class: 'studio-grid photo-grid' }, composer(), feed))
+  view.replaceChildren(...header('Foto Playground', null, tools), el('div', { class: 'scroll studio-scroll' }, studio))
   try {
-    ;[pg.models, pg.runs] = await Promise.all([pgApi('/models'), pgApi('/runs')])
+    const [models, runs, instance] = await Promise.all([pgApi('/models'), pgApi('/runs'), api('/instance')])
+    pg.models = models
+    pg.runs = runs
+    pg.nsfw = instance.mode === 'nsfw'
     pg.modelIds = pg.modelIds.filter(id => pg.models.some(m => m.id === id))
     pg.modelId = pg.modelIds[0] ?? null
     if (!pg.modelId) selectModel(pg.models[0]?.id)
@@ -138,19 +162,124 @@ async function renderPlayground() {
   } catch (error) { feed.replaceChildren(errorState(error, renderPlayground)) }
 }
 
+function photoStatus(run) {
+  const pending = run.results.filter(result => result.status === 'running').length
+  const failed = run.results.filter(result => result.status === 'failed').length
+  const images = run.results.reduce((sum, result) => sum + result.assetIds.length, 0)
+  if (failed || pending) return [`${images} ${images === 1 ? 'Bild' : 'Bilder'}`, pending && `${pending} in Arbeit`, failed && `${failed} fehlgeschlagen`].filter(Boolean).join(' · ')
+  return images ? `${images} ${images === 1 ? 'Bild' : 'Bilder'}` : 'Fehlgeschlagen'
+}
+
+function selectPhotoRun(runId) {
+  pg.photoRun = runId
+  pg.photoAsset = undefined
+  pg.photoView = 'preview'
+  drawFeed()
+}
+
 function drawFeed(feed = $('.pg-feed')) {
   if (!feed) return
-  if (!pg.models.length) {
-    const url = el('input', { class: 'text-in', type: 'url', placeholder: 'https://kie.ai/gpt-image-2-6', 'aria-label': 'Adresse der Modellseite' })
-    feed.replaceChildren(el('div', { class: 'state' }, icon('wand'), el('h2', {}, 'Füge dein erstes Modell hinzu'),
-      el('p', {}, 'Füge eine Modellseite von Kie.ai oder fal.ai ein. Unter „Modelle verwalten“ findest du auch die Kataloge deiner Anbieter.'),
-      el('form', { style: 'display:flex;gap:8px;width:100%', onsubmit: async e => { e.preventDefault(); await addModel(url.value, e.submitter) } }, url, el('button', { class: 'btn primary', type: 'submit' }, 'Hinzufügen'))))
-    return
+  const run = pg.runs.find(item => item.id === pg.photoRun) ?? pg.runs[0]
+  const results = run?.results ?? []
+  const candidates = results.flatMap(result => result.assetIds.map(id => ({ result, id })))
+  const active = candidates.find(item => item.id === pg.photoAsset) ?? candidates[0]
+  const waiting = results.some(result => result.status === 'running')
+  const error = results.find(result => result.status === 'failed')
+  const tabs = el('div', { class: 'studio-modes', role: 'group', 'aria-label': 'Ausgabeansicht' },
+    [['preview', 'Vorschau'], ['data', 'Auftragsdaten']].map(([value, label]) => el('button', {
+      type: 'button', class: 'btn sm', 'aria-pressed': String((pg.photoView ?? 'preview') === value),
+      disabled: value === 'data' && !run, onclick: () => { pg.photoView = value; drawFeed() },
+    }, label)))
+  const details = pg.photoView === 'data' && run
+  const stage = el('div', { class: 'studio-stage photo-stage', 'aria-busy': waiting || null })
+  if (details) {
+    stage.append(el('pre', { class: 'photo-data' }, JSON.stringify({
+      auftrag: run.id, eingabe: run.prompt, referenzen: run.referenceIds,
+      ergebnisse: results.map(item => ({
+        modell: item.title, anbieter: item.provider, status: item.status,
+        prompt: item.sentPrompt ?? run.prompt, parameter: item.settings,
+        bilder: item.assetIds, credits: item.credits, fehler: item.error,
+      })),
+    }, null, 2)))
+  } else if (active) {
+    const url = `${API}/media/${active.id}`
+    const image = el('img', { src: url, alt: active.result.title + ' · Ergebnis', draggable: false,
+      onclick: () => openImage(url, active.result.title),
+      onerror: () => stage.replaceChildren(el('p', { class: 'meta' }, 'Dieses Bild ist nicht mehr gespeichert.')) })
+    stage.append(image)
+  } else {
+    const message = !pg.models.length ? 'Importiere ein Modell, um Bilder zu erstellen.' :
+      waiting ? 'Die Bilder werden erstellt …' : error?.error ?? 'Deine Bilder erscheinen hier nach der Generierung.'
+    stage.append(el('div', { class: 'photo-empty' }, icon('image'), el('p', { role: 'status' }, message)))
   }
-  if (!pg.runs.length) { feed.replaceChildren(el('div', { class: 'state' }, icon('wand'), el('h2', {}, 'Noch kein Lauf'), el('p', {}, 'Schreib einen Prompt und hänge bei Bedarf Bilder an. Scrabble würfelt Bildregie und Referenzrollen.'))); return }
-  feed.replaceChildren(...pg.runs.map(runRow))
+  const actions = active && !details ? photoActions(run, active) : !active && !waiting && error ?
+    el('div', { class: 'photo-actions' }, el('button', { type: 'button', class: 'btn sm', onclick: () => restoreRun(run) }, 'Eingabe übernehmen')) : null
+  const retryable = results.filter(result => result.status === 'failed' && result.retry !== false && typeof result.sentPrompt === 'string').length
+  const failures = error && el('div', { class: 'photo-actions' },
+    el('details', {}, el('summary', {}, photoStatus(run)), results.map((result, i) => result.status === 'failed' &&
+      el('p', {}, `Aufnahme ${i + 1} · ${result.title} · ${result.error}`))),
+    retryable > 0 && !waiting && el('button', { type: 'button', class: 'btn sm', disabled: pg.retrying?.has(run.id),
+      onclick: () => retryFailed(run.id) }, retryable === 1 ? '1 Aufnahme erneut versuchen' : retryable + ' Aufnahmen erneut versuchen'))
+  const images = candidates.length > 1 && !details ? el('div', { class: 'photo-thumbs', 'aria-label': 'Bilder im Auftrag' },
+    candidates.map(({ id, result }, index) => el('button', { type: 'button', class: 'photo-thumb',
+      'aria-label': `Bild ${index + 1} auswählen · ${result.title}`, 'aria-pressed': String(id === active?.id),
+      onclick: () => { pg.photoAsset = id; drawFeed() } },
+    el('img', { src: `${API}/media/${id}`, alt: '', loading: 'lazy' })))) : null
+  const history = pg.runs.length ? el('section', { class: 'studio-panel photo-history', 'aria-label': 'Bildverlauf' },
+    el('header', { class: 'studio-panel-head' }, el('h2', {}, 'Bildverlauf'), el('span', { class: 'meta' }, `${pg.runs.length} ${pg.runs.length === 1 ? 'Auftrag' : 'Aufträge'}`)),
+    el('div', { class: 'studio-renders' }, pg.runs.map(item => {
+      const sample = item.results.flatMap(result => result.assetIds)[0]
+      return el('button', { type: 'button', class: 'studio-render photo-run', 'aria-pressed': String(item.id === run?.id),
+        onclick: () => selectPhotoRun(item.id), title: item.title || item.prompt },
+      sample ? el('img', { class: 'photo-run-image', src: `${API}/media/${sample}`, alt: '', loading: 'lazy' }) :
+        el('span', { class: 'photo-run-image' }, icon('image')),
+      el('span', { class: 'studio-caption' }, item.title || item.prompt || item.results[0]?.title || 'Bildauftrag'),
+      el('span', { class: 'meta' }, photoStatus(item), ' · ', timeLabel(item.createdAt)))
+    }))) : null
+  const monitor = el('section', { class: 'studio-panel photo-monitor', 'aria-label': 'Bildausgabe' },
+    el('header', { class: 'studio-panel-head' }, el('h2', {}, 'Ausgabe'), tabs), stage, failures, actions, images)
+  const scrollOffsets = [...feed.querySelectorAll('.photo-thumbs, .studio-renders')].map(div => [div.className, div.scrollLeft])
+  feed.replaceChildren(...[monitor, history].filter(Boolean))
+  for (const [className, scrollLeft] of scrollOffsets) {
+    const strip = feed.getElementsByClassName(className)[0]
+    if (strip) strip.scrollLeft = scrollLeft
+  }
   clearTimeout(pg.timer)
-  if (pg.runs.some(run => run.results.some(r => r.status === 'running'))) pg.timer = setTimeout(pollRuns, 2500)
+  if (pg.runs.some(item => item.results.some(result => result.status === 'running'))) pg.timer = setTimeout(pollRuns, 2500)
+}
+
+function photoActions(run, { result, id }) {
+  const url = `${API}/media/${id}`
+  const query = new URLSearchParams({ ref: id })
+  if (run.projectId) query.set('project', run.projectId)
+  return el('div', { class: 'photo-actions' },
+    el('span', { class: 'meta photo-output-label' }, [result.title, result.provider, result.credits == null ? '' : result.credits + ' Credits'].filter(Boolean).join(' · ')),
+    el('button', { type: 'button', class: 'btn sm', onclick: () => openImage(url, result.title) }, icon('expand'), 'Vollbild'),
+    el('a', { class: 'btn sm', href: url, download: result.title }, icon('down'), 'Download'),
+    el('button', { type: 'button', class: 'btn sm', onclick: () => editResult(run, result, id) }, 'Als Referenz bearbeiten'),
+    el('button', { type: 'button', class: 'btn sm', onclick: () => assignDialog(id) }, 'Ins Projekt'),
+    state.pages?.some(page => page.id === 'video-playground') && el('a', { class: 'btn sm', href: '#/video-playground?' + query }, 'Animieren'),
+    el('button', { type: 'button', class: 'btn sm', onclick: () => restoreRun(run) }, 'Eingabe übernehmen'))
+}
+
+function restoreRun(run) {
+  pg.params = run.params ?? {}
+  pg.modelParams = structuredClone(run.modelParams ?? {})
+  pg.studio = structuredClone(run.studio ?? {})
+  pg.studio.referenceLabels ??= Object.fromEntries(run.referenceIds.map((id, index) => [id, index + 1]))
+  pg.count = run.count ?? 1
+  pg.scrabbleUndo = null
+  pg.scenes = pg.studio.prompts?.slice()
+  setPrompt(run.prompt)
+  pg.refs = [...run.referenceIds]
+  const ids = [...new Set(run.results.map(item => item.modelId))].filter(id => pg.models.some(model => model.id === id))
+  if (ids.length) {
+    pg.modelIds = ids
+    pg.modelId = ids[0]
+    store('models', ids)
+  }
+  redrawComposer()
+  $('#pg-prompt')?.focus()
 }
 
 async function pollRuns() {
@@ -158,58 +287,32 @@ async function pollRuns() {
   try { pg.runs = await pgApi('/runs'); assetCache.clear(); drawFeed(); refreshCounts() } catch { pg.timer = setTimeout(pollRuns, 5000) /* Netzfehler: später erneut. */ }
 }
 
-function runRow(run) {
-  const credits = run.results.reduce((sum, r) => sum + (r.credits || 0), 0)
-  const refs = el('div', { style: 'display:flex;gap:8px' })
-  run.referenceIds.forEach(async id => { const item = await assetById(id); if (item) refs.append(withFullscreen(item, el('span', { class: 'ref-thumb' }, media(item)))) })
-  const card = el('div', { class: 'pg-card' },
-    el('div', { class: 'task' }, icon(run.task === 'edit' ? 'edit' : 'text'), run.task === 'edit' ? 'Bild bearbeiten' : 'Text zu Bild'),
-    el('div', { class: 'meta' }, `${new Set(run.results.map(r => r.modelId)).size} Modell${new Set(run.results.map(r => r.modelId)).size === 1 ? '' : 'e'} · ${ago(run.createdAt)}`),
-    el('p', { class: 'prompt' }, run.prompt),
-    run.results.some(r => r.sentPrompt && r.sentPrompt !== run.prompt) ? el('details', {}, el('summary', {}, 'Gesendete Bildregie'), [...new Set(run.results.map(r => r.sentPrompt).filter(Boolean))].map(text => el('p', { class: 'direction-text' }, text))) : null,
-    run.referenceIds.length ? refs : null,
-    credits ? el('div', { class: 'meta', style: 'display:flex;justify-content:space-between' }, el('span', {}, 'Verbraucht'), el('span', { style: 'color:var(--c-ink)' }, `${credits} Credits`)) : null,
-    el('div', { style: 'display:flex;gap:8px' },
-      el('button', { type: 'button', class: 'icon', 'aria-label': 'Erneut ausführen', title: 'Erneut ausführen', onclick: () => rerun(run) }, icon('retry')),
-      el('button', { type: 'button', class: 'icon', 'aria-label': 'In die Eingabe übernehmen', title: 'In die Eingabe übernehmen', onclick: () => { pg.params = run.params ?? {}; pg.modelParams = structuredClone(run.modelParams ?? {}); pg.studio = structuredClone(run.studio ?? {}); pg.studio.referenceLabels ??= Object.fromEntries(run.referenceIds.map((id, i) => [id, i + 1])); pg.count = run.count ?? 1; pg.scrabbleUndo = null; pg.prompt = run.prompt; pg.refs = [...run.referenceIds]; selectModel(run.results.find(r => pg.models.some(m => m.id === r.modelId))?.modelId ?? pg.modelId); redrawComposer() } }, icon('copy'))))
-  const grid = el('div', { class: 'pg-results' })
-  for (const result of run.results) {
-    if (result.status === 'done') for (const id of result.assetIds) grid.append(resultTile(run, result, id))
-    else grid.append(result.status === 'running'
-      ? el('figure', { class: 'pg-fig' }, el('div', { class: 'pg-wait', 'aria-busy': 'true' }, el('span', {}, `Läuft bei ${result.provider} · ${minutes(Date.now() - new Date(run.createdAt))}`)), caption(result))
-      : el('figure', { class: 'pg-fig' }, el('div', { class: 'pg-fail' }, el('b', {}, 'Nicht fertig geworden'), el('span', {}, result.error), result.detail && el('details', { class: 'meta' }, el('summary', {}, 'Antwort des Anbieters'), el('span', {}, result.detail)),
-        result.retry === false
-          ? el('button', { type: 'button', class: 'btn sm', onclick: () => { pg.prompt = run.prompt; pg.refs = [...run.referenceIds]; redrawComposer(); $('#pg-prompt')?.focus() } }, 'Prompt bearbeiten')
-          : el('button', { type: 'button', class: 'btn sm', onclick: () => rerun(run, result.modelId) }, 'Erneut versuchen')), caption(result)))
-  }
-  return el('section', { class: 'pg-run', 'aria-label': run.prompt.slice(0, 60) }, card, grid)
+function editResult(run, result, id) {
+  const appearance = run.studio?.appearance ?? ''
+  const usedMarks = new Set([...appearance.matchAll(referenceMark)].map(([, label]) => label))
+  pg.studio = { ...run.studio, roles: undefined, referenceLabels: { [id]: 1 },
+    appearance: usedMarks.size <= 1 ? appearance.replace(referenceMark, '@Bild1') : '' }
+  pg.modelParams = structuredClone(run.modelParams ?? {})
+  pg.params = run.params ?? {}
+  pg.refs = [id]
+  pg.scrabbleUndo = null
+  pg.scenes = null
+  pg.prompt = /@Bild[1-9]\d*\b/i.test(run.prompt) ? 'Bearbeite @Bild1. ' : 'Bearbeite @Bild1. ' + run.prompt
+  if (pg.models.some(model => model.id === result.modelId)) selectModel(result.modelId)
+  redrawComposer()
+  $('#pg-prompt')?.focus()
 }
 
-const caption = (result, extra = '') => el('figcaption', {}, el('span', { class: 'm' }, result.title), el('span', { class: 'meta' }, [result.provider, result.ms ? minutes(result.ms) : '', result.credits ? result.credits + ' Credits' : '', extra].filter(Boolean).join(' · ')))
-
-function resultTile(run, result, id) {
-  const url = `${API}/media/${id}`
-  const title = `${result.title}: ${run.prompt.slice(0, 80)}`
-  // A result deleted from the Library stays in the run history; show that instead of a broken image.
-  const pic = el('div', { class: 'tile-r' }, el('img', { src: url, alt: title, loading: 'lazy', onerror: e => { const box = e.target.closest('.pg-fig'); box?.replaceChildren(el('div', { class: 'pg-wait' }, el('span', {}, 'Aus der Library gelöscht')), caption(result)) } }))
-  const actions = el('div', { class: 'tile-acts', role: 'group', 'aria-label': `${result.title}: Bildaktionen` },
-      fullscreenButton(url, title),
-      el('button', { type: 'button', class: 'icon', 'aria-label': 'In ein Projekt', title: 'In ein Projekt', onclick: () => assignDialog(id) }, icon('folder')),
-      el('button', { type: 'button', class: 'icon', 'aria-label': 'Als Referenz verwenden', title: 'Als Referenz verwenden', onclick: () => { if (pg.refs.length >= 16 && !pg.refs.includes(id)) return toast('Du kannst höchstens 16 Bilder anhängen.', true); if (!pg.refs.includes(id)) pg.refs.push(id); redrawComposer(); toast('Als Referenz in der Eingabe.') } }, icon('image')),
-      el('button', { type: 'button', class: 'icon', 'aria-label': 'Variante erzeugen', title: 'Variante erzeugen', onclick: () => { pg.studio = { ...run.studio, roles: { [id]: 'Ausgangsbild' }, referenceLabels: { [id]: 1 } }; pg.modelParams = structuredClone(run.modelParams ?? {}); pg.params = run.params ?? {}; pg.refs = [id]; pg.scrabbleUndo = null; pg.prompt = /@Bild[1-9]\d*\b/i.test(run.prompt) ? 'Bearbeite @Bild1. ' : 'Bearbeite @Bild1. ' + run.prompt; if (pg.models.some(m => m.id === result.modelId)) selectModel(result.modelId); redrawComposer(); $('#pg-prompt')?.focus() } }, icon('variant')),
-      el('a', { class: 'icon', href: `${API}/media/${id}`, download: result.title, 'aria-label': 'Herunterladen', title: 'Herunterladen' }, icon('down')))
-  const inProjects = [...(state.members.get(id) ?? [])].map(pid => state.projects.find(p => p.id === pid)?.title).filter(Boolean)
-  // Actions overlay the image (hover or keyboard focus); a click on the image opens it large.
-  pic.append(actions)
-  pic.querySelector('img').addEventListener('click', () => openImage(url, title))
-  return el('figure', { class: 'pg-fig' }, pic, caption(result, inProjects.length ? 'in ' + inProjects.join(', ') : ''))
-}
-
-async function rerun(run, modelId) {
+async function retryFailed(id) {
+  pg.retrying ??= new Set()
+  if (pg.retrying.has(id)) return
+  pg.retrying.add(id)
+  drawFeed()
   try {
-    const created = await pgApi('/runs', 'POST', { prompt: run.prompt, modelIds: modelId ? [modelId] : [...new Set(run.results.map(r => r.modelId))], referenceIds: run.referenceIds, params: run.params, modelParams: run.modelParams, studio: studioForRun(run.studio), count: modelId ? 1 : run.count, projectId: run.projectId || undefined })
-    pg.runs.unshift(created); drawFeed()
+    const updated = await pgApi('/runs/' + encodeURIComponent(id) + '/retry', 'POST', {})
+    pg.runs = pg.runs.map(item => item.id === id ? updated : item)
   } catch (error) { toast(error.message, true) }
+  finally { pg.retrying.delete(id); drawFeed() }
 }
 
 function assignDialog(assetId) {
@@ -304,7 +407,7 @@ function modelsDialog() {
     try {
       const options = await api('/providers/' + id + '/models')
       if (provider.value !== id) return
-      model.replaceChildren(...options.map(o => el('option', { value: o.id }, o.title)))
+      model.replaceChildren(...options.filter(o => !o.modal || o.modal === 'image').map(o => el('option', { value: o.id }, o.title)))
       importBtn.disabled = !model.value
     } catch (error) { toast(error.message, true) }
   }
@@ -317,7 +420,7 @@ function modelsDialog() {
   }).catch(error => toast(error.message, true))
   const dialog = el('dialog', { style: 'width:min(560px, calc(100vw - 32px))' }, el('form', { method: 'dialog' },
     el('h2', {}, 'Modelle'), list, catalog,
-    el('label', { class: 'field' }, el('span', {}, 'Modellseiten von Kie.ai oder fal.ai'), el('div', { style: 'display:flex;gap:8px' }, url, addBtn)),
+    el('label', { class: 'field' }, el('span', {}, 'URL der Modellseite'), el('div', { style: 'display:flex;gap:8px' }, url, addBtn)),
     el('div', { class: 'row' }, el('button', { class: 'btn primary', value: 'ok' }, 'Fertig'))))
   dialog.addEventListener('close', () => dialog.remove())
   document.body.append(dialog); dialog.showModal()
@@ -341,10 +444,11 @@ function editor(title, sections, save, reset) {
 function parameterInput(field, value) {
   const options = field.type === 'boolean' ? ['true', 'false'] : field.options
   const input = options ? el('select', { class: 'text-in' },
-    el('option', { value: '' }, 'Modellstandard' + (field.default == null ? '' : ' · ' + field.default)),
-    options.map(value => el('option', { value }, field.type === 'boolean' ? (value === 'true' ? 'Ein' : 'Aus') : value)))
+    el('option', { value: '' }, 'Modellstandard' + (field.default == null ? '' : ' · ' + optionLabel(field, field.default))),
+    options.map(value => el('option', { value }, field.type === 'boolean' ? (value === 'true' ? 'Ein' : 'Aus') : optionLabel(field, value))))
     : el('input', { class: 'text-in', type: field.type === 'text' ? 'text' : 'number', placeholder: field.default ?? 'Modellstandard', min: field.min, max: field.max, step: field.type === 'integer' ? 1 : 'any' })
   input.value = value ?? ''
+  input.setAttribute('aria-label', parameterLabels[field.key] ?? field.label)
   return input
 }
 
@@ -366,7 +470,7 @@ function settingsDialog() {
     return el('section', { class: 'pg-fields' }, el('h3', {}, m.title + ' · ' + m.providerTitle), fields.length ? fields.map(f => {
       const input = parameterInput(f, values[f.key])
       controls.push([f, input])
-      return el('label', { class: 'field' }, el('span', {}, f.label), input, f.description && el('small', { class: 'meta' }, f.description))
+      return el('label', { class: 'field' }, el('span', {}, parameterLabels[f.key] ?? f.label), input, f.description && el('small', { class: 'meta' }, f.description))
     }) : el('p', { class: 'meta' }, 'Keine weiteren Parameter.'))
   })
   const persist = () => store('modelParams', pg.modelParams)
@@ -377,29 +481,6 @@ function settingsDialog() {
     }
     persist()
   }, () => { for (const [id] of readers) pg.modelParams[id] = {}; persist() })
-}
-
-const directionFields = [
-  ['angle', 'Kamerawinkel', ['Augenhöhe', 'Bodennähe', 'Vogelperspektive', 'Dreiviertelansicht', 'Seitenansicht']],
-  ['lens', 'Objektiv', ['24 mm Weitwinkel', '35 mm Reportage', '50 mm Normalobjektiv', '85 mm Porträt', '100 mm Makro', '135 mm Tele']],
-  ['light', 'Licht', ['Fensterlicht', 'Direktblitz', 'Golden Hour', 'Streiflicht', 'Neonlicht', 'Softbox']],
-]
-
-function directionFieldsInPrompt() {
-  return el('div', { class: 'pg-direction', role: 'group', 'aria-label': 'Bildregie im Prompt' },
-    directionFields.map(([key, label, options]) => {
-      const listId = 'pg-direction-' + key
-      const input = el('input', { class: 'text-in', list: listId, placeholder: 'Offen', maxlength: 500, title: pg.studio[key] || label,
-        oninput: event => {
-          pg.studio[key] = event.target.value
-          pg.studio.locked = { ...pg.studio.locked, [key]: Boolean(event.target.value) }
-          delete pg.studio.lookName
-          event.target.title = event.target.value || label
-        } })
-      input.value = pg.studio[key] ?? ''
-      return el('label', { class: 'field' }, el('span', {}, label), input,
-        el('datalist', { id: listId }, options.map(value => el('option', { value }))))
-    }))
 }
 
 const sizeNames = { '1:1': 'square_hd', '4:3': 'landscape_4_3', '16:9': 'landscape_16_9', '3:4': 'portrait_4_3', '9:16': 'portrait_16_9' }
@@ -414,36 +495,37 @@ function sharedFormat(key, value, fields) {
   return null
 }
 
-/** Hints where prompt and reference roles disagree; each may carry a one-click fix. */
-function promptRoleHints() {
-  const hints = []
-  const labelOf = id => pg.studio.referenceLabels?.[id]
-  const people = pg.refs.filter(id => ['Identität', 'Ausgangsbild'].includes(pg.studio.roles?.[id]))
-  if (people.length > 1) hints.push({ text: `${people.map(id => '@Bild' + labelOf(id)).join(' und ')} sind Personen: es erscheinen ${people.length} verschiedene Menschen.` })
-  for (const id of pg.refs) {
-    const mark = '@Bild' + labelOf(id)
-    const near = new RegExp(`(outfit|trägt|tr[aä]gt|wears?|wearing|kleid|kleidung|anzug|mantel|cape|catsuit|garment)[^@\n]{0,40}${mark}\\b|${mark}\\b[^@\n]{0,15}(outfit|kleidung|garment)`, 'i')
-    const role = pg.studio.roles?.[id] ?? 'Allgemein'
-    if (near.test(pg.prompt) && role !== 'Kleidung') hints.push({ text: `Der Prompt nennt ${mark} als Kleidung, die Rolle ist „${role}“.`, fix: ['Rolle auf Kleidung', () => { pg.studio.roles = { ...pg.studio.roles, [id]: 'Kleidung' }; redrawComposer() }] })
-  }
-  return hints
-}
-
 function quickModelSettings(model, variant, onChange) {
   if (!variant) return []
   const key = paramKey(model)
   const values = pg.modelParams[key] ?? pg.params
   const adjustable = variant.fields.filter(field => !['prompt', 'image', 'images'].includes(field.type))
-  const quick = adjustable.filter(field => ['aspect_ratio', 'image_size', 'resolution'].includes(field.key))
+  const kling = variant.model === 'kling-4-0/image'
+  const long = variant.model === 'kling-4-0/long-image'
+  const series = values.mode === 'series'
+  const defaults = long ? { skill: pg.refs.length ? 'ecommerce' : 'webpage' } : {}
+  const quick = adjustable.filter(field => ['aspect_ratio', 'image_size', 'resolution'].includes(field.key) ||
+    (kling && ['mode', 'count'].includes(field.key)) || (long && (field.key === 'skill' ||
+      (field.key === 'length' && (values.skill ?? defaults.skill) !== 'webpage'))))
   const quickKeys = new Set(quick.map(field => field.key))
   const other = adjustable.filter(field => !quickKeys.has(field.key) && Object.hasOwn(values, field.key))
   return [
     ...quick.map(field => {
-      const input = parameterInput(field, values[field.key])
+      const count = kling && field.key === 'count'
+      const input = parameterInput(count ? { ...field, min: series ? 2 : 1, max: series ? 10 : 9 } : field,
+        values[field.key] ?? defaults[field.key] ?? (count ? (series ? 2 : 1) : undefined))
       input.addEventListener('change', () => {
         const updated = { ...(pg.modelParams[key] ?? pg.params) }
         if (!input.value) delete updated[field.key]
         else updated[field.key] = parameterValue(field, input)
+        if (count && input.value) {
+          updated.count = Math.max(Number(input.min), Math.min(Number(input.max), Math.round(updated.count)))
+          input.value = updated.count
+        }
+        if (kling && field.key === 'mode') {
+          const inSeries = updated.mode === 'series'
+          updated.count = Math.max(inSeries ? 2 : 1, Math.min(inSeries ? 10 : 9, updated.count ?? 1))
+        }
         pg.modelParams[key] = updated
         // In a comparison the format is shared, so every model frames the same picture.
         for (const other of pg.models.filter(m => m.id !== model.id && pg.modelIds.includes(m.id))) {
@@ -452,13 +534,14 @@ function quickModelSettings(model, variant, onChange) {
           const target = { ...(pg.modelParams[other.id] ?? {}) }
           for (const name of ['aspect_ratio', 'image_size']) if (field.key === 'aspect_ratio' || field.key === 'image_size') delete target[name]
           if (mapped) target[mapped[0]] = mapped[1]
-          else if (field.key !== 'aspect_ratio' && field.key !== 'image_size' && fields.some(f => f.key === field.key && (f.type !== 'enum' || f.options.includes(String(updated[field.key]))))) target[field.key] = updated[field.key]
+          else if (field.key === 'resolution' && fields.some(f => f.key === field.key && (f.type !== 'enum' || f.options.includes(String(updated[field.key]))))) target[field.key] = updated[field.key]
           pg.modelParams[other.id] = target
         }
         store('modelParams', pg.modelParams)
         onChange()
+        if (['mode', 'skill'].includes(field.key)) redrawComposer()
       })
-      return el('label', { class: 'field' }, el('span', {}, field.label), input)
+      return el('label', { class: 'field' }, el('span', {}, parameterLabels[field.key] ?? field.label), input)
     }),
     other.length && el('span', { class: 'meta pg-extra-params' }, other.map(field => {
       const value = values[field.key]
@@ -467,141 +550,115 @@ function quickModelSettings(model, variant, onChange) {
   ].filter(Boolean)
 }
 
-const garmentParts = ['Kleidung: Oberteil', 'Kleidung: Unterteil', 'Kleidung: Jacke/Mantel', 'Kleidung: Einteiler', 'Kleidung: Schuhe', 'Kleidung: Accessoire', 'Material & Farbe', 'Muster & Details']
-const referenceRoles = ['Allgemein', 'Ausgangsbild', 'Identität', 'Kleidung', ...garmentParts, 'Stil', 'Komposition', 'Ort', 'Licht', 'Pose']
-const roleHints = {
-  Allgemein: 'Bild wird so genutzt, wie der Prompt es sagt.',
-  Ausgangsbild: 'Dieses Bild wird bearbeitet; alles, was du nicht änderst, bleibt.',
-  Identität: 'Nur Gesicht, Haare und Körperbau dieser Person.',
-  Kleidung: 'Das ganze Outfit: Schnitt, Material, Farbe. Nicht die Person.',
-  'Kleidung: Oberteil': 'Nur das Oberteil aus diesem Bild.',
-  'Kleidung: Unterteil': 'Nur Hose oder Rock aus diesem Bild.',
-  'Kleidung: Jacke/Mantel': 'Nur Jacke, Mantel oder Cape aus diesem Bild.',
-  'Kleidung: Einteiler': 'Nur Catsuit, Kleid oder Overall aus diesem Bild.',
-  'Kleidung: Schuhe': 'Nur die Schuhe aus diesem Bild.',
-  'Kleidung: Accessoire': 'Nur ein Accessoire: Handschuhe, Haube, Maske, Gürtel, Schmuck.',
-  'Material & Farbe': 'Nur Material, Glanz und Farben, nicht der Schnitt.',
-  'Muster & Details': 'Nur Besätze, Nähte, Schnallen, Rüschen oder Drucke.',
-  Stil: 'Nur Bildstil, Farbpalette und Oberfläche.',
-  Komposition: 'Nur Bildaufbau, Perspektive und Platzierung.',
-  Ort: 'Nur Umgebung und Architektur.',
-  Licht: 'Nur Lichtrichtung, Härte und Farbtemperatur.',
-  Pose: 'Nur Körperhaltung, Geste und Blick.',
+function setPrompt(prompt) {
+  pg.prompt = prompt
+  if (pg.scenes?.length) pg.scenes[0] = prompt
 }
 
-/** Coherent camera looks. */
-const looks = [
-  { name: 'Editorial Blitz', angle: 'Augenhöhe', lens: '35 mm Reportage', light: 'Direktblitz' },
-  { name: 'Kino-Nacht', angle: 'Seitenansicht', lens: '50 mm Normalobjektiv', light: 'Neonlicht' },
-  { name: 'Porträt im Fensterlicht', angle: 'Dreiviertelansicht', lens: '85 mm Porträt', light: 'Fensterlicht' },
-  { name: 'Laufsteg von unten', angle: 'Bodennähe', lens: '24 mm Weitwinkel', light: 'Softbox' },
-  { name: 'Golden Hour Street', angle: 'Augenhöhe', lens: '135 mm Tele', light: 'Golden Hour' },
-  { name: 'Material-Detail', angle: 'Dreiviertelansicht', lens: '100 mm Makro', light: 'Streiflicht' },
-  { name: 'Katalog Studio', angle: 'Augenhöhe', lens: '85 mm Porträt', light: 'Softbox' },
-  { name: 'Überblick von oben', angle: 'Vogelperspektive', lens: '24 mm Weitwinkel', light: 'Direktblitz' },
-]
-/** Situations with the look that suits them (names match playground/direction.mjs). */
-const situations = [
-  ['Halloween-Party im Altbau', 'Editorial Blitz'], ['Backstage im Club', 'Kino-Nacht'], ['Nasse Straße bei Nacht', 'Kino-Nacht'],
-  ['Hotellobby der 70er', 'Porträt im Fensterlicht'], ['Industriehalle im Nebel', 'Laufsteg von unten'], ['Fotostudio', 'Katalog Studio'],
-  ['Dachterrasse zur blauen Stunde', 'Golden Hour Street'], ['Spiegelsaal', 'Porträt im Fensterlicht'], ['Laufsteg', 'Laufsteg von unten'],
-  ['U-Bahnhof', 'Kino-Nacht'], ['Treppenhaus', 'Überblick von oben'], ['Galerie-Eröffnung', 'Editorial Blitz'],
-]
-
-function studioForRun(studio) {
-  const active = { ...studio }
-  for (const key of ['setting', 'pose', 'locked', 'lookName', 'roleLocked']) delete active[key]
-  if (active.vary && pg.count > 1) active.remixes = Array.from({ length: pg.count }, (_, i) => i === 0 ? null : drawRecipe(studio)).map((recipe, i) => i === 0
-    ? { roles: studio.roles, situation: studio.situation, angle: studio.angle, lens: studio.lens, light: studio.light }
-    : { roles: recipe.roles, situation: recipe.situation, angle: studio.angle, lens: studio.lens, light: studio.light })
-  else delete active.remixes
-  delete active.looks
-  return active
+function activeScenes() {
+  return pg.prompt.trim() && pg.count > 1 && !usesModelCount(selectedModels()) && pg.scenes?.length === pg.count ? pg.scenes : undefined
 }
 
-const shuffle = list => { const copy = [...list]; for (let i = copy.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [copy[i], copy[j]] = [copy[j], copy[i]] } return copy }
-const pickOne = (list, avoid) => { const choices = list.filter(item => item !== avoid); return (choices.length ? choices : list)[Math.floor(Math.random() * (choices.length || list.length))] }
+function studioForRun() {
+  const { referenceLabels, roles, appearance } = pg.studio
+  return { referenceLabels, prompts: activeScenes(), ...(pg.nsfw && { roles, appearance }) }
+}
 
-/**
- * A remix recipe: one person keeps the identity, every other image supplies exactly one different
- * garment part (or material, details, location), plus a situation and its look. Locked roles and
- * fields stay as they are. Narrow, non-overlapping jobs keep the combined outfit coherent.
- */
-function drawRecipe(studio) {
-  const roles = { ...studio.roles }
-  const locked = id => studio.roleLocked?.[id]
-  const person = pg.refs.find(id => ['Identität', 'Ausgangsbild'].includes(roles[id]) && locked(id)) ?? pg.refs.find(id => locked(id) && roles[id] === 'Identität') ?? pg.refs.find(id => !locked(id) && roles[id] === 'Identität') ?? pg.refs.find(id => !locked(id))
-  // Main pieces first so every outfit has a body; extras after.
-  const main = shuffle(['Kleidung: Oberteil', 'Kleidung: Unterteil', 'Kleidung: Jacke/Mantel', 'Kleidung: Einteiler'])
-  const extra = shuffle(['Material & Farbe', 'Kleidung: Accessoire', 'Muster & Details', 'Kleidung: Schuhe'])
-  const queue = [main[0], ...extra.slice(0, 1), ...main.slice(1).filter(r => !(main[0] === 'Kleidung: Einteiler' && /Oberteil|Unterteil/.test(r)) && !(r === 'Kleidung: Einteiler' && /Oberteil|Unterteil/.test(main[0]))), ...extra.slice(1), 'Ort']
-  const taken = new Set(pg.refs.filter(locked).map(id => roles[id]))
-  for (const id of pg.refs) {
-    if (locked(id)) continue
-    if (id === person) { roles[id] = 'Identität'; continue }
-    const next = queue.find(role => !taken.has(role) && !(role === 'Kleidung: Einteiler' && [...taken].some(r => /Oberteil|Unterteil/.test(r))) && !(/Oberteil|Unterteil/.test(role) && taken.has('Kleidung: Einteiler')))
-    roles[id] = next ?? 'Muster & Details'
-    taken.add(roles[id])
+function scrabbleInput() {
+  const { roles, appearance } = pg.studio
+  const models = selectedModels().filter(model => model.variants[taskNow()])
+  return { referenceIds: pg.refs, words: pg.words ?? '', labels: pg.studio.referenceLabels,
+    prompt: pg.prompt, modelIds: models.map(model => model.id),
+    modelParams: Object.fromEntries(models.map(model => [model.id, pg.modelParams[paramKey(model)] ?? pg.params])), ...(pg.nsfw && { roles, appearance }) }
+}
+
+async function rollScrabble() {
+  if (pg.scrabbleBusy) return
+  const input = scrabbleInput()
+  if (!input.modelIds.length) return toast('Wähle ein passendes Bildmodell.', true)
+  const draft = { prompt: pg.prompt, scenes: pg.scenes?.slice() }
+  const stateBefore = JSON.stringify([input, draft])
+  pg.scrabbleBusy = true
+  updateScrabbleButton()
+  try {
+    const answer = await pgApi('/scrabble', 'POST', { ...input, previous: draft.scenes })
+    if (JSON.stringify([scrabbleInput(), { prompt: pg.prompt, scenes: pg.scenes }]) !== stateBefore) {
+      if (currentRoute() === 'playground') toast('Eingabe geändert. Würfle erneut, um daraus einen Bildprompt zu schreiben.')
+      return
+    }
+    if (currentRoute() !== 'playground') return
+    if (draft.prompt.trim()) {
+      const accepted = await reviewDraft(draft.prompt, answer.prompts[0])
+      if (!accepted || currentRoute() !== 'playground') return
+      if (JSON.stringify([scrabbleInput(), { prompt: pg.prompt, scenes: pg.scenes }]) !== stateBefore) {
+        toast('Die Eingabe hat sich geändert. Erstelle einen neuen Vorschlag.')
+        return
+      }
+    }
+    pg.scrabbleUndo ??= []
+    pg.scrabbleUndo.push(draft)
+    if (pg.scrabbleUndo.length > 20) pg.scrabbleUndo.shift()
+    pg.scenes = answer.prompts
+    setPrompt(answer.prompts[0])
+    if (currentRoute() === 'playground') {
+      redrawComposer()
+      $('#pg-prompt')?.focus()
+    }
+  } catch (error) {
+    if (currentRoute() === 'playground') toast(error.message, true)
+  } finally {
+    pg.scrabbleBusy = false
+    updateScrabbleButton()
   }
-  const [situation, lookName] = studio.locked?.situation && studio.situation ? [studio.situation, studio.lookName] : pickOne(situations, situations.find(s => s[0] === studio.situation))
-  const look = { ...(looks.find(l => l.name === lookName) ?? pickOne(looks)) }
-  for (const [key] of directionFields) if (studio.locked?.[key] && studio[key]) look[key] = studio[key]
-  return { roles, situation, look }
 }
 
-/** Scrabble: rolls a remix recipe; locked roles, situation and camera fields stay. */
-function rollScrabble() {
-  if (!pg.refs.length) return toast('Hänge zuerst ein paar Bilder an. Scrabble mischt daraus Person, Outfit-Teile und Situation.', true)
-  pg.scrabbleUndo ??= []
-  pg.scrabbleUndo.push(structuredClone({ prompt: pg.prompt, roles: pg.studio.roles ?? {}, situation: pg.studio.situation, lookName: pg.studio.lookName, ...Object.fromEntries(directionFields.map(([key]) => [key, pg.studio[key]])) }))
-  if (pg.scrabbleUndo.length > 20) pg.scrabbleUndo.shift()
-  const recipe = drawRecipe(pg.studio)
-  pg.studio.roles = recipe.roles
-  pg.studio.situation = recipe.situation
-  // With no prompt yet, Scrabble writes a starting point so a handful of images is enough.
-  if (!pg.prompt.trim()) {
-    const person = pg.refs.find(id => recipe.roles[id] === 'Identität')
-    pg.prompt = person ? `Fashion-Editorial: @Bild${pg.studio.referenceLabels?.[person] ?? 1} in einem neuen Outfit aus den anderen Bildern.` : 'Fashion-Editorial in einem neuen Outfit aus den Bildern.'
-  }
-  // Camera fields stay as the user set them: technical camera specs made remixes look staged.
-  redrawComposer()
-  toast(`Remix: ${recipe.situation}. Gesperrtes bleibt.`)
+function updateScrabbleButton() {
+  const button = $('.pg-scrabble')
+  if (!button) return
+  button.disabled = pg.scrabbleBusy
+  button.textContent = pg.scrabbleBusy ? 'Schreibt …' : 'Scrabble'
 }
 
 function undoScrabble() {
   const last = pg.scrabbleUndo?.pop()
   if (!last) return
-  pg.studio.roles = last.roles
-  pg.prompt = last.prompt ?? pg.prompt
-  for (const key of ['situation', 'lookName', ...directionFields.map(([k]) => k)]) { if (last[key] === undefined) delete pg.studio[key]; else pg.studio[key] = last[key] }
-  if (!pg.scrabbleUndo.length) pg.scrabbleUndo = null
+  pg.scenes = last.scenes
+  setPrompt(last.prompt)
   redrawComposer()
   $('#pg-prompt')?.focus()
 }
 
-/** The recipe's situation and camera look as chips; a lock keeps a value through further throws. */
-function lookChips() {
-  const set = [['situation', 'Situation'], ...directionFields].filter(([key]) => pg.studio[key])
-  if (!set.length) return null
-  return el('div', { class: 'pg-look', role: 'group', 'aria-label': 'Situation und Kamera-Look' },
-    pg.studio.lookName && el('span', { class: 'meta' }, pg.studio.lookName),
-    set.map(([key, label]) => {
-      const locked = pg.studio.locked?.[key] === true
-      return el('span', { class: 'chip pg-look-chip' + (locked ? ' locked' : ''), title: label },
-        el('button', { type: 'button', class: 'lock', 'aria-pressed': String(locked), 'aria-label': `${label} ${locked ? 'entsperren' : 'sperren'}`, title: locked ? 'Gesperrt: bleibt beim Würfeln' : 'Sperren: bleibt beim Würfeln',
-          onclick: () => { pg.studio.locked = { ...pg.studio.locked, [key]: !locked }; redrawComposer() } }, icon(locked ? 'lock' : 'unlock')),
-        el('span', {}, pg.studio[key]),
-        el('button', { type: 'button', class: 'rm', 'aria-label': `${label} entfernen`, onclick: () => { delete pg.studio[key]; if (pg.studio.locked) delete pg.studio.locked[key]; if (![['situation'], ...directionFields].some(([k]) => pg.studio[k])) delete pg.studio.lookName; redrawComposer() } }, icon('close')))
-    }))
+function sceneEditors() {
+  const scenes = activeScenes()
+  if (!scenes) return null
+  return el('details', { class: 'pg-scenes meta' },
+    el('summary', {}, scenes.length === 2 ? 'Prompt für Bild 2' : 'Prompts für Bilder 2 bis ' + scenes.length),
+    scenes.slice(1).map((scene, i) => el('label', { class: 'field' }, el('span', {}, 'Prompt für Bild ' + (i + 2)),
+      el('textarea', { class: 'text-in', rows: 3, maxlength: 2000, oninput: e => { pg.scenes[i + 1] = e.target.value } }, scene))))
 }
 
-function advancedDirection(open) {
-  const vary = el('input', { type: 'checkbox', checked: pg.studio.vary === true,
-    onchange: event => { pg.studio.vary = event.target.checked } })
-  return el('details', { class: 'pg-advanced', open },
-    el('summary', {}, 'Kamera und Licht'),
-    directionFieldsInPrompt(),
-    el('label', { class: 'pg-vary meta' }, vary, 'Bei 2× und 4× für jedes weitere Bild einen eigenen Remix würfeln'))
+function reviewDraft(original, suggestion) {
+  return new Promise(resolve => {
+    const dialog = el('dialog', { 'aria-label': 'Scrabble-Vorschlag' }, el('form', { method: 'dialog' },
+      el('h2', {}, 'Scrabble-Vorschlag'),
+      el('details', {}, el('summary', {}, 'Dein Original'), el('p', { style: 'white-space:pre-wrap' }, original)),
+      el('p', { style: 'white-space:pre-wrap' }, suggestion),
+      el('div', { class: 'row' }, el('button', { class: 'btn', value: 'cancel' }, 'Original behalten'),
+        el('button', { class: 'btn primary', value: 'apply' }, 'Vorschlag übernehmen'))))
+    dialog.addEventListener('close', () => { dialog.remove(); resolve(dialog.returnValue === 'apply') }, { once: true })
+    document.body.append(dialog)
+    dialog.showModal()
+  })
+}
+
+function guideDetails(model) {
+  const guide = model.guides?.[taskNow()]
+  if (!guide) return null
+  return el('details', { class: 'pg-scenes meta' },
+    el('summary', {}, 'Prompt-Hilfe · ' + model.title),
+    el('p', {}, guide.tip),
+    guide.schemaHint && el('p', {}, el('strong', {}, 'Aus dem Eingabeschema · '), guide.schemaHint),
+    guide.source && el('a', { href: guide.source, target: '_blank', rel: 'noopener noreferrer' }, 'Modell-Dokumentation'))
 }
 
 async function pickReferences() {
@@ -622,7 +679,7 @@ async function pickReferences() {
   document.body.append(dialog); dialog.showModal()
 }
 
-function composer() { return el('div', { class: 'pg-composer', id: 'pg-composer', role: 'form', 'aria-label': 'Neuer Lauf' }) }
+function composer() { return el('section', { class: 'studio-panel studio-composer pg-composer', id: 'pg-composer', role: 'form', 'aria-label': 'Neuer Lauf' }) }
 
 function insertReference(prompt, alias) {
   let start = prompt.selectionStart
@@ -635,19 +692,72 @@ function insertReference(prompt, alias) {
   const suffix = !after || !/[\s.,;:!?)”]/.test(after) ? ' ' : ''
   prompt.focus()
   prompt.setRangeText(prefix + alias + suffix, start, end, 'end')
-  pg.prompt = prompt.value
+  setPrompt(prompt.value)
 }
 
-function redrawComposer(showAdvanced = false) {
+function referenceRole(id, alias) {
+  const roles = [['', 'Rolle frei'], ['Ausgangsbild', 'Ausgangsbild'], ['Identität', 'Person'], ['Kleidung', 'Kleidung'],
+    ['Pose', 'Pose'], ['Ort', 'Ort'], ['Stil', 'Stil'], ['Komposition', 'Bildausschnitt'], ['Licht', 'Licht']]
+  const select = el('select', { class: 'text-in pg-ref-role', 'aria-label': 'Rolle für ' + alias,
+    title: 'Legt im gesendeten Prompt fest, wofür dieses Bild verwendet wird.',
+    onchange: event => {
+      pg.studio.roles ??= {}
+      if (event.target.value) pg.studio.roles[id] = event.target.value
+      else delete pg.studio.roles[id]
+    } }, roles.map(([value, label]) => el('option', { value }, label)))
+  select.value = pg.studio.roles?.[id] ?? ''
+  return select
+}
+
+function subjectDirection() {
+  const input = el('input', { class: 'text-in', type: 'text', maxlength: 700,
+    placeholder: 'z. B. @Bild1, kurze schwarze Haare, Sommersprossen',
+    title: 'Diese Vorgabe wird beim Rendern unverändert übernommen.',
+    oninput: event => { pg.studio.appearance = event.target.value } })
+  input.value = pg.studio.appearance ?? ''
+  return el('div', { class: 'pg-direction' },
+    el('label', { class: 'field' }, el('span', {}, 'Aussehen der Person'), input))
+}
+
+function referencePanel(tray) {
+  const input = el('input', { type: 'file', accept: 'image/*', multiple: true, hidden: true })
+  const drop = el('button', { type: 'button', class: 'photo-drop', onclick: () => input.click() },
+    icon('upload'), el('span', {}, 'Bilder ablegen oder auswählen'))
+  const notice = el('span', { class: 'meta', role: 'status' })
+  let uploading = false
+  async function attach(files) {
+    if (uploading) return
+    const images = [...files].filter(file => file.type.startsWith('image/'))
+    const available = 16 - pg.refs.length
+    if (!available) return toast('Du kannst höchstens 16 Bilder anhängen.', true)
+    if (!images.length) return toast('Wähle Bilddateien als Referenz.', true)
+    uploading = drop.disabled = true
+    notice.textContent = 'Lädt Bilder …'
+    try {
+      const created = await uploadFiles(images.slice(0, available))
+      if (created.length && currentRoute() === 'playground') updateReferences([...new Set([...pg.refs, ...created.map(item => item.id)])].slice(0, 16))
+    } catch (error) { toast(error.message, true) }
+    finally { uploading = drop.disabled = false; notice.textContent = ''; input.value = '' }
+  }
+  drop.addEventListener('dragover', event => { if (event.dataTransfer.types.includes('Files')) event.preventDefault() })
+  drop.addEventListener('drop', event => {
+    if (!event.dataTransfer.files.length) return
+    event.preventDefault()
+    void attach(event.dataTransfer.files)
+  })
+  input.addEventListener('change', () => void attach(input.files))
+  return el('section', { class: 'photo-references' },
+    el('div', { class: 'studio-ref-head' }, el('span', {}, 'Referenzbilder'),
+      el('button', { type: 'button', class: 'btn sm', onclick: pickReferences }, 'Aus Atelier wählen')),
+    input, drop, notice, tray)
+}
+
+function redrawComposer() {
   const box = $('#pg-composer')
   if (!box) return
-  const advancedOpen = showAdvanced || $('.pg-advanced', box)?.open
   syncReferenceLabels()
   const tray = el('div', { class: 'tray', 'aria-label': 'Bildreferenzen' })
-  const prompt = el('textarea', { id: 'pg-prompt', rows: 2, placeholder: pg.refs.length ? 'Was soll entstehen oder sich ändern?' : 'Was soll entstehen?', 'aria-label': 'Prompt', oninput: e => { pg.prompt = e.target.value; drawHints() } })
-  const hintBox = el('div', { class: 'pg-hints', role: 'status', 'aria-live': 'polite' })
-  const drawHints = () => hintBox.replaceChildren(...promptRoleHints().map(h => el('div', { class: 'pg-hint' }, el('span', {}, h.text), h.fix && el('button', { type: 'button', class: 'btn sm', onclick: h.fix[1] }, h.fix[0]))))
-  drawHints()
+  const prompt = el('textarea', { id: 'pg-prompt', rows: 7, placeholder: pg.refs.length ? 'Optional · Was soll entstehen oder sich ändern?' : 'Was soll entstehen?', 'aria-label': 'Prompt', oninput: e => setPrompt(e.target.value) })
   prompt.value = pg.prompt
   for (const id of pg.refs) {
     const alias = '@Bild' + pg.studio.referenceLabels[id]
@@ -658,32 +768,30 @@ function redrawComposer(showAdvanced = false) {
         el('button', { type: 'button', class: 'rm', 'aria-label': `${alias} entfernen`, onclick: () => {
           updateReferences(pg.refs.filter(ref => ref !== id))
         } }, icon('close')))
-      const role = el('select', { class: 'pg-role', 'aria-label': `Rolle von ${alias}`, title: roleHints[pg.studio.roles?.[id] ?? 'Allgemein'], onchange: () => {
-        pg.studio.roles = { ...pg.studio.roles, [id]: role.value }
-        pg.studio.roleLocked = { ...pg.studio.roleLocked, [id]: true }
-        role.title = roleHints[role.value]
-        $('#pg-prompt')?.dispatchEvent(new Event('input'))
-      } }, referenceRoles.map(r => el('option', { value: r }, r === 'Kleidung' ? 'Ganzes Outfit' : r.replace('Kleidung: ', ''))))
-      role.value = pg.studio.roles?.[id] ?? 'Allgemein'
-      if (pg.studio.roleLocked?.[id]) { role.classList.add('locked'); role.title = roleHints[role.value] + ' Von dir festgelegt: bleibt beim Würfeln.' }
-      frame.append(item ? withFullscreen(item, thumb) : thumb, role,
+      frame.append(item ? withFullscreen(item, thumb) : thumb,
         el('button', { type: 'button', class: 'btn sm pg-ref-mark', title: item?.title, 'aria-label': `${alias} in den Prompt einfügen${item ? ': ' + item.title : ''}`, onmousedown: e => { if (document.activeElement === prompt) e.preventDefault() }, onclick: () => insertReference(prompt, alias) }, alias))
+      if (pg.nsfw) frame.append(referenceRole(id, alias))
     }).catch(error => toast(error.message, true))
   }
   const selection = el('span')
-  const start = el('button', { type: 'button', class: 'btn primary', onclick: startRun }, 'Starten', el('span', { class: 'kbd' }, '⌘↵'))
+  const startLabel = pg.submitting ? 'Reicht ein …' : 'Generieren'
+  const start = el('button', { type: 'button', class: 'btn primary', onclick: startRun, 'aria-label': startLabel,
+    'aria-keyshortcuts': 'Meta+Enter Control+Enter' }, startLabel, el('span', { class: 'kbd', 'aria-hidden': 'true' }, '⌘↵'))
   const settings = el('button', { type: 'button', class: 'pill', onclick: settingsDialog }, icon('sliders'), el('span'))
   const status = el('span', { class: 'meta', style: 'flex:1;min-width:120px' })
   const modelFields = el('div', { class: 'pg-direction pg-model-params', 'aria-label': 'Modellparameter am Prompt', role: 'group' })
+  const guides = el('div', { class: 'photo-guides' })
   function updateSelection() {
-    const chosen = pg.models.filter(m => pg.modelIds.includes(m.id))
+    const chosen = selectedModels()
     const capable = chosen.filter(m => m.variants[taskNow()])
+    guides.replaceChildren(...capable.map(guideDetails).filter(Boolean))
     const skipped = chosen.filter(m => !m.variants[taskNow()])
     const model = capable[0] ?? chosen[0]
     const variant = model?.variants[taskNow()]
     const changed = model ? Object.keys((variant && pg.modelParams[paramKey(model)]) ?? pg.params).length : 0
     selection.textContent = chosen.length > 1 ? `${chosen.length} Modelle` : model?.title ?? 'Modell wählen'
-    start.disabled = !capable.length
+    start.disabled = !capable.length || pg.submitting
+    repeats.hidden = usesModelCount(capable)
     settings.lastElementChild.textContent = changed ? `Einstellungen (${changed})` : 'Einstellungen'
     modelFields.replaceChildren(...quickModelSettings(model, variant, () => {
       const count = Object.keys(pg.modelParams[paramKey(model)]).length
@@ -692,34 +800,47 @@ function redrawComposer(showAdvanced = false) {
     const names = list => list.map(m => m.title).join(', ')
     status.textContent = chosen.length && !capable.length
       ? (taskNow() === 'edit' ? `${names(skipped)} ${skipped.length === 1 ? 'bearbeitet' : 'bearbeiten'} keine Bilder. Entferne die Referenzen oder wähle ein anderes Modell.` : `${names(skipped)} ${skipped.length === 1 ? 'braucht' : 'brauchen'} ein Eingabebild. Hänge ein Bild an.`)
-      : skipped.length ? `${names(skipped)} wird übersprungen.` : chosen.length > 1 ? `Vergleich: ${capable.length} Modelle, je ${pg.count}×. Kosten zeigt der Anbieter nach dem Lauf.` : 'Kosten zeigt der Anbieter nach dem Lauf'
+      : skipped.length ? `${names(skipped)} wird übersprungen.` : chosen.length > 1 ? `Vergleich: ${capable.length} Modelle, je ${pg.count}×. Kosten zeigt der Anbieter nach dem Lauf.` : ''
   }
+  const repeats = el('div', { class: 'seg', role: 'group', 'aria-label': 'Anzahl je Modell' },
+    [1, 2, 4].map(n => el('button', { type: 'button', 'aria-pressed': String(pg.count === n),
+      onclick: () => { pg.count = n; redrawComposer() } }, n + '×')))
   updateSelection()
   prompt.addEventListener('keydown', e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); startRun() } })
+  const words = el('input', { type: 'text', class: 'text-in', placeholder: 'Stichworte für Scrabble', maxlength: 300,
+    'aria-label': 'Stichworte für Scrabble', value: pg.words ?? '', oninput: e => { pg.words = e.target.value },
+    onkeydown: e => { if (e.key === 'Enter') { e.preventDefault(); rollScrabble() } } })
   box.replaceChildren(
-    tray,
-    el('div', { class: 'pg-prompt-panel' },
-      el('div', { class: 'pg-input' }, prompt,
-        el('button', { type: 'button', class: 'icon', 'aria-label': 'Referenz aus Sammlung oder Library anhängen', title: 'Referenz anhängen', onclick: pickReferences }, icon('clip'))),
-      hintBox, lookChips(), modelFields, advancedDirection(advancedOpen)),
-    el('div', { class: 'pg-bar' },
-      el('span', { class: 'pill static', title: 'Verknüpfe Referenzen über ihre Bildmarke im Prompt.' }, icon(taskNow() === 'edit' ? 'edit' : 'text'), taskNow() === 'edit' ? 'Mit Bildreferenzen' : 'Text zu Bild'),
-      ...modelPicker(selection, updateSelection),
-      el('button', { type: 'button', class: 'pill', title: 'Mischt deine Bilder neu: eine Person, aus jedem anderen Bild ein Outfit-Teil, dazu eine zufällige Situation. Was du selbst festgelegt hast, bleibt.', onclick: rollScrabble }, icon('wand'), 'Scrabble'),
-      el('button', { type: 'button', class: 'icon', 'aria-label': 'Letzten Wurf rückgängig machen', title: 'Letzten Wurf rückgängig', disabled: !pg.scrabbleUndo?.length || null, onclick: undoScrabble }, icon('undo')),
-      settings,
-      el('div', { class: 'seg', role: 'group', 'aria-label': 'Anzahl je Modell' }, [1, 2, 4].map(n => el('button', { type: 'button', 'aria-pressed': String(pg.count === n), onclick: () => { pg.count = n; redrawComposer() } }, n + '×'))),
-      status,
-      start))
+    el('header', { class: 'studio-panel-head' }, el('h2', {}, 'Eingabe'),
+      el('div', { class: 'photo-model-pick' }, ...modelPicker(selection, updateSelection))),
+    el('div', { class: 'photo-composer-body' },
+      el('label', { class: 'field', for: 'pg-prompt' }, el('span', {}, 'Prompt')),
+      el('div', { class: 'pg-prompt-panel' }, el('div', { class: 'pg-input' }, prompt)),
+      el('div', { class: 'photo-scrabble' }, words,
+        el('button', { type: 'button', class: 'btn sm pg-scrabble', onclick: rollScrabble, disabled: pg.scrabbleBusy }, pg.scrabbleBusy ? 'Schreibt …' : 'Scrabble'),
+        el('button', { type: 'button', class: 'icon', 'aria-label': 'Vorherigen Prompt wiederherstellen',
+          disabled: !pg.scrabbleUndo?.length || null, onclick: undoScrabble }, icon('undo'))),
+      guides, referencePanel(tray),
+      pg.nsfw && subjectDirection(), sceneEditors(), modelFields),
+    el('div', { class: 'photo-footer' },
+      el('div', { class: 'pg-bar' }, repeats, settings),
+      status, start))
 }
 
 async function startRun() {
-  const capable = pg.models.filter(m => pg.modelIds.includes(m.id) && m.variants[taskNow()])
-  if (!pg.prompt.trim()) return toast('Schreib zuerst einen Prompt.', true)
+  if (pg.submitting) return
+  const capable = selectedModels().filter(model => model.variants[taskNow()])
+  if (!pg.prompt.trim() && !pg.refs.length) return toast('Schreib einen Prompt oder hänge Referenzbilder an.', true)
+  if (activeScenes()?.some(scene => !scene.trim())) return toast('Fülle alle Bildprompts aus.', true)
   if (!capable.length) return pg.models.length ? $('#pg-model-picker')?.showPopover() : modelsDialog()
+  const count = usesModelCount(capable) ? 1 : pg.count
+  pg.submitting = true
+  redrawComposer()
   try {
-    const run = await pgApi('/runs', 'POST', { prompt: pg.prompt, modelIds: capable.map(m => m.id), referenceIds: pg.refs, params: pg.params, studio: studioForRun(pg.studio), modelParams: pg.modelParams, count: pg.count, projectId: pg.projectId || undefined })
-    pg.runs.unshift(run); drawFeed()
-    $('.pg-feed')?.scrollTo({ top: 0, behavior: 'smooth' })
+    const run = await pgApi('/runs', 'POST', { prompt: pg.prompt, modelIds: capable.map(m => m.id), referenceIds: pg.refs,
+      params: pg.params, studio: studioForRun(), modelParams: pg.modelParams, count, projectId: pg.projectId || undefined })
+    pg.runs.unshift(run)
+    selectPhotoRun(run.id)
   } catch (error) { toast(error.message, true) }
+  finally { pg.submitting = false; redrawComposer() }
 }

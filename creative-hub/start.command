@@ -4,7 +4,16 @@ set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 hub_dir="$(cd -- "$(dirname -- "$0")" && pwd -P)"
 cd "$hub_dir"
-port="${CREATIVITY_HUB_PORT:-3080}"
+case "${1:-standard}" in
+  standard) export ATELIER_INSTANCE=standard; port="${CREATIVITY_HUB_PORT:-3080}" ;;
+  nsfw)
+    export ATELIER_INSTANCE=nsfw
+    export DSH_HOME="$HOME/.creativity-hub-nsfw/harness"
+    umask 077
+    mkdir -p "$DSH_HOME"
+    port=3081 ;;
+  *) echo 'Aufruf: ./start.command [standard|nsfw]'; exit 2 ;;
+esac
 endpoint="http://127.0.0.1:$port/creativity-hub"
 cli="${CREATIVITY_HUB_DSH:-/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh}"
 
@@ -21,7 +30,7 @@ if /usr/bin/curl --noproxy '*' --silent --max-time 1 "$endpoint" >/dev/null; the
   exit 1
 fi
 
-if [[ ! -d node_modules/@modelcontextprotocol || ! -s dist/assets/board.js || ! -s dist/assets/board.css || package.json -nt dist/assets/board.js || web/board.jsx -nt dist/assets/board.js || vite.config.js -nt dist/assets/board.js ]]; then
+if [[ ! -d node_modules/@modelcontextprotocol || ! -s dist/assets/board.js || ! -s dist/assets/board.css || package.json -nt dist/assets/board.js || web/board.jsx -nt dist/assets/board.js || vite.config.js -nt dist/assets/board.js || ! -s dist/assets/storyboard.js || apps/storyboard/editor.jsx -nt dist/assets/storyboard.js ]]; then
   if ! command -v npm >/dev/null || ! node -e 'process.exit(Number(process.versions.node.split(".")[0]) < 22 ? 1 : 0)' 2>/dev/null; then
     echo "Für den Excalidraw-Build werden Node.js ab Version 22 und npm benötigt."
     exit 1

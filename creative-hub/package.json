@@ -8,8 +8,11 @@
   "dependencies": {
     "@excalidraw/excalidraw": "0.18.0",
     "@modelcontextprotocol/sdk": "^1.32.2",
+    "@remotion/player": "^4.0.545",
+    "@xyflow/react": "^13.0.2",
     "react": "19.2.7",
     "react-dom": "19.2.7",
+    "remotion": "^4.0.545",
     "zod": "^3.25.76"
   },
   "devDependencies": {
