@@ -787,6 +787,27 @@ async function setupInstanceSwitch() {
 }
 setupInstanceSwitch().catch(() => {})
 
+/** Light (warm paper) is the default; the switch stores the choice and tells open views such as Flows. */
+function setupThemeSwitch() {
+  const button = $('#theme-switch')
+  const show = () => {
+    const dark = document.documentElement.dataset.theme === 'dark'
+    button.setAttribute('aria-pressed', String(dark))
+    button.querySelector('.t').textContent = dark ? 'Hell' : 'Dunkel'
+    button.title = dark ? 'Zum hellen Thema wechseln' : 'Zum dunklen Thema wechseln'
+  }
+  button.addEventListener('click', () => {
+    const dark = document.documentElement.dataset.theme !== 'dark'
+    if (dark) document.documentElement.dataset.theme = 'dark'
+    else delete document.documentElement.dataset.theme
+    try { localStorage.setItem('atelier-theme', dark ? 'dark' : 'light') } catch { /* Storage blocked: the choice lasts for this page only. */ }
+    show()
+    dispatchEvent(new CustomEvent('atelier-theme'))
+  })
+  show()
+}
+setupThemeSwitch()
+
 const search = $('#search')
 let searchTimer
 search.addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { state.query = search.value.trim(); if (!['sammlung', 'library'].includes(currentRoute())) location.hash = '#/sammlung'; else route() }, 200) })

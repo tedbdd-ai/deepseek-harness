@@ -550,6 +550,13 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
   const [inserting, setInserting] = useState(false)
   const [hand, setHand] = useState(false)
   const [renaming, setRenaming] = useState(null)
+  // React Flow's own colours (controls, minimap) follow the hub theme switch.
+  const [colorMode, setColorMode] = useState(() => document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light')
+  useEffect(() => {
+    const follow = () => setColorMode(document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light')
+    addEventListener('atelier-theme', follow)
+    return () => removeEventListener('atelier-theme', follow)
+  }, [])
   // React Flow's own per-node state (measured size, selection, dragging, live resize), kept by its changesets.
   const [meta, setMeta] = useState({})
   const state = useRef({ data: initial.doc, saved: initial.changed ? null : initial.doc, revision: record.revision, timer: null, saving: null }).current
@@ -840,7 +847,7 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
   return <Actions.Provider value={actions}>
     <div className="flow-shell" ref={shell}>
       <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView fitViewOptions={{ padding: 0.2, maxZoom: 1 }} minZoom={0.1} maxZoom={2}
-        panOnDrag={hand ? true : [1, 2]} selectionOnDrag={!hand} panOnScroll proOptions={{ hideAttribution: true }} colorMode="dark"
+        panOnDrag={hand ? true : [1, 2]} selectionOnDrag={!hand} panOnScroll proOptions={{ hideAttribution: true }} colorMode={colorMode}
         deleteKeyCode={['Backspace', 'Delete']} isValidConnection={valid} connectOnClick={false}
         // Fixed layers: frames 0, lines 1, nodes 2, so lines never cover a node, also inside frames.
         zIndexMode="manual" elevateEdgesOnSelect={false}
@@ -876,9 +883,9 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
           place(flow.screenToFlowPosition({ x: event.clientX, y: event.clientY }), { files: [...event.dataTransfer.files] }).catch(report)
         }}
         onEdgeDoubleClick={(_, edge) => change(d => ({ edges: d.edges.filter(item => item.id !== edge.id) }))}>
-        <Background gap={24} size={1} color="var(--c-hair)"/>
+        <Background gap={24} size={1.5} color="var(--c-dot)"/>
         <Controls showInteractive={false} position="bottom-right"/>
-        <MiniMap position="bottom-left" pannable zoomable ariaLabel="Übersicht der Fläche" bgColor="var(--c-panel)" maskColor="rgba(0, 0, 0, .55)"
+        <MiniMap position="bottom-left" pannable zoomable ariaLabel="Übersicht der Fläche" bgColor="var(--c-panel)" maskColor="var(--c-tint-3)"
           nodeColor={item => (isFrame(byId.get(item.id) ?? {}) ? 'var(--c-fill-2)' : 'var(--c-fill-4)')}/>
         <Panel position="top-left" className="flex flex-wrap items-center gap-3">
           <select className="text-in w-auto max-w-72" aria-label="Projekt" value={project} onChange={async e => { try { await flush(); location.hash = route(e.target.value) } catch (err) { report(err) } }}>

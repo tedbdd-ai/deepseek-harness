@@ -7,23 +7,25 @@ Dunkles Kreativ-Werkzeug im Stil einer Mac-App: fast schwarzer, neutraler Grund,
 
 ## Farben (`:root` in app.css)
 
-Das Atelier nutzt den Linear-Stil; Werte, Herkunft und Abweichungen stehen in `design/linear.md`.
+Standard ist warmes Papier (hell). Ein weiches Anthrazit gibt es als Dunkelmodus über den Schalter unten in der Seitenleiste (`data-theme="dark"`, gespeichert im Browser). Die Formensprache folgt Linear (`design/linear.md`), die Farben nicht: fast reines Schwarz mit hellem Punktraster war auf der großen Fläche zu anstrengend.
 
-| Token | Wert | Rolle |
-| --- | --- | --- |
-| `--c-bg` | #08090A (Void) | Grund |
-| `--c-side` / `--c-panel` | #0F1011 (Carbon) | Seitenleiste, Karten, Knoten |
-| `--c-fill` / `-2` / `-3` / `-4` | #161718 / #23252A / #2C2E33 / #383B3F | Bedienelemente: normal, Hover, gedrückt oder gewählt |
-| `--c-line` / `--c-hair` | #23252A / weiß 5 % | Haarlinien statt Schatten |
-| `--c-ink` / `-2` / `-3` | #FFFFFF / #D0D6E0 / #8A8F98 | Überschriften, Fließtext, Nebentext |
-| `--c-primary` | #E4F222 (Acid Lime) | die eine Hauptaktion pro Ansicht, dunkle Schrift |
-| `--c-neutral` | #E5E5E6 | neutrale Knöpfe mit dunkler Schrift, etwa „Ausführen“ auf dem Canvas |
-| `--c-focus` | #D0D6E0 | Fokusring |
-| `--c-danger` / `-fill` | #EB5757 / #2A1515 | Löschen |
+| Token | Hell | Dunkel | Rolle |
+| --- | --- | --- | --- |
+| `--c-bg` | #F5F3EE | #1C1C1E | Grund und Canvas |
+| `--c-side` / `--c-panel` | #EFECE5 / #FBFAF7 | #202022 / #232325 | Seitenleiste, Karten, Knoten |
+| `--c-fill` … `-4` | #FFFFFF … #D6D0C4 | #2A2A2D … #48484C | Bedienelemente: normal, Hover, gedrückt, gewählt |
+| `--c-line` | #E2DED4 | #38383B | Haarlinien statt Schatten |
+| `--c-tint` … `--c-edge-strong` | Braun 5–32 % | Weiß 5–28 % | Hover-Flächen und kräftigere Ränder, statt fest eingebauter Weißtöne |
+| `--c-ink` / `-2` / `-3` | #1F1E1C / #45413A / #6B655B | #EDEBE6 / #C8C5BE / #9A968E | Text (alle ≥ 4,5:1) |
+| `--c-primary` | #B4532F | #E08A66 | Terrakotta, die eine Hauptaktion pro Ansicht; Schrift `--c-on-primary` |
+| `--c-neutral` | #2B2A27 | #EDEBE6 | neutrale Knöpfe wie „Ausführen“; Schrift `--c-on-neutral` |
+| `--c-scrim` | dunkel 72 % | dunkel 78 % | Flächen über Bildern; Schrift immer `--c-on-scrim` (weiß) |
+| `--c-dot` | #DCD7CC | #2E2E31 | Punktraster der Fläche, bewusst leise (1,3:1) |
+| `--c-danger` | #B3261E | #F2857A | Löschen |
 
 Projektfarben (Punkte): #FF6B57, #BF5AF2, #0A84FF, #30D158, #FF9F0A, #64D2FF, #FF375F.
 
-Porttypen in Flows (`--c-port-*`): Text #D2D2CE, Bild #64D2FF, Video #BF5AF2, Ton #FF9F0A. Sie färben nur Ports und Linien, und jeder Port trägt zusätzlich das Symbol seines Typs.
+Porttypen in Flows (`--c-port-*`, hell/dunkel): Text #6B655B/#A8A49C, Bild #2E7D9A/#7CC4DA, Video #7E4BB5/#B48AE0, Ton #B06A0B/#E0A458. Sie färben nur Ports und Linien, und jeder Port trägt zusätzlich das Symbol seines Typs.
 
 ## Typografie
 Inter Variable (`web/fonts`, OFL) mit `cv01`, `ss03`, `zero`; Gewichte 400, 510, 590, nie fett.

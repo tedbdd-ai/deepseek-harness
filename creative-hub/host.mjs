@@ -25,6 +25,7 @@ const staticFiles = new Map([
   [base + '/app.js', ['app.js', 'text/javascript; charset=utf-8']],
   [base + '/media-editor.js', ['media-editor.js', 'text/javascript; charset=utf-8']],
   [base + '/tags.js', ['tags.js', 'text/javascript; charset=utf-8']],
+  [base + '/theme.js', ['theme.js', 'text/javascript; charset=utf-8']],
   [base + '/app.css', ['app.css', 'text/css; charset=utf-8']],
   [base + '/fonts/inter-latin-wght-normal.woff2', ['fonts/inter-latin-wght-normal.woff2', 'font/woff2']],
 ])

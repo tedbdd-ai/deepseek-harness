@@ -43,3 +43,7 @@ Portfarben in Flows bleiben funktional (Text, Bild, Video, Ton) und tragen immer
 
 - Mindesthöhe für Bedienelemente bleibt 44/36 px mit 44-px-Trefferfläche (Apple HIG aus den globalen Regeln). Linear selbst ist kompakter.
 - Fokusring in Mist statt Blau, damit die Akzentfarbe Acid Lime allein bleibt.
+
+## Stand 2026-11-20: Farben zurückgenommen
+
+Die Linear-Farben (Void-Schwarz, Acid Lime) sind wieder raus. Auf der großen Flows-Fläche war fast reines Schwarz mit hellem Punktraster zu anstrengend. Geblieben sind Inter, die Radien, Haarlinien statt Schatten und die Regel „eine Akzentfarbe“. Die aktuellen Farben stehen in `DESIGN.md`.
