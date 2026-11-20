@@ -7,7 +7,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import * as checklist from './apps/checklist/host.mjs'
-import * as moodboard from './apps/moodboard/host.mjs'
+import * as flows from './apps/flows/host.mjs'
 import * as core from './core.mjs'
 import * as hub from './host.mjs'
 import { registerTools } from './mcp.mjs'
@@ -32,15 +32,15 @@ test('App plugins register, serve their module and keep per-idea data', async t 
   const api = '/creativity-hub/api/'
   assert.deepEqual(await harness.json('GET', api + 'apps'), [])
   harness.mount(checklist)
-  harness.mount(moodboard)
+  harness.mount(flows)
   const apps = await harness.json('GET', api + 'apps')
-  assert.deepEqual(apps.map(app => app.id), ['checklist', 'moodboard'])
+  assert.deepEqual(apps.map(app => app.id), ['checklist', 'flows'])
   const module = await harness.request('GET', apps[0].module)
   assert.equal(module.status, 200)
   assert.match(String(module.result), /export function render/)
 
   const idea = await harness.json('POST', api + 'projects', { title: 'Latex Lookbook', snapshot: 'fashion' }, 201)
-  assert.deepEqual(idea.apps, ['moodboard', 'checklist'])
+  assert.deepEqual(idea.apps, ['flows', 'checklist'])
   await harness.json('POST', api + 'projects', { title: 'x', snapshot: 'nope' }, 400)
 
   const path = `projects/${idea.id}/apps/checklist`
@@ -62,7 +62,7 @@ test('App plugins register, serve their module and keep per-idea data', async t 
   await harness.json('POST', api + 'unassign', { id: note.id, projectId: idea.id })
   assert.equal((await harness.json('GET', api + 'assets?project=' + idea.id)).length, 0)
 
-  assert.equal((await harness.request('GET', '/creativity-apps/moodboard/other.js')).status, 404)
+  assert.equal((await harness.request('GET', '/creativity-apps/flows/other.js')).status, 404)
 })
 
 test('App registry rejects duplicates and invalid snapshots', () => {
@@ -90,7 +90,7 @@ test('MCP tools work on the same ideas and app data as the hub', async t => {
   }
 
   const idea = (await call('create_idea', { title: 'Acid-Set Spiegelsaal', snapshot: 'music' })).value
-  assert.deepEqual(idea.apps, ['patch-sheet', 'checklist', 'moodboard'])
+  assert.deepEqual(idea.apps, ['patch-sheet', 'checklist', 'flows'])
   await call('set_app_data', { id: idea.id, app: 'patch-sheet', revision: 0, data: { rows: [{ device: 'Korg phase8', patch: '12', notes: '' }] } })
   const fromHub = await harness.json('GET', `/creativity-hub/api/projects/${idea.id}/apps/patch-sheet`)
   assert.equal(fromHub.data.rows[0].device, 'Korg phase8')

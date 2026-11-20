@@ -20,9 +20,11 @@
  *     `[{ id, title, provider, providerTitle, page, variants: { text?, edit? } }]`, each variant
  *     `{ model, fields }` with `fields` from `providers/schema.mjs`
  *   - `referenceMedia(env, { kind, image })` → `{ file: { mediaType, data }, model }` for model clips and GLB files
- *   - `chat(env, { system, prompt, images })` → `{ text }`: a text answer from a language model that may look at
- *     the images (`[{ mediaType, data, referenceLabel? }]`); used by Playground Scrabble to write scenes.
- *     A provider whose model really reads `images` sets `chatImages: true` (needed for AI tagging).
+ *   - `chat(env, { system, prompt, images, model? })` → `{ text, model }`: a text answer from a language model that may look at
+ *     the files (`[{ mediaType, data, referenceLabel? }]`); used by Playground Scrabble and the Flows node „LLM“.
+ *     `model` picks one of the provider's text models instead of its default.
+ *     A provider whose model really reads images sets `chatImages: true` (needed for AI tagging); one that also reads
+ *     video and audio files sets `chatFiles: true`.
  *   - `startVideo(env, { mode, image, motion?, prompt, duration?, sound?, resolution?, orientation?, seedance? })`
  *     → `{ taskId, model }` for an asynchronous image-to-video or motion-transfer job
  *   - `videoStatus(env, { taskId, format? })` → `{ status: 'queued'|'failed'|'done', error?, file?, frame?, frameError?, credits? }`
@@ -93,6 +95,7 @@ export function createProviderRegistry(store, credentials) {
           description: provider.description,
           capabilities: actions.filter(action => typeof provider[action] === 'function'),
           chatImages: Boolean(provider.chatImages),
+          chatFiles: Boolean(provider.chatFiles),
           settings: provider.settings.map(field => ({ key: field.key, label: field.label, placeholder: field.placeholder ?? field.default ?? '', value: settings[field.key] })),
           secrets: await Promise.all(provider.secrets.map(async field => {
             const info = service ? await service.describe(field.credential) : { configured: Boolean(process.env[field.credential]?.trim()), writable: false }

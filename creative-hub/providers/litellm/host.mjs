@@ -27,6 +27,7 @@ async function headers(env) {
 export function apply(ctx, config = {}) {
   ctx.effect(() => ctx.creativeProviders.register({
     chatImages: true,
+    chatFiles: true,
     id: 'litellm',
     title: 'LiteLLM',
     description: 'Bildmodelle über deinen LiteLLM-Proxy, z. B. nano-banana-2.1.',
@@ -43,8 +44,8 @@ export function apply(ctx, config = {}) {
       const preferred = env.settings.defaultModel
       return [...new Set([preferred, ...ids.sort()])].filter(Boolean).map(id => ({ id, title: id }))
     },
-    async chat(env, { system, prompt, images = [] }) {
-      let model = env.settings.textModel?.trim()
+    async chat(env, { system, prompt, images = [], model: chosen }) {
+      let model = chosen?.trim() || env.settings.textModel?.trim()
       if (!model) {
         const response = await request('LiteLLM', endpoint(env.settings.baseURL, '/v1/models'), { headers: await headers(env), timeout: 15000 })
         const ids = ((await response.json()).data ?? []).map(item => item.id).filter(id => typeof id === 'string')
@@ -54,10 +55,11 @@ export function apply(ctx, config = {}) {
       const content = [{ type: 'text', text: prompt }]
       for (const file of images) {
         if (file.referenceLabel) content.push({ type: 'text', text: file.referenceLabel + ':' })
-        content.push({ type: 'image_url', image_url: { url: dataUrl(file) } })
+        // Video and audio go as inline files, which LiteLLM passes on to Gemini.
+        content.push(file.mediaType.startsWith('image/') ? { type: 'image_url', image_url: { url: dataUrl(file) } } : { type: 'file', file: { file_data: dataUrl(file) } })
       }
       const response = await request('LiteLLM', endpoint(env.settings.baseURL, '/v1/chat/completions'), {
-        method: 'POST', headers: await headers(env), timeout: 90000,
+        method: 'POST', headers: await headers(env), timeout: 180000,
         body: JSON.stringify({ model, stream: false, messages: [{ role: 'system', content: system }, { role: 'user', content }] }),
       })
       const message = (await response.json()).choices?.[0]?.message ?? {}

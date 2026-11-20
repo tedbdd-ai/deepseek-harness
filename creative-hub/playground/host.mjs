@@ -12,7 +12,7 @@
  * - `GET /runs`, `POST /runs { prompt, modelIds, referenceIds?, params?, modelParams?, studio?, count?, projectId?, title?, template? }`
  *
  * Models live in the hub setting `playground:models`, runs (the last 40) in `playground:runs`.
- * The plugin also registers the Flows node „Bild“ (`imageNode`), which starts one run and waits for it.
+ * The plugin also registers the Flows nodes „Bild“, „Charakterblatt“ and „Set“ (`imageNode`), which start one run and wait for it.
  */
 import { appearanceText, compileDirection, referenceMarks, referenceOnlyPrompt, referencePlan, roleNames } from './direction.mjs'
 import { randomUUID } from 'node:crypto'
@@ -425,26 +425,60 @@ export function createHandler(playground) {
   }
 }
 
+/** How a preset turns the node's text into the image prompt, with its extra settings. */
+const presets = {
+  image: { title: 'Bild', icon: 'image', description: 'Erzeugt oder bearbeitet ein Bild mit einem Modell aus dem Foto Playground.', fields: [], compose: text => text },
+  // Follows the character reference sheet rules: one sheet in one pass, mid-gray studio, a single face, visible teeth.
+  character: {
+    title: 'Charakterblatt', icon: 'person',
+    description: 'Referenzblatt einer Figur in vier Feldern auf Studiograu: Gesicht nah, Outfit von vorn, Seite und schräg hinten. Für gleichbleibende Figuren in Bild und Video.',
+    fields: [
+      { key: 'outfit', label: 'Outfit', type: 'longtext', placeholder: 'Kleidung, Material, Farben, Accessoires, auch Seite und Rücken' },
+      { key: 'head', label: 'Kopf in Feld 2 bis 4', type: 'enum', options: [{ value: 'cropped', label: 'Beschnitten (empfohlen)' }, { value: 'back', label: 'Hinterkopf in Feld 4 sichtbar' }], default: 'cropped' },
+      { key: 'mouth', label: 'Mund leicht offen (Zähne sichtbar)', type: 'boolean', default: true },
+    ],
+    compose: (text, params) => [
+      '4-panel character reference sheet in front of a neutral mid-gray studio background, generated as one single image.',
+      'Left panel: highly detailed close-up headshot of the face.',
+      params.head === 'back'
+        ? 'Three right panels: outfit views from the front, from the side and from the back at an angle. The head is cropped out of panels 2 and 3; panel 4 shows the back of the head.'
+        : 'Three right panels: outfit views from the front, from the side and from the back at an angle, with the head cropped out of panels 2, 3 and 4.',
+      'Character: ' + text + (params.mouth === false ? '' : ' Mouth slightly open so the teeth are clearly visible.'),
+      params.outfit?.trim() ? 'Outfit: ' + params.outfit.trim() + ' Show the front, side and back details.' : '',
+      'Even, neutral studio light without colored reflections. No text, no labels.',
+    ].filter(Boolean).join('\n'),
+  },
+  set: {
+    title: 'Set', icon: 'board',
+    description: 'Ein Ort ohne Figuren. Als Referenz verhindert er, dass sich der Hintergrund im Video verwandelt.',
+    fields: [],
+    compose: text => text + '\nThe set is empty: no people, no characters, no animals. Keep the space clear where a character will enter later.',
+  },
+}
+
 /**
- * The Flows node „Bild“: one Playground run with the connected prompt and reference images.
- * Settings are the enum and boolean fields of each model's schema, stored per model.
+ * A Flows image node: one Playground run with the connected prompt and reference images (`@Bild1` …).
+ * Settings are the enum and boolean fields of each model's schema, stored per model; presets add their own fields.
+ * @param {'image'|'character'|'set'} kind preset of the node.
  */
-export function imageNode(playground) {
+export function imageNode(playground, kind = 'image') {
+  const preset = presets[kind]
   const settingFields = model => {
     const fields = model.variants.text?.fields ?? model.variants.edit?.fields ?? []
     return fields.filter(field => (field.type === 'enum' && field.options?.length) || field.type === 'boolean')
       .map(field => ({ key: field.key, label: field.label, type: field.type, options: field.options, default: field.default, model: model.id }))
   }
   return {
-    type: 'image', title: 'Bild', group: 'image', icon: 'image', paid: true, prompt: true,
-    description: 'Erzeugt oder bearbeitet ein Bild mit einem Modell aus dem Foto Playground.',
-    inputs: [{ id: 'prompt', kind: 'text', label: 'Prompt', multiple: true }, { id: 'refs', kind: 'image', label: 'Referenzbilder', multiple: true }],
+    type: kind, title: preset.title, group: 'image', icon: preset.icon, paid: true, prompt: true, description: preset.description,
+    inputs: [{ id: 'prompt', kind: 'text', label: 'Prompt', multiple: true }, { id: 'refs', kind: 'image', label: 'Referenzbilder', multiple: true, mark: 'Bild' }],
     outputs: [{ id: 'image', kind: 'image', label: 'Bild' }],
     async fields() {
       const models = playground.models()
       return [
-        { key: 'modelId', label: 'Modell', type: 'enum', options: models.map(model => ({ value: model.id, label: model.title })), default: models[0]?.id },
+        { key: 'modelId', label: 'Modell', type: 'enum', default: models[0]?.id, empty: 'Noch kein Bildmodell. Füge im Foto Playground ein Modell hinzu.', options: models.map(model => ({ value: model.id, label: model.title,
+          tags: [model.providerTitle, ...(model.variants.edit ? ['Bearbeiten'] : []), ...(model.variants.text ? ['Text zu Bild'] : [])].filter(Boolean) })) },
         { key: 'count', label: 'Anzahl', type: 'enum', options: ['1', '2', '4'], default: '1' },
+        ...preset.fields,
         ...models.flatMap(settingFields),
       ]
     },
@@ -452,9 +486,11 @@ export function imageNode(playground) {
       const modelId = params.modelId ?? playground.models()[0]?.id
       if (!modelId) throw new InputError('Füge im Foto Playground zuerst ein Bildmodell hinzu.')
       const text = [...inputs.prompt, prompt].map(part => String(part).trim()).filter(Boolean).join('\n\n')
+      if (kind !== 'image' && !text) throw new InputError(kind === 'character' ? 'Beschreibe die Figur: Alter, Gesicht, Haut, Haare, besondere Merkmale.' : 'Beschreibe den Ort.')
       const run = await playground.start({
-        prompt: text, modelIds: [modelId], referenceIds: inputs.refs, modelParams: { [modelId]: params.settings?.[modelId] ?? {} },
-        count: Number(params.count ?? 1), projectId, title: text.slice(0, 120), template: 'flow',
+        prompt: kind === 'image' ? text : preset.compose(text, params), modelIds: [modelId], referenceIds: inputs.refs,
+        modelParams: { [modelId]: params.settings?.[modelId] ?? {} },
+        count: Number(params.count ?? 1), projectId, title: (kind === 'image' ? '' : preset.title + ' · ') + text.slice(0, 120), template: 'flow',
       })
       const done = (await playground.settle(run.id, stopped)).results
       const images = done.filter(result => result.status === 'done').flatMap(result => result.assetIds)
@@ -468,7 +504,7 @@ export function imageNode(playground) {
 export function apply(ctx) {
   const playground = createPlayground(ctx.creativeStore, ctx.creativeProviders)
   ctx.effect(() => () => playground.stop())
-  ctx.effect(() => ctx.creativeNodes.register(imageNode(playground)))
+  for (const kind of Object.keys(presets)) ctx.effect(() => ctx.creativeNodes.register(imageNode(playground, kind)))
   ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: base, auth: 'required', handler: createHandler(playground) }))
   // The plugin ships its own page; the hub lists it in the sidebar and hands it the shared building blocks.
   ctx.effect(() => ctx.creativeApps.register({ id: 'playground', title: 'Foto Playground', page: true, view: true, module: base + '/web.mjs',

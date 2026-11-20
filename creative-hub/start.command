@@ -30,7 +30,7 @@ if /usr/bin/curl --noproxy '*' --silent --max-time 1 "$endpoint" >/dev/null; the
   exit 1
 fi
 
-if [[ ! -d node_modules/@modelcontextprotocol || ! -s dist/assets/board.js || ! -s dist/assets/board.css || package.json -nt dist/assets/board.js || web/board.jsx -nt dist/assets/board.js || vite.config.js -nt dist/assets/board.js || ! -s dist/assets/storyboard.js || apps/storyboard/editor.jsx -nt dist/assets/storyboard.js || ! -s dist/assets/flows.js || apps/flows/editor.jsx -nt dist/assets/flows.js ]]; then
+if [[ ! -d node_modules/@modelcontextprotocol || ! -s dist/assets/board.js || ! -s dist/assets/board.css || package.json -nt dist/assets/board.js || web/board.jsx -nt dist/assets/board.js || vite.config.js -nt dist/assets/board.js || ! -s dist/assets/flows.js || -n "$(find apps/flows -newer dist/assets/flows.js -print -quit)" ]]; then
   if ! command -v npm >/dev/null || ! node -e 'process.exit(Number(process.versions.node.split(".")[0]) < 22 ? 1 : 0)' 2>/dev/null; then
     echo "Für den Excalidraw-Build werden Node.js ab Version 22 und npm benötigt."
     exit 1
@@ -70,6 +70,12 @@ yaml_path() { printf '%s' "$hub_dir/$1" | sed "s/'/''/g"; }
   done
   echo '    - id: creativity-playground'
   echo "      name: '$(yaml_path playground/host.mjs)'"
+  for node in "$hub_dir"/nodes/*/host.mjs; do
+    [[ -e "$node" ]] || continue
+    node_id="$(basename "$(dirname "$node")")"
+    echo "    - id: creativity-node-$node_id"
+    echo "      name: '$(yaml_path "nodes/$node_id/host.mjs")'"
+  done
   for app in "$hub_dir"/apps/*/host.mjs; do
     [[ -e "$app" ]] || continue
     app_id="$(basename "$(dirname "$app")")"

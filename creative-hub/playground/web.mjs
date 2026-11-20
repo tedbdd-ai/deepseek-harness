@@ -136,7 +136,7 @@ const icons2 = {
 
 async function renderPlayground() {
   const query = new URLSearchParams(location.hash.split('?')[1] || '')
-  // Links from the Storyboard: `refs` (comma separated asset ids), `prompt` and `project` prefill the composer, nothing runs.
+  // Links with `refs` (comma separated asset ids), `prompt` and `project` prefill the composer, nothing runs.
   for (const ref of [query.get('ref'), ...(query.get('refs') || '').split(',')]) {
     if (ref && pg.refs.length < 16 && !pg.refs.includes(ref)) pg.refs.push(ref)
   }

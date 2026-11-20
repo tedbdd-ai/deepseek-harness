@@ -1,0 +1,8 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "jsx": "react-jsx",
+    "paths": { "@/*": ["apps/flows/ui/*"] }
+  },
+  "include": ["apps/flows/**/*"]
+}

@@ -113,7 +113,7 @@ export function registerTools(server, store) {
     },
   }, tool(({ ideaId, ...args }) => store.createAsset({ ...args, library: 'clips', projectId: ideaId })))
   server.registerTool('assign_asset', {
-    description: 'Adds an existing inspiration or library asset to an idea (it then shows in the idea\'s moodboard).',
+    description: 'Adds an existing inspiration or library asset to an idea (it then shows in the idea and can be placed on its Flows canvas).',
     inputSchema: { id: z.string(), ideaId: z.string() },
   }, tool(({ id, ideaId }) => store.assign(id, ideaId)))
 }

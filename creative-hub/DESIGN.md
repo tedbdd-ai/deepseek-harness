@@ -52,10 +52,17 @@ Systemschrift (SF Pro). Titel 28/34 halbfett, Abschnitt 17–20 halbfett, Fließ
 
 ### Flows-Canvas
 
+Der Canvas nutzt Standardbausteine statt eigener: React Flow, React Flow UI und shadcn mit Tailwind. Ihre Tokens (`--background`, `--card`, `--primary` …) sind in `apps/flows/ui/flows.css` auf die Tokens oben gemappt. Neue Bedienelemente im Canvas kommen aus diesem Baukasten, Icons aus Lucide.
+
+
 - **Knoten:** Kopfzeile außerhalb der Karte (Symbol, Typ, rechts das Modell). Die Karte enthält Vorschau oder Leerzustand, Prompt und den Ausführen-Split-Button. Erzeugerknoten sind 320 px breit, Quellknoten 256 px.
 - **Ports:** 24 px Punkt mit Typsymbol, Trefferfläche 44 px, Eingänge links, Ausgänge rechts.
 - **Werkzeugleiste unter dem gewählten Knoten:** Modell, „Einstellungen“ (beschriftete Felder aus dem Modellschema), Laden, Duplizieren, Löschen. Popover öffnen sich nach oben.
 - **Zustände am Knoten:** Wartet, Läuft (mit Sekunden), Fertig (mit Credits, wenn der Anbieter sie meldet), Fehler (Satz in Rot und „Erneut ausführen“), Veraltet (Orange, Ergebnis bleibt sichtbar).
+- **Rahmen:** durchscheinende Fläche mit 2-px-Rand, Kopfzeile oben links, Griffe zum Größenziehen nur bei Auswahl. Nur Kopfzeile, Ports und Griffe nehmen Klicks an. Wer den Rahmen verschiebt, verschiebt seinen Inhalt mit.
+- **Referenz-Chips:** 32 px hoch, Miniatur, Marke fett und Name. Ein Klick fügt `@Name` in den Prompt ein. Die `@`-Liste unter dem Prompt zeigt höchstens sechs Namen und lässt sich mit den Pfeiltasten und Enter bedienen.
+- **Modellauswahl:** Knopf mit dem gewählten Modell, darüber ein Popover mit Suchfeld, Schnellfiltern als Chips (Anbieter, Bearbeiten, Text zu Bild) und der Liste mit Tags in Nebentext. Ohne Modelle steht dort, wo man eins einrichtet.
+- **Warnungen am Knoten:** orange getönte Zeile über dem Ausführen-Knopf, ein Satz mit der Abhilfe.
 - **Dock unten mittig:** Auswählen, Verschieben, „Knoten hinzufügen“. Das Knotenmenü öffnet sich auch per Rechtsklick und beim Loslassen einer Linie im Leeren, dann gefiltert auf passende Knoten.
 
 ## Nicht verwenden

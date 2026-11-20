@@ -3,7 +3,8 @@
  *
  * - `GET  /creativity-schnitt/api/status` → `{ ffmpeg: boolean }`
  * - `POST /creativity-schnitt/api/export { projectId }` → `{ id, seconds }`: renders the saved cut with ffmpeg.
- * Registers the Flows node „Komposition“, which joins connected clips in order and mixes in connected sound.
+ * Registers the Flows nodes „Komposition“ (joins connected clips in reading order and mixes in connected sound) and
+ * „Ton als Video“ (sound on a black MP4 for Seedance video references).
  * The cut itself lives in `app_data(schnitt)` of the project: `{ clips: [{ id, assetId, in, out, volume }], audio: [{ id, assetId, start, volume }] }`.
  */
 import { execFile } from 'node:child_process'
@@ -11,7 +12,7 @@ import { promisify } from 'node:util'
 import { readBody, responder } from '../../http.mjs'
 import { InputError } from '../../store.mjs'
 import { defineApp } from '../define-app.mjs'
-import { composeClips, exportCut } from './export.mjs'
+import { blackVideo, composeClips, exportCut } from './export.mjs'
 
 const run = promisify(execFile)
 const app = defineApp({
@@ -28,10 +29,17 @@ export function apply(ctx) {
   const store = ctx.creativeStore
   ctx.effect(() => ctx.creativeNodes.register({
     type: 'composition', title: 'Komposition', group: 'video', icon: 'composition',
-    description: 'Setzt verbundene Clips von oben nach unten zusammen und legt Ton darunter. Läuft lokal mit FFmpeg.',
+    description: 'Setzt verbundene Clips in Leserichtung zusammen (nebeneinander von links, untereinander von oben) und legt Ton darunter. Läuft lokal mit FFmpeg.',
     inputs: [{ id: 'clips', kind: 'video', label: 'Clips', multiple: true, required: true }, { id: 'audio', kind: 'audio', label: 'Ton', multiple: true }],
     outputs: [{ id: 'video', kind: 'video', label: 'Film' }],
     run: async ({ inputs, projectId }) => ({ outputs: { video: [(await composeClips(store, projectId, inputs.clips, inputs.audio)).id] } }),
+  }))
+  ctx.effect(() => ctx.creativeNodes.register({
+    type: 'black-video', title: 'Ton als Video', group: 'audio', icon: 'video',
+    description: 'Legt Ton auf ein schwarzes Bild. Seedance übernimmt Stimme und Timing aus einer Video-Referenz genauer als aus Ton. Läuft lokal mit FFmpeg.',
+    inputs: [{ id: 'audio', kind: 'audio', label: 'Ton', required: true }],
+    outputs: [{ id: 'video', kind: 'video', label: 'Schwarzes Video' }],
+    run: async ({ inputs, projectId }) => ({ outputs: { video: [(await blackVideo(store, projectId, inputs.audio[0])).id] } }),
   }))
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix',

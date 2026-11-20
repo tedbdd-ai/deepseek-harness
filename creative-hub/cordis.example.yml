@@ -5,8 +5,10 @@
       name: '/absolute/path/to/deepseek-harness/creative-hub/host.mjs'
     - id: creativity-app-checklist
       name: '/absolute/path/to/deepseek-harness/creative-hub/apps/checklist/host.mjs'
-    - id: creativity-app-moodboard
-      name: '/absolute/path/to/deepseek-harness/creative-hub/apps/moodboard/host.mjs'
+    - id: creativity-app-flows
+      name: '/absolute/path/to/deepseek-harness/creative-hub/apps/flows/host.mjs'
+    - id: creativity-node-llm
+      name: '/absolute/path/to/deepseek-harness/creative-hub/nodes/llm/host.mjs'
     - id: creativity-app-light-plan
       name: '/absolute/path/to/deepseek-harness/creative-hub/apps/light-plan/host.mjs'
     - id: creativity-app-patch-sheet

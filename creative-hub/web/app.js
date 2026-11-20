@@ -158,19 +158,6 @@ function parseGeneration(item) {
   return { prompt: get('Prompt') || item.title, model: model || 'Unbekanntes Modell', provider: provider || '', refs: get('Referenzen') }
 }
 
-async function openProjectBoard(container, ctx, board) {
-  const href = '/creativity-hub/board-editor/assets/board.css'
-  if (![...document.styleSheets].some(sheet => sheet.href === location.origin + href) && !document.querySelector('link[data-storyboard]')) {
-    const link = document.createElement('link')
-    link.rel = 'stylesheet'
-    link.href = href
-    link.dataset.storyboard = ''
-    document.head.append(link)
-  }
-  const { mount } = await import('/creativity-hub/board-editor/assets/storyboard.js')
-  if (container.isConnected) mount(container, ctx, board)
-}
-
 /* Gemeinsame Bausteine */
 function media(item, { full = false } = {}) {
   const url = mediaUrl(item)
@@ -773,7 +760,7 @@ function route() {
     const body = el('div', { class: 'scroll' }, loading())
     if (page.view) return import(page.module).then(module => { activeLeave = module.leave; return module.renderView(shared) }).catch(error => { view.replaceChildren(...header(page.title), errorState(error, route)) })
     view.replaceChildren(...header(page.title), body)
-    return import(page.module).then(module => module.render(body, { openProjectBoard, el, api, icon, media, withFullscreen, isFashionReference, toast, refreshCounts, uploadFiles, uploadButton, projects: state.projects, params: new URLSearchParams(location.hash.split('?')[1]) })).catch(error => body.replaceChildren(errorState(error, route)))
+    return import(page.module).then(module => module.render(body, { el, api, icon, media, withFullscreen, isFashionReference, toast, refreshCounts, uploadFiles, uploadButton, projects: state.projects, params: new URLSearchParams(location.hash.split('?')[1]) })).catch(error => body.replaceChildren(errorState(error, route)))
   }
   if (name === 'library') return renderLibrary()
   if (name === 'tags') return tags.renderTagManager()

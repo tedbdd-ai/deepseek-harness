@@ -69,6 +69,51 @@ Ein Flow gehört zu einem Projekt, so wie Moodboard und Storyboard (`app_data(fl
 
 ## Stand der Umsetzung (2026-11-20)
 
-Phase 1 ist gebaut: die Naht `creativeNodes` in `core.mjs`, `apps/flows/` (`host.mjs`, `lib/engine.mjs`, `editor.jsx`, `block.js`), der Knoten „Bild“ in `playground/host.mjs`, „Video“ in `apps/influencer-video/host.mjs` und „Komposition“ in `apps/schnitt/`. Tests stehen in `flows.test.mjs`. Im Browser wurde auf einer Kopie der Datenbank geprüft: Startvorlage, Knotenmenü (Rechtsklick und Linie ins Leere), Library-Auswahl, ein echter Kompositionslauf mit FFmpeg, Einstellungen, Bestätigungsdialog und Fehlerzustand. Bild- und Videoknoten wurden nicht gegen einen Anbieter ausgeführt, weil das Credits kostet. Ihre Logik ist mit Stubs getestet.
+Phase 1 ist gebaut: die Naht `creativeNodes` in `core.mjs`, `apps/flows/` (`host.mjs`, `engine/engine.mjs`, `editor.jsx`, `block.js`), der Knoten „Bild“ in `playground/host.mjs`, „Video“ in `apps/influencer-video/host.mjs` und „Komposition“ in `apps/schnitt/`. Tests stehen in `flows.test.mjs`. Im Browser wurde auf einer Kopie der Datenbank geprüft: Startvorlage, Knotenmenü (Rechtsklick und Linie ins Leere), Library-Auswahl, ein echter Kompositionslauf mit FFmpeg, Einstellungen, Bestätigungsdialog und Fehlerzustand. Bild- und Videoknoten wurden nicht gegen einen Anbieter ausgeführt, weil das Credits kostet. Ihre Logik ist mit Stubs getestet.
 
 Offen aus Phase 1: Undo, Kommentare, eine Mini-Karte, Tastaturkürzel außer Löschen, Mehrfachauswahl-Aktionen und ein Hinweis, wenn derselbe Anbieterauftrag nach einem Hub-Neustart noch läuft.
+
+## Stand 2 (2026-11-20): Ein Canvas statt Moodboard und Storyboard
+
+- Moodboard und Storyboard sind als Apps entfernt. Flows hat die Board-Knoten Notiz, Datei, Szene (Prompt, Startbild, Dauer), Farbe, Link und Rahmen. Ein Rahmen gibt alles darin in Leserichtung weiter und nimmt beim Verschieben seinen Inhalt mit. Ein leerer Flow übernimmt auf Wunsch die alten Boards (`/import-boards`). Die alten Daten bleiben gespeichert.
+- Benannte Referenzen: Knoten haben einen Namen, `@Name` im Prompt oder in einer Notiz wird beim Empfänger zur Modellmarke. Ein nicht verbundener Name bricht mit einer klaren Meldung ab.
+- Einfügen (⌘V) und Hineinziehen von Bildern, Videos, Ton, Text und Links.
+- Schnitt übernimmt Clips aus den Video-Knoten des Flows statt aus dem Storyboard.
+- Offen: Im Video Playground ist der alte Pfad `?shot=` (Storyboard-Einstellung) noch im Code, wird aber von nichts mehr verlinkt.
+
+## Konsistente Figuren, Stimmen und Szenen (nach dem ElevenLabs-Workflow)
+
+Die Vorlage beschreibt vier Bausteine. Im Atelier werden sie zu Knoten und Prüfungen:
+
+| Baustein | Knoten | Stand |
+| --- | --- | --- |
+| Character Sheet, 4 Panels auf Mittelgrau, nur ein Gesicht (Köpfe in Panel 2–4 beschnitten), Mund leicht offen, in einem Durchgang | **Charakterblatt**: Bild-Knoten mit Formular für die drei Prompt-Sektionen (Format, Figur, Outfit) und Pflicht-Checkliste (Grau, Mund offen, Beschnitt oder Hinterkopf-Modus). Das Ergebnis heißt nach der Figur und wird per `@Figur` angesprochen. | geplant |
+| Set ohne Figur | **Set**: Bild-Knoten mit Vorgabe „ohne Personen“. | geplant |
+| Stimme zuerst (ElevenLabs v4, feste Stimme pro Figur, Audio-Tags) | **Stimme**: Anbieter-Plugin ElevenLabs mit `textToSpeech`. Die Stimmen-ID hängt an der Figur. Prompt mit Audio-Tags. Ausgang Ton. Bis dahin: Ton per Einfügen oder als Datei. | geplant |
+| Schwarzes MP4 als Video-Referenz | **Ton als Video** (Schnitt, FFmpeg) | gebaut |
+| Transkript in Hundertstelsekunden mit Sprechbeginn-Versatz | **Transkript**: Chat-Anbieter mit Ton-Eingabe, Regler „Sprechbeginn verzögern um X s“ verschiebt alle Zeitstempel, Ausgang Text. | geplant |
+| Seedance mit Image-Referenzen, Video-Referenz und Transkript | **Video**: `@Figur` und `@Set` als Bildreferenzen, das schwarze Video als Videoreferenz, das Transkript als Text. Prüfungen am Knoten: Warnung, wenn ein Bild als Startbild verbunden ist, obwohl Ton oder Video als Referenz anliegen. Warnung, wenn die Dauer kürzer ist als Tonlänge + Versatz + Puffer. | Marken gebaut, Prüfungen geplant |
+| Audio-Storyboard (Pre-Vis) | Rahmen „Storyboard“ mit Szenen + Komposition aus Standbildern und Ton | Komposition gebaut, Standbild-Clips geplant |
+
+Daraus folgt eine Vorlage „Sprechende Figur“: Charakterblatt → Set → Stimme → Ton als Video → Transkript → Video, verbunden und mit `@`-Prompt vorbefüllt. Kostenpflichtig sind Charakterblatt, Set, Stimme, Transkript und Video. Alles läuft weiterhin nur auf Klick, mit Bestätigung bei mehreren kostenpflichtigen Knoten.
+
+## Stand 3 (2026-11-20)
+
+- Gebaut: Knoten „LLM“ (`nodes/llm`, liest Text, Bilder, Videos und Ton; LiteLLM schickt Video und Ton als Datei an Gemini), „Charakterblatt“ und „Set“ als Varianten des Bildknotens, Seedance-Warnungen (Startbild neben Ton- oder Video-Referenz, Videodauer kürzer als die Tonspur; Längen per ffprobe im Hintergrund).
+- Klickbare Ports wie bei ElevenLabs: passende Knoten, an Medien-Eingängen zusätzlich Hochladen und Auswahl aus Sammlung und Library.
+- Modellauswahl mit Suche und Schnellfiltern aus den Tags der Optionen.
+- Damit ist Variante 3 des Stimmen-Workflows im Flow baubar: Ton → „Ton als Video“ → Video-Referenz, derselbe Ton → „LLM“ („Transkript in Hundertstelsekunden, 3 s Versatz“) → Text an den Videoknoten.
+- Offen: ElevenLabs-Anbieter für Sprache (braucht Schlüssel), Vorlage „Sprechende Figur“, Regler für den Versatz statt Anweisung im Text. Eine LLM-Antwort mit `@Bild1` meint die Bilder am LLM, nicht die des nächsten Knotens; besser ist `@Name`.
+
+## Stand 4 (2026-11-20): Vorlagen
+
+- Fünf Vorlagen: Kurzfilm mit sprechender Figur (6 Rahmen, 27 Knoten), Moodboard und Storyboard, Figur und Set, Sprechende Figur, Bild zu Video. Der Test prüft jede gegen die echten Knotenarten (Ports, Typen) und dass jedes `@Name` im Text verbunden ist.
+- Der Kurzfilm-Ablauf: Look, Farben und Referenzen (Outfits, Orte, Figuren aus der Sammlung) → Story, Szenenliste vom LLM (liest Look und Moodboard-Bilder), drei Szenen → Charakterblatt aus den Outfits, Set aus den Orten → Stimme als Datei, schwarzes Video, Transkript mit 3 s Versatz → drei Seedance-Videos mit Figur und Set als Bildreferenz, das dritte spricht → Komposition.
+- Offen: Vorlagen als eigene Naht, damit Plugins Vorlagen beisteuern; eigene Flows als Vorlage speichern; Stimme erzeugen statt hochladen.
+
+## Stand 5 (2026-11-20): Standardbausteine statt Eigenbau
+
+- Der Editor nutzt jetzt React-Flow-Standards: Changesets (`applyTo`), Sub-Flows für Rahmen (`parentId`, alte Flows werden beim Laden umgerechnet: `engine/frames.mjs`), `zIndexMode="manual"` mit festen Ebenen, `Panel`, `MiniMap` und animierte Linien bei laufenden Knoten.
+- Knotenteile kommen aus React Flow UI (BaseNode, BaseHandle, NodeStatusIndicator), Menüs, Picker und Dialoge aus shadcn (cmdk, Radix), die Icons aus Lucide. Tailwind 4 läuft nur im Flows-Bundle, ohne Preflight und auf die Hub-Tokens gemappt.
+- Eigener Code bleibt dort, wo es keinen Standard gibt: Engine, Vorlagen, Knotenkörper (Vorschau, Referenz-Chips), `@`-Erwähnungen im Textfeld.
+- Abgewogen und verworfen: n8n (Vue-App, Sustainable Use License, nicht einbettbar), Mirotone (CSS für Miro-Plugin-Panels), tldraw (Whiteboard-SDK, Lizenzschlüssel und Wasserzeichen ohne kostenpflichtige Lizenz).

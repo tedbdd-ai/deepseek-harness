@@ -1,4 +1,9 @@
+import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { promisify } from 'node:util'
 import { defineApp } from '../define-app.mjs'
 import { readBody, readUpload, responder } from '../../http.mjs'
 import { InputError, httpUrl, mediaTypeOf } from '../../store.mjs'
@@ -86,7 +91,21 @@ async function seedanceInputs(store, body, prompt, hotapi = false) {
   }
 }
 
-const seconds = ['4', '5', '6', '8', '10', '12', '15']
+const run = promisify(execFile)
+const seconds = ['4', '5', '6', '8', '10', '12', '15', '20', '25', '30']
+
+/** Length of a media file in seconds, read with ffprobe from a temporary copy. */
+async function mediaSeconds(bytes) {
+  const dir = await mkdtemp(join(tmpdir(), 'atelier-length-'))
+  try {
+    const path = join(dir, 'datei')
+    await writeFile(path, bytes)
+    const { stdout } = await run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', path], { timeout: 10_000 })
+    return Number(stdout.trim()) || null
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+}
 const seedanceFields = (model, resolutions) => [
   { key: 'resolution', label: 'Auflösung', type: 'enum', options: resolutions, default: '720p', model },
   { key: 'aspect', label: 'Format', type: 'enum', options: seedanceAspects, default: 'adaptive', model },
@@ -100,17 +119,35 @@ const seedanceFields = (model, resolutions) => [
  * (Startbild → Start- und Endframe, Referenzen → multimodal, sonst Text zu Video); Kling animates the Startbild.
  * The node waits for the provider and checks the job status every 8 s; status checks cost nothing.
  */
-export function videoNode({ start, refresh, providers, stopped: unloaded, every = 8000 }) {
+export function videoNode({ start, refresh, providers, stopped: unloaded, every = 8000, duration = () => null }) {
   return {
+    /**
+     * Seedance checks from the consistency workflow: images as references instead of a start frame when sound or
+     * video lead the performance, and a clip at least as long as its voice track.
+     */
+    check({ inputs, params }) {
+      const warnings = []
+      const model = params.modelId ?? 'seedance'
+      if (model === 'kling') return warnings
+      if (inputs.start.length && (inputs.audio.length || inputs.videos.length)) {
+        warnings.push('Ton und Video wirken nur ohne Startbild. Verbinde Figur und Set als Bildreferenzen statt als Startbild.')
+      }
+      const longest = Math.max(0, ...[...inputs.audio, ...inputs.videos].map(id => duration(id) ?? 0))
+      const seconds = Number(params.settings?.[model]?.duration ?? 5)
+      if (longest && seconds < Math.ceil(longest)) {
+        warnings.push(`Das Video ist ${seconds} s lang, die Tonspur ${longest.toFixed(1).replace('.', ',')} s. Stell mindestens ${Math.ceil(longest) + 2} s ein: Tonlänge, Versatz bis zum Sprechen und etwas Puffer.`)
+      }
+      return warnings
+    },
     type: 'video', title: 'Video', group: 'video', icon: 'video', paid: true, prompt: true,
     description: 'Erzeugt einen Clip mit Seedance oder Kling aus dem Video Playground.',
     inputs: [
       { id: 'prompt', kind: 'text', label: 'Prompt', multiple: true },
-      { id: 'start', kind: 'image', label: 'Startbild' },
-      { id: 'end', kind: 'image', label: 'Endbild' },
-      { id: 'images', kind: 'image', label: 'Bildreferenzen', multiple: true },
-      { id: 'videos', kind: 'video', label: 'Videoreferenzen', multiple: true },
-      { id: 'audio', kind: 'audio', label: 'Tonreferenzen', multiple: true },
+      { id: 'start', kind: 'image', label: 'Startbild', mark: 'Image' },
+      { id: 'end', kind: 'image', label: 'Endbild', mark: 'Image' },
+      { id: 'images', kind: 'image', label: 'Bildreferenzen', multiple: true, mark: 'Image' },
+      { id: 'videos', kind: 'video', label: 'Videoreferenzen', multiple: true, mark: 'Video' },
+      { id: 'audio', kind: 'audio', label: 'Tonreferenzen', multiple: true, mark: 'Audio' },
     ],
     outputs: [{ id: 'video', kind: 'video', label: 'Video' }, { id: 'frame', kind: 'image', label: 'Letztes Bild' }],
     async fields() {
@@ -324,7 +361,17 @@ ${prompt}`
     return check
   }
 
-  ctx.effect(() => ctx.creativeNodes.register(videoNode({ start, refresh, providers, stopped: () => stopped })))
+  // Lengths of reference files for the node check; read once with ffprobe in the background, so the check stays synchronous.
+  const lengths = new Map()
+  function duration(id) {
+    if (lengths.has(id)) return lengths.get(id)
+    lengths.set(id, null)
+    const file = store.media(id)
+    if (!file || !/^(audio|video)\//.test(file.media_type)) return null
+    mediaSeconds(Buffer.from(file.media)).then(seconds => { if (!stopped) lengths.set(id, seconds) }, () => {})
+    return null
+  }
+  ctx.effect(() => ctx.creativeNodes.register(videoNode({ start, refresh, providers, stopped: () => stopped, duration })))
 
   ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: '/creativity-influencer', auth: 'required', handler: async (req, res) => {
     const { json } = responder(req, res)

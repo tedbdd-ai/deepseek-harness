@@ -144,3 +144,33 @@ export async function composeClips(store, projectId, clipIds, audioIds) {
   return exportCut(store, projectId, { clips, audio: audioIds.map(assetId => ({ id: assetId, assetId, start: 0 })) },
     { title: `Komposition · ${store.project(projectId).title}` })
 }
+
+/**
+ * Turns a sound file into a black MP4 with the same audio. Seedance takes speech from a video reference more faithfully
+ * than from an audio reference, so this is the „schwarzes Video“ step of the voice workflow.
+ * @returns {{ id: string, seconds: number }} the new asset in the Library, assigned to the project.
+ */
+export async function blackVideo(store, projectId, audioId) {
+  const file = store.media(audioId)
+  if (!file || !/^(audio|video)\//.test(file.media_type)) throw new InputError('Verbinde eine gespeicherte Tondatei.', 409)
+  const dir = await mkdtemp(join(tmpdir(), 'atelier-black-'))
+  try {
+    const input = join(dir, 'ton')
+    const output = join(dir, 'schwarz.mp4')
+    await writeFile(input, Buffer.from(file.media))
+    try {
+      await run('ffmpeg', ['-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=black:s=1280x720:r=24', '-i', input,
+        '-map', '0:v', '-map', '1:a', '-shortest', '-c:v', 'libx264', '-tune', 'stillimage', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', output], { timeout: 300_000 })
+    } catch (error) {
+      if (error.code === 'ENOENT') throw new InputError('Für das schwarze Video braucht Atelier FFmpeg.', 503)
+      throw new InputError('Die Tondatei ließ sich nicht in ein Video umwandeln.', 422)
+    }
+    const { stdout } = await run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', output], { timeout: 10_000 })
+    const title = store.asset(audioId).title
+    const { id } = store.createAsset({ library: 'generation', title: `Schwarzes Video · ${title}`, description: `Ton aus „${title}“ auf schwarzem Bild, als Video-Referenz für Seedance.`,
+      mediaType: 'video/mp4', projectId }, { bytes: await readFile(output) })
+    return { id, seconds: Number(stdout.trim()) || 0 }
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+}

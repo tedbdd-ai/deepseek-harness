@@ -60,14 +60,18 @@ export async function render(container, context) {
     selected = doc.clips.at(-1).id
     change()
   }
-  async function importStoryboard() {
+  // Takes the current result of every Video node on the project's Flows canvas, in reading order (rows left to right).
+  async function importFlow() {
     try {
-      const [board, renders] = await Promise.all([api(`/projects/${project.id}/apps/storyboard`), api(`/projects/${project.id}/apps/storyboard-renders`)])
+      const [flow, response] = await Promise.all([api(`/projects/${project.id}/apps/flow`), fetch(`/creativity-flows/api/projects/${project.id}/state`)])
+      const state = await response.json()
+      if (!response.ok) throw new Error(state.error || 'Flows antwortet nicht.')
       const known = new Set(doc.clips.map(clip => clip.assetId))
-      const fresh = (board.data.shots ?? []).map(shot => renders.data[shot.id]).filter(id => id && !known.has(id))
-      if (!fresh.length) return toast('Im Storyboard gibt es keine neuen fertigen Videos.')
+      const nodes = (flow.data.nodes ?? []).filter(node => node.type === 'video').sort((a, b) => (a.y - b.y) || (a.x - b.x))
+      const fresh = nodes.map(node => state.nodes[node.id]?.outputs?.video?.[0]).filter(id => id && !known.has(id))
+      if (!fresh.length) return toast('Im Flow gibt es keine neuen fertigen Videos.')
       for (const id of fresh) await addClip(id)
-      toast(fresh.length === 1 ? '1 Clip aus dem Storyboard übernommen.' : `${fresh.length} Clips aus dem Storyboard übernommen.`)
+      toast(fresh.length === 1 ? '1 Clip aus dem Flow übernommen.' : `${fresh.length} Clips aus dem Flow übernommen.`)
     } catch (error) { toast(error.message, true) }
   }
   async function addAudio(assetId) {
@@ -233,15 +237,15 @@ export async function render(container, context) {
       el('div', { class: 'cut-bar' },
         el('select', { class: 'text-in', 'aria-label': 'Projekt', onchange: event => { location.hash = '#/schnitt?project=' + event.target.value } }, projects.map(p => el('option', { value: p.id, selected: p.id === project.id ? true : null }, p.title))),
         el('button', { type: 'button', class: 'btn sm', onclick: () => pickDialog('video') }, icon('plus'), 'Clip'),
-        el('button', { type: 'button', class: 'btn sm', onclick: importStoryboard }, icon('film'), 'Aus Storyboard übernehmen'),
+        el('button', { type: 'button', class: 'btn sm', onclick: importFlow }, icon('film'), 'Aus dem Flow übernehmen'),
         el('button', { type: 'button', class: 'btn sm', onclick: () => pickDialog('audio') }, icon('plus'), 'Musik oder Ton'),
         status$,
         el('button', { type: 'button', class: 'btn' + (empty ? '' : ' primary'), 'data-export': true, disabled: empty || !status.ffmpeg || null, title: status.ffmpeg ? '' : 'Zum Exportieren braucht Atelier FFmpeg.', onclick: exportCut }, icon('down'), 'Exportieren')),
       el('p', { class: 'canvas-note meta' }, 'Die Bildspur spielt die Clips nacheinander ab. Teile, kürze und sortiere sie; Musik und Ton liegen darunter und starten zu der Zeit, die du einstellst.'),
       undo ? el('p', { class: 'canvas-note', role: 'status' }, undo.label, el('button', { type: 'button', class: 'btn sm', onclick: () => { const run = undo.restore; undo = null; run() } }, 'Rückgängig')) : null,
       !status.ffmpeg ? el('p', { class: 'canvas-note err', role: 'alert' }, 'FFmpeg fehlt. Die Vorschau funktioniert, der Export nicht.') : null,
-      empty ? el('div', { class: 'state' }, icon('film'), el('h2', {}, 'Noch kein Schnitt'), el('p', {}, 'Hole die fertigen Videos aus dem Storyboard oder füge einen Clip aus Sammlung und Library hinzu.'),
-        el('button', { class: 'btn primary', onclick: importStoryboard }, icon('film'), 'Aus Storyboard übernehmen')) :
+      empty ? el('div', { class: 'state' }, icon('film'), el('h2', {}, 'Noch kein Schnitt'), el('p', {}, 'Hole die fertigen Videos aus dem Flow oder füge einen Clip aus Sammlung und Library hinzu.'),
+        el('button', { class: 'btn primary', onclick: importFlow }, icon('film'), 'Aus dem Flow übernehmen')) :
         el('div', { class: 'cut-main' },
           el('div', { class: 'cut-stage' }, video, el('div', { class: 'cut-controls' },
             el('button', { type: 'button', class: 'icon', 'aria-label': playing ? 'Anhalten' : 'Abspielen', onclick: () => playing ? stop() : play() }, icon(playing ? 'pause' : 'play')),

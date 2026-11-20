@@ -424,7 +424,7 @@ export async function render(container, { el, api, icon, media, withFullscreen, 
     el('div', { class: 'studio-composer-footer' }, start,
       !configured && el('a', { class: 'meta', href: '#/anbieter' }, providerName + '-Schlüssel einrichten'),
       el('a', { class: 'meta', href: hotapi ? 'https://hotapi.ai/en/pricing' : pricing, target: '_blank', rel: 'noopener noreferrer' }, providerName + '-Preise'), message))
-  const toolbar = el('div', { class: 'studio-toolbar' }, el('a',{class:'btn sm',href:'#/storyboard'+(storyProject?'?project='+encodeURIComponent(storyProject):'')},shot?'Zur Einstellung · '+(shot.title||'Storyboard'):'Storyboard'), seedance.tabs, el('div', { class: 'studio-toolbar-tools' }, jumpToRenders, field('Videomodell', model)))
+  const toolbar = el('div', { class: 'studio-toolbar' }, el('a',{class:'btn sm',href:'#/flows'+(storyProject?'?project='+encodeURIComponent(storyProject):'')},'Zum Flow'), seedance.tabs, el('div', { class: 'studio-toolbar-tools' }, jumpToRenders, field('Videomodell', model)))
   const renders = el('section', { class: 'studio-panel studio-queue', 'aria-label': 'Render-Verlauf', tabindex: '-1' },
     el('header', { class: 'studio-panel-head' }, el('div', { class: 'studio-heading' }, el('h2', {}, 'Render-Verlauf'), queueSummary),
       el('button', { type: 'button', class: 'btn sm', onclick: poll }, 'Status aktualisieren')), pollError, history)

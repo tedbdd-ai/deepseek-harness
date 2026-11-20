@@ -54,9 +54,14 @@ const portId = /^[a-z][a-zA-Z0-9]{0,31}$/
  * the Flows canvas lists them and its engine calls them.
  *
  * A node type is `{ type, title, group, icon, inputs, outputs, paid?, prompt?, description?, fields?, resolve? | run? }`:
- * - `inputs`/`outputs`: `{ id, kind: 'text'|'image'|'video'|'audio', label, multiple?, required? }[]`. Values on a port are
- *   strings for `text` and Library asset ids for media.
- * - `fields()`: async list of settings `{ key, label, type: 'enum'|'boolean'|'text'|'asset'|'shot', options?, default?, model? }`.
+ * - `inputs`/`outputs`: `{ id, kind: 'text'|'image'|'video'|'audio', label, multiple?, required?, mark? }[]`. Values on a port
+ *   are strings for `text` and Library asset ids for media. An input with `mark` (e.g. `Bild`) numbers its values per mark
+ *   (`@Bild1` …); before `run` the engine replaces `@Name` mentions of connected nodes in the prompt and incoming text with these marks.
+ * - `check({ inputs, params })` (optional, synchronous) returns warnings shown on the node before it runs; it must not
+ *   call providers.
+ * - `contains: true` (frames): `resolve` also receives `members`, the values of the nodes lying inside, by kind.
+ * - `fields()`: async list of settings `{ key, label, type: 'enum'|'boolean'|'longtext'|'assets'|'color'|'url', options?, default?, model?, empty? }`;
+ *   enum options may be `{ value, label, tags? }` (tags become quick filters), `empty` is the hint shown when there are no options.
  *   A field with `model` belongs to that model and is stored at `params.settings[model][key]`; it shows only while
  *   `params.modelId` is that model.
  * - `resolve({ params, prompt, projectId })` returns `{ [outputId]: values }` at once (source nodes, free).
@@ -67,7 +72,8 @@ const portId = /^[a-z][a-zA-Z0-9]{0,31}$/
 export function createNodeRegistry() {
   const nodes = new Map()
   const checkPorts = (node, list) => {
-    if (!Array.isArray(list) || list.some(port => !portId.test(port.id) || !portKinds.includes(port.kind) || typeof port.label !== 'string')) {
+    if (!Array.isArray(list) || list.some(port => !portId.test(port.id) || !portKinds.includes(port.kind) || typeof port.label !== 'string' ||
+      (port.mark !== undefined && !/^[A-Za-zÄÖÜäöü]{1,16}$/.test(port.mark)))) {
       throw new Error(`Knotenart "${node.type}" hat ungültige Ports.`)
     }
   }
