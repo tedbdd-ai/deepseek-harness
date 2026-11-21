@@ -434,6 +434,7 @@ const presets = {
     description: 'Referenzblatt einer Figur in vier Feldern auf Studiograu: Gesicht nah, Outfit von vorn, Seite und schräg hinten. Für gleichbleibende Figuren in Bild und Video.',
     fields: [
       { key: 'outfit', label: 'Outfit', type: 'longtext', placeholder: 'Kleidung, Material, Farben, Accessoires, auch Seite und Rücken' },
+      { key: 'outfitIds', label: 'Outfit-Bilder', type: 'assets' },
       { key: 'head', label: 'Kopf in Feld 2 bis 4', type: 'enum', options: [{ value: 'cropped', label: 'Beschnitten (empfohlen)' }, { value: 'back', label: 'Hinterkopf in Feld 4 sichtbar' }], default: 'cropped' },
       { key: 'mouth', label: 'Mund leicht offen (Zähne sichtbar)', type: 'boolean', default: true },
     ],
@@ -445,6 +446,7 @@ const presets = {
         : 'Three right panels: outfit views from the front, from the side and from the back at an angle, with the head cropped out of panels 2, 3 and 4.',
       'Character: ' + text + (params.mouth === false ? '' : ' Mouth slightly open so the teeth are clearly visible.'),
       params.outfit?.trim() ? 'Outfit: ' + params.outfit.trim() + ' Show the front, side and back details.' : '',
+      params.outfitMarks?.length ? `Outfit references: ${params.outfitMarks.join(', ')}. Copy these garments exactly (cut, material, colour, closures) onto the character; ignore any person in them.` : '',
       'Even, neutral studio light without colored reflections. No text, no labels.',
     ].filter(Boolean).join('\n'),
   },
@@ -487,8 +489,11 @@ export function imageNode(playground, kind = 'image') {
       if (!modelId) throw new InputError('Füge im Foto Playground zuerst ein Bildmodell hinzu.')
       const text = [...inputs.prompt, prompt].map(part => String(part).trim()).filter(Boolean).join('\n\n')
       if (kind !== 'image' && !text) throw new InputError(kind === 'character' ? 'Beschreibe die Figur: Alter, Gesicht, Haut, Haare, besondere Merkmale.' : 'Beschreibe den Ort.')
+      // Outfit pictures of a character sheet follow the connected references and are named by their marks.
+      const outfit = kind === 'character' && Array.isArray(params.outfitIds) ? params.outfitIds.filter(id => typeof id === 'string').slice(0, 8) : []
+      const outfitMarks = outfit.map((_, i) => '@Bild' + (inputs.refs.length + i + 1))
       const run = await playground.start({
-        prompt: kind === 'image' ? text : preset.compose(text, params), modelIds: [modelId], referenceIds: inputs.refs,
+        prompt: kind === 'image' ? text : preset.compose(text, { ...params, outfitMarks }), modelIds: [modelId], referenceIds: [...inputs.refs, ...outfit],
         modelParams: { [modelId]: params.settings?.[modelId] ?? {} },
         count: Number(params.count ?? 1), projectId, title: (kind === 'image' ? '' : preset.title + ' · ') + text.slice(0, 120), template: 'flow',
       })

@@ -327,3 +327,8 @@
 .flow-board-ref { position: absolute; top: -8px; right: 20px; opacity: 0; transition: opacity .12s; }
 .flow-board-item:hover .flow-board-ref, .flow-board-item:focus-within .flow-board-ref, .flow-board-item.reference .flow-board-ref { opacity: 1; }
 @media (prefers-reduced-motion: reduce) { .flow-board-item, .flow-board-ref { transition: none; } }
+/* Choosing sketch references: pictures carry a round check, everything else steps back. */
+.flow-board-item.choosable { cursor: pointer; }
+.flow-board-check { position: absolute; top: var(--s-2); right: var(--s-2); display: flex; width: 28px; height: 28px; align-items: center; justify-content: center; border: 2px solid var(--c-on-scrim); border-radius: 9999px; background: var(--c-scrim-soft); color: var(--c-bg); pointer-events: none; }
+.flow-board-check.on { border-color: var(--c-ink); background: var(--c-ink); }
+.flow-board-item.choosable.reference { box-shadow: 0 0 0 3px var(--c-ink); border-radius: var(--s-2); }

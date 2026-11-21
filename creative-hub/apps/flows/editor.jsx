@@ -14,7 +14,7 @@ import '@xyflow/react/dist/style.css'
 import './ui/flows.css'
 import {
   Archive, AudioLines, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Copy, Download, Hand, History, Image, LayoutGrid,
-  AtSign, Link, Map as MapIcon, Star, Maximize, Maximize2, Minus, MoreHorizontal, MousePointer2, Palette, Play, Plus, Scissors, SlidersHorizontal, Sparkles, Trash2, Type, Upload, User, Video, Volume2, VolumeX, X,
+  AtSign, Check, Link, Map as MapIcon, Star, Maximize, Maximize2, Minus, MoreHorizontal, MousePointer2, Palette, Play, Plus, Scissors, SlidersHorizontal, Sparkles, Trash2, Type, Upload, User, Video, Volume2, VolumeX, X,
 } from 'lucide-react'
 import { BaseNode, BaseNodeContent, BaseNodeFooter, BaseNodeHeader, BaseNodeHeaderTitle } from '@/components/base-node'
 import { BaseHandle } from '@/components/base-handle'
@@ -135,7 +135,7 @@ function Media({ asset, ctx, full = false, className }) {
  * Fullscreen view of the files of one node: arrow keys or the buttons page through, Esc closes. On a Datei node the
  * shown file can be taken out of the node (it stays in the Library).
  */
-function Viewer({ ids, index, nodeId, onIndex, onClose }) {
+function Viewer({ ids, index, nodeId, field, onIndex, onClose }) {
   const { ctx, assets, removeAsset } = useContext(Actions)
   const list = ids.filter(id => assets[id])
   const at = Math.min(index, list.length - 1)
@@ -159,7 +159,7 @@ function Viewer({ ids, index, nodeId, onIndex, onClose }) {
         </>}</div>
         <div className="flex flex-wrap gap-2">
           {nodeId && <Button variant="outline" className="text-destructive" onClick={() => {
-            removeAsset(nodeId, asset.id)
+            removeAsset(nodeId, asset.id, field)
             if (list.length === 1) onClose(); else onIndex(Math.min(at, list.length - 2))
           }}><X/>Aus dem Knoten entfernen</Button>}
           <Button asChild variant="outline"><a href={mediaUrl(asset.id)} download className="no-underline"><Download/>Download</a></Button>
@@ -482,21 +482,22 @@ function References({ node, view }) {
  * The files of a Datei or Szene node. Each file shows Vollbild and Entfernen on hover or focus; a double-click opens the
  * fullscreen view, where the arrow keys page through all files of the node.
  */
-function AssetStrip({ node, single }) {
+function AssetStrip({ node, single, field = 'assetIds', label: title }) {
   const { ctx, pickAssets, uploadAssets, assets, openViewer, removeAsset } = useContext(Actions)
-  const ids = node.params?.assetIds ?? []
+  const ids = Array.isArray(node.params?.[field]) ? node.params[field] : []
   const shown = ids.filter(id => assets[id])
   const limit = shown.length > 8 ? 7 : 8
-  const open = index => openViewer({ ids: shown, index, nodeId: node.id })
+  const open = index => openViewer({ ids: shown, index, nodeId: node.id, field })
   const label = id => { const title = assets[id].title || 'Datei'; return title.length > 48 ? title.slice(0, 47) + '…' : title }
   const tile = (id, index, big) => <div key={id} className={cn('flow-file group/file relative overflow-hidden', big ? 'rounded-md bg-background' : 'rounded-[6px]')} onDoubleClick={() => open(index)}>
     <Media asset={assets[id]} ctx={ctx} full={big}/>
     <div className="nodrag absolute right-1 top-1 flex gap-1 opacity-0 transition-opacity group-hover/file:opacity-100 group-focus-within/file:opacity-100">
       {big && <Button variant="secondary" size="icon-sm" aria-label={`${label(id)} im Vollbild ansehen`} title="Vollbild (Doppelklick)" onClick={() => open(index)}><Maximize2/></Button>}
-      <Button variant="secondary" size={big ? 'icon-sm' : 'icon-xs'} aria-label={`${label(id)} aus dem Knoten entfernen`} title="Aus dem Knoten entfernen" onClick={() => removeAsset(node.id, id)}><X/></Button>
+      <Button variant="secondary" size={big ? 'icon-sm' : 'icon-xs'} aria-label={`${label(id)} aus dem Knoten entfernen`} title="Aus dem Knoten entfernen" onClick={() => removeAsset(node.id, id, field)}><X/></Button>
     </div>
   </div>
   return <>
+    {title && <span className="text-xs text-muted-foreground">{title}</span>}
     {shown.length === 1 ? tile(shown[0], 0, true)
       : shown.length > 1 && <div className="flow-thumbs [display:grid] grid-cols-4 gap-1">
         {shown.slice(0, limit).map((id, index) => tile(id, index, false))}
@@ -504,8 +505,8 @@ function AssetStrip({ node, single }) {
       </div>}
     {ids.length > shown.length && <p className="text-xs text-muted-foreground">{ids.length - shown.length === 1 ? 'Eine Datei gibt es nicht mehr in der Library.' : `${ids.length - shown.length} Dateien gibt es nicht mehr in der Library.`}</p>}
     <div className="nodrag flex flex-wrap gap-2">
-      <Button variant="outline" size="sm" onClick={() => pickAssets(node, single)}>{single ? (ids.length ? 'Startbild ändern' : 'Startbild wählen') : ids.length ? `${ids.length} gewählt · Ändern` : 'Aus der Library wählen'}</Button>
-      {!single && <Button variant="outline" size="sm" onClick={() => uploadAssets(node)}><Upload/>Hochladen</Button>}
+      <Button variant="outline" size="sm" onClick={() => pickAssets(node, single, field)}>{single ? (ids.length ? 'Startbild ändern' : 'Startbild wählen') : ids.length ? `${ids.length} gewählt · Ändern` : 'Aus der Library wählen'}</Button>
+      {!single && <Button variant="outline" size="sm" onClick={() => uploadAssets(node, field)}><Upload/>Hochladen</Button>}
       {shown.length > 1 && <Button variant="outline" size="sm" onClick={() => open(0)}><Maximize2/>Ansehen</Button>}
     </div>
   </>
@@ -734,6 +735,8 @@ function FlowNode({ id, data, selected }) {
             <NodeBody node={node} type={type}/>
             {node.type === 'director' && <IdeaPicker node={node}/>}
             {type.fields.filter(field => field.type === 'longtext').map(field => <LongField key={field.key} id={id} node={node} field={field}/>)}
+            {/* Files chosen in a setting other than a Datei or Szene node's own (a character sheet's outfit pictures). */}
+            {type.fields.filter(field => field.type === 'assets' && field.key !== 'assetIds').map(field => <div key={field.key} className="[display:grid] gap-2"><AssetStrip node={node} field={field.key} label={field.label}/></div>)}
             {type.prompt && <PromptField node={node} type={type} names={names}/>}
             {node.type === 'director' && <ShotList node={node} view={view}/>}
             {detail === 'full' && <References node={node} view={view}/>}
@@ -788,7 +791,7 @@ const boardSize = node => ({ width: Number(node.params?.width) || board.width, h
  * One item on a moodboard: a Library file, a note, a keyword or a colour. It moves with the pointer (screen distance
  * divided by the zoom) and is saved when let go; the last moved item lies on top.
  */
-function BoardItem({ node, item, lit, reference, onReference, onMove, onChange, onRemove, onOpen }) {
+function BoardItem({ node, item, lit, reference, onReference, choosing, onMove, onChange, onRemove, onOpen }) {
   const { ctx, assets } = useContext(Actions)
   const zoom = useViewportStore(store => store.transform[2])
   const [shift, setShift] = useState(null)
@@ -799,14 +802,24 @@ function BoardItem({ node, item, lit, reference, onReference, onMove, onChange, 
   // A note sizes itself by its text field, which can be pulled wider and taller; the size is kept in the item.
   const width = item.kind === 'file' ? Number(item.w) || board.file : item.kind === 'color' ? board.color : undefined
   // `lit`: true while a port of the board is hovered that carries this item, false for the other items.
-  return <div className={cn('flow-board-item', 'is-' + item.kind, shift && 'moving', lit === true && 'lit', lit === false && 'dim', reference && 'reference')} style={{ left: (item.x ?? 0) + (shift?.x ?? 0), top: (item.y ?? 0) + (shift?.y ?? 0), width }}
+  return <div className={cn('flow-board-item', 'is-' + item.kind, shift && 'moving', lit === true && 'lit', lit === false && 'dim', reference && 'reference',
+    choosing && (onReference ? 'choosable' : 'dim'))} style={{ left: (item.x ?? 0) + (shift?.x ?? 0), top: (item.y ?? 0) + (shift?.y ?? 0), width }}
     onPointerDown={event => { if (editable(event) || event.button !== 0) return; event.currentTarget.setPointerCapture(event.pointerId); start.current = { x: event.clientX, y: event.clientY }; setShift({ x: 0, y: 0 }) }}
     onPointerMove={event => { if (start.current) setShift({ x: (event.clientX - start.current.x) / zoom, y: (event.clientY - start.current.y) / zoom }) }}
-    onPointerUp={() => { if (!start.current) return; start.current = null; if (shift && (Math.abs(shift.x) > 2 || Math.abs(shift.y) > 2)) onMove(shift); setShift(null) }}
+    onPointerUp={() => {
+      if (!start.current) return
+      start.current = null
+      const moved = shift && (Math.abs(shift.x) > 2 || Math.abs(shift.y) > 2)
+      if (moved) onMove(shift)
+      // While choosing sketch references, a click (without moving) marks or unmarks a picture.
+      else if (choosing && onReference) onReference()
+      setShift(null)
+    }}
     onDoubleClick={event => { if (item.kind === 'file' && !editable(event)) onOpen() }}>
     {item.kind === 'file' && (assets[item.assetId] ? <Media asset={assets[item.assetId]} ctx={ctx}/> : <span className="flow-board-gone">Datei fehlt in der Library</span>)}
     {reference && <span className="flow-board-badge">Referenz</span>}
-    {onReference && <Button variant={reference ? 'default' : 'secondary'} size="icon-xs" className="flow-board-ref" aria-pressed={reference}
+    {choosing && onReference && <span className={cn('flow-board-check', reference && 'on')} aria-hidden="true">{reference && <Check className="size-4"/>}</span>}
+    {onReference && !choosing && <Button variant={reference ? 'default' : 'secondary'} size="icon-xs" className="flow-board-ref" aria-pressed={reference}
       aria-label={reference ? 'Nicht mehr als Referenz für die Skizzen nutzen' : 'Als Referenz für die Skizzen nutzen'} title={reference ? 'Referenz für die Skizzen: an' : 'Als Referenz für die Skizzen nutzen'} onClick={onReference}><Star/></Button>}
     {item.kind === 'note' && <textarea className="nowheel" aria-label="Notiz" placeholder="Notiz" maxLength={20000} value={text}
       style={{ width: Number(item.w) || board.note - 24, height: Number(item.h) || 96 }}
@@ -893,6 +906,7 @@ function BoardNode({ id, data, selected }) {
   const litOf = item => (peek?.nodeId === id && peek.side === 'out' && carried[peek.port] ? carried[peek.port](item) : undefined)
   // Pictures marked as references of the sketches (at most six); without marks the model picks them.
   const refs = Array.isArray(node.params?.sketchRefs) ? node.params.sketchRefs : []
+  const [choosing, setChoosing] = useState(false)
   const toggleRef = assetId => update(id, n => {
     const list = Array.isArray(n.params?.sketchRefs) ? n.params.sketchRefs : []
     return { ...n, params: { ...n.params, sketchRefs: list.includes(assetId) ? list.filter(other => other !== assetId) : [...list, assetId].slice(-6) } }
@@ -914,7 +928,7 @@ function BoardNode({ id, data, selected }) {
           <div className="flow-board nodrag nowheel" style={{ height }} aria-label="Moodboard-Fläche"
             data-board={id}>
             {!items.length && <p className="flow-board-empty">Zieh Bilder vom Mac hierher, füge sie mit ⌘V ein oder nutze die Leiste unten. Alles darf frei liegen, ohne Linien.</p>}
-            {items.map(item => <BoardItem key={item.id} node={node} item={item} lit={litOf(item)}
+            {items.map(item => <BoardItem key={item.id} node={node} item={item} lit={litOf(item)} choosing={choosing}
               reference={refs.includes(item.assetId)} onReference={item.kind === 'file' && kindOfItem(item) === 'image' ? () => toggleRef(item.assetId) : null}
               onMove={delta => setItems(list => [...list.filter(other => other.id !== item.id), { ...item, x: Math.round(Math.max(0, Math.min(width - 48, (item.x ?? 0) + delta.x))), y: Math.round(Math.max(0, Math.min(height - 32, (item.y ?? 0) + delta.y))) }])}
               onChange={fields => setItems(list => list.map(other => (other.id === item.id ? { ...other, ...fields } : other)))}
@@ -927,6 +941,11 @@ function BoardNode({ id, data, selected }) {
             <Button variant="ghost" size="sm" onClick={() => add({ kind: 'note', text: '' })}><Type/>Notiz</Button>
             <Button variant="ghost" size="sm" onClick={() => add({ kind: 'word', text: '' })}><AtSign/>Stichwort</Button>
             <Button variant="ghost" size="sm" onClick={() => add({ kind: 'color', color: '#8A6A4F' })}><Palette/>Farbe</Button>
+            <span className="mx-1 h-5 w-px bg-border" aria-hidden="true"/>
+            <Button variant={choosing ? 'default' : 'outline'} size="sm" aria-pressed={choosing} onClick={() => setChoosing(!choosing)}>
+              <Star/>{choosing ? `Fertig · ${refs.length} gewählt` : refs.length ? `Skizzen-Referenzen: ${refs.length}` : 'Bilder für Skizzen wählen'}</Button>
+            {choosing && <span className="text-xs text-muted-foreground">Klick auf die Bilder, an denen sich die Skizzen orientieren sollen (höchstens sechs).</span>}
+            {choosing && refs.length > 0 && <Button variant="ghost" size="sm" onClick={() => update(id, n => ({ ...n, params: { ...n.params, sketchRefs: [] } }))}>Auswahl leeren</Button>}
           </div>
           <BaseNodeContent className="border-t">
             <Guidance node={node} refs={refs.length}/>
@@ -1289,7 +1308,7 @@ function Canvas({ ctx, project, doc: current, docs, record, types, page = 'flows
   async function pick(nodeId, index) {
     try { setView(await flowsApi(base + '/nodes/' + nodeId + '/pick', 'POST', { index })) } catch (e) { setError(e.message) }
   }
-  function pickAssets(node, single = false) { setPicker({ id: node.id, single, board: node.type === 'moodboard' }) }
+  function pickAssets(node, single = false, field = 'assetIds') { setPicker({ id: node.id, single, field, board: node.type === 'moodboard' }) }
   /**
    * Pins Library files on a moodboard: from `at` (board pixels) in a cascade, otherwise in the next free grid places.
    * The board grows when they would fall below it.
@@ -1323,13 +1342,13 @@ function Canvas({ ctx, project, doc: current, docs, record, types, page = 'flows
     }
     return created
   }
-  function uploadAssets(node) {
+  function uploadAssets(node, field = 'assetIds') {
     const input = Object.assign(document.createElement('input'), { type: 'file', multiple: true, accept: 'image/*,video/*,audio/mpeg,audio/wav' })
     input.onchange = async () => {
       const created = await storeFiles(input.files)
       if (!created.length) return
       if (node.type === 'moodboard') addToBoard(node.id, created.map(item => item.id))
-      else update(node.id, n => ({ ...n, params: { ...n.params, assetIds: [...(n.params?.assetIds ?? []), ...created.map(item => item.id)].slice(0, 24) } }))
+      else update(node.id, n => ({ ...n, params: { ...n.params, [field]: [...(Array.isArray(n.params?.[field]) ? n.params[field] : []), ...created.map(item => item.id)].slice(0, 24) } }))
     }
     input.click()
   }
@@ -1707,7 +1726,7 @@ function Canvas({ ctx, project, doc: current, docs, record, types, page = 'flows
     }
     change(d => ({ nodes: d.nodes.map(node => { if (!placed.has(node.id)) return node; const { parentId, ...rest } = node; return { ...rest, ...placed.get(node.id) } }) }), true)
   }
-  const removeAsset = (nodeId, assetId) => update(nodeId, n => ({ ...n, params: { ...n.params, assetIds: (n.params?.assetIds ?? []).filter(id => id !== assetId) } }))
+  const removeAsset = (nodeId, assetId, field = 'assetIds') => update(nodeId, n => ({ ...n, params: { ...n.params, [field]: (Array.isArray(n.params?.[field]) ? n.params[field] : []).filter(id => id !== assetId) } }))
   const actions = { ctx, focusFrame, assets: view.assets, edges: doc.edges, update, remove, duplicate, run, pick, pickAssets, uploadAssets, mentionNames, portMenu,
     renaming, setRenaming, rename, copyNodes, pasteNodes, focusNode, openViewer: setViewer, removeAsset, toggleAsset, assetNames, spawnScenes, sceneCount, ideas, peek, setPeek }
 
@@ -1797,10 +1816,10 @@ function Canvas({ ctx, project, doc: current, docs, record, types, page = 'flows
           onUpload: () => uploadAssets(addNode(typeOf.get('library'), menu.position, menu.filter)),
           onLibrary: () => pickAssets(addNode(typeOf.get('library'), menu.position, menu.filter)),
         })}/>}
-      {picker && <AssetPicker ctx={ctx} project={project} single={picker.single} initial={picker.board ? [] : state.data.nodes.find(n => n.id === picker.id)?.params?.assetIds ?? []} onClose={() => setPicker(null)}
-        onDone={ids => { if (picker.board) addToBoard(picker.id, ids); else update(picker.id, n => ({ ...n, params: { ...n.params, assetIds: ids } })); setPicker(null) }}/>}
+      {picker && <AssetPicker ctx={ctx} project={project} single={picker.single} initial={picker.board ? [] : state.data.nodes.find(n => n.id === picker.id)?.params?.[picker.field ?? 'assetIds'] ?? []} onClose={() => setPicker(null)}
+        onDone={ids => { if (picker.board) addToBoard(picker.id, ids); else update(picker.id, n => ({ ...n, params: { ...n.params, [picker.field ?? 'assetIds']: ids } })); setPicker(null) }}/>}
       {peek && <PortCard peek={peek} shell={shell} doc={doc} view={view} typeOf={typeOf} implied={implicitAll}/>}
-      {viewer && <Viewer {...viewer} ids={viewer.nodeId ? (state.data.nodes.find(n => n.id === viewer.nodeId)?.params?.assetIds ?? []) : viewer.ids}
+      {viewer && <Viewer {...viewer} ids={viewer.nodeId ? (state.data.nodes.find(n => n.id === viewer.nodeId)?.params?.[viewer.field ?? 'assetIds'] ?? []) : viewer.ids}
         onIndex={index => setViewer({ ...viewer, index })} onClose={() => setViewer(null)}/>}
       {confirm && <Confirm steps={confirm.steps} onNo={() => setConfirm(null)} onYes={() => confirm.start().catch(e => setError(e.message))}/>}
     </div>

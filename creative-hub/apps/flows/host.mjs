@@ -177,12 +177,19 @@ async function describe(registry) {
 }
 
 /**
- * Adds the Library entries behind every media value of the view, so the editor can show previews without
- * a request per asset. Entries deleted from the Library are left out.
+ * Adds the Library entries behind every media value of the view and every file chosen in a node's settings
+ * (`canvasNodes`), so the editor can show previews without a request per asset. Entries deleted from the Library are
+ * left out.
  * @returns {{ nodes: object, assets: Record<string, object> }}
  */
-function withAssets(store, nodes) {
+function withAssets(store, nodes, canvasNodes = []) {
   const ids = new Set()
+  // Files chosen in a node's settings (a character sheet's outfit pictures, `…Ids`) are shown as well.
+  for (const node of canvasNodes) {
+    for (const [key, value] of Object.entries(node.params ?? {})) {
+      if (/Ids$/.test(key) && Array.isArray(value)) for (const id of value) if (typeof id === 'string') ids.add(id)
+    }
+  }
   for (const view of Object.values(nodes)) {
     for (const outputs of [view.outputs, ...(view.history ?? []).map(entry => entry.outputs)]) {
       for (const [port, values] of Object.entries(outputs ?? {})) {
@@ -197,7 +204,6 @@ function withAssets(store, nodes) {
   return { nodes, assets }
 }
 
-/** HTTP handler for the routes listed in the module comment. */
 /** A document's entry with the number of nodes and up to four pictures for its card. */
 function summary(store, projectId, doc, state) {
   const nodes = store.appData(projectId, docKey(doc.id)).data.nodes ?? []
@@ -280,7 +286,8 @@ export function createHandler(store, registry, engine) {
       if (scoped) {
         const [, projectId, docId = 'flow', action, nodeId] = scoped
         if (docId !== 'flow') getDoc(store, projectId, docId)
-        if (method === 'GET' && action === '/state') return json({ ...withAssets(store, engine.view(projectId, docId)), projectAssets: engine.foreignAssets(projectId, docId) })
+        const canvas = () => store.appData(projectId, docKey(docId)).data.nodes ?? []
+        if (method === 'GET' && action === '/state') return json({ ...withAssets(store, engine.view(projectId, docId), canvas()), projectAssets: engine.foreignAssets(projectId, docId) })
         if (method === 'POST' && action === '/run') {
           const body = await readBody(req)
           const valid = id => typeof id === 'string' && idPattern.test(id)
@@ -292,7 +299,7 @@ export function createHandler(store, registry, engine) {
           const { index } = await readBody(req)
           if (!Number.isInteger(index)) throw new InputError('Wähle ein Ergebnis aus dem Verlauf.')
           engine.pick(projectId, nodeId, index, docId)
-          return json({ ...withAssets(store, engine.view(projectId, docId)), projectAssets: engine.foreignAssets(projectId, docId) })
+          return json({ ...withAssets(store, engine.view(projectId, docId), canvas()), projectAssets: engine.foreignAssets(projectId, docId) })
         }
       }
       const boards = new RegExp(`^/projects/(${uuid})/import-boards$`).exec(path)
