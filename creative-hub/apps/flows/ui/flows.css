@@ -122,6 +122,17 @@
 .flow-edge.kind-audio path { stroke: var(--c-port-audio); }
 .flow-edge path.react-flow__edge-path { stroke-width: 2; }
 .flow-edge.selected path.react-flow__edge-path { stroke-width: 3; }
+/* Implicit links of mentioned project assets: dashed, thin, never selected. */
+.flow-edge.implicit path.react-flow__edge-path { stroke-width: 1.5; stroke-dasharray: 4 6; opacity: .7; }
+/* A project asset's name in the node header: one quiet pill, readable as the @name it is mentioned by. */
+.flow-asset { padding: 0 var(--s-2); border-radius: 9999px; background: var(--c-fill-2); color: var(--c-ink); font-weight: 500; line-height: 22px; }
+/* Text answers and shot lists inside run nodes. */
+.flow-answer { max-height: 192px; overflow: auto; padding: var(--s-3) var(--s-4) var(--s-3) var(--s-3); border-radius: var(--r-ctl); background: var(--c-bg); color: var(--c-ink); font-size: var(--fs-meta); line-height: var(--lh-meta); white-space: pre-wrap; user-select: text; cursor: text; }
+.flow-shots { display: grid; max-height: 264px; gap: var(--s-2); overflow: auto; margin: 0; padding: 0; list-style: none; counter-reset: none; user-select: text; }
+.flow-shots li { display: grid; gap: 2px; padding: var(--s-2) var(--s-3); border-radius: var(--r-ctl); background: var(--c-bg); font-size: var(--fs-meta); line-height: var(--lh-meta); }
+.flow-shot-head { display: flex; justify-content: space-between; gap: var(--s-2); }
+.flow-shot-head b { font-weight: 500; }
+.flow-shot-head span { color: var(--c-ink-3); white-space: nowrap; }
 
 .flow-frame { position: relative; width: 100%; height: 100%; box-sizing: border-box; border: 2px solid var(--c-fill-3); border-radius: var(--r-tile); background: var(--c-tint); }
 .flow-frame.active { border-color: var(--c-ink-3); }

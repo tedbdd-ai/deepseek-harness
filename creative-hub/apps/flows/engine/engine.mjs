@@ -9,6 +9,9 @@
 import { createHash } from 'node:crypto'
 import { InputError } from '../../../store.mjs'
 import { absolute, adoptIntoFrames } from './frames.mjs'
+import { implicitEdges, mentionPattern, nodeName, textHandle } from './mentions.mjs'
+
+export { nodeName }
 
 const keepHistory = 8
 const kinds = ['text', 'image', 'video', 'audio']
@@ -23,25 +26,28 @@ export function readingOrder(nodes) {
   return [...nodes].sort((a, b) => (a[first] - b[first]) || (a[second] - b[second]))
 }
 
-/** Display name of a node: its own name or the title of its type. */
-export const nodeName = (node, type) => String(node.name ?? '').trim() || type?.title || 'Knoten'
-
 /**
- * Replaces `@Name` mentions of connected nodes with the reference marks the model understands (`@Bild1`, `@Image2` …).
+ * Replaces `@Name` mentions with what the model understands: the reference marks of the node's files (`@Bild1`,
+ * `@Image2` …), the text of a text asset (`@Look`), or both as „text (@Bild1, @Bild2)“.
  * @param {string} text prompt or incoming text.
  * @param {{ mark: string, name: string }[]} refs marks of the values on the node's inputs.
- * @param {string[]} names names of all nodes in the flow that carry media; mentioning one that is not connected fails.
+ * @param {string[]} names names that may be mentioned; mentioning one that reaches this node neither by line nor as
+ *   project asset fails.
+ * @param {Record<string, string>} [texts] text of the text assets that reach this node, by name.
  * @returns {string} the text with marks.
  */
-export function resolveMentions(text, refs, names) {
-  const all = [...new Set([...refs.map(ref => ref.name), ...names])].sort((a, b) => b.length - a.length)
+export function resolveMentions(text, refs, names, texts = {}) {
+  const all = [...new Set([...refs.map(ref => ref.name), ...names, ...Object.keys(texts)])].sort((a, b) => b.length - a.length)
   let result = text
   for (const name of all) {
-    const pattern = new RegExp('@' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![\\p{L}\\p{N}_])', 'giu')
+    const pattern = mentionPattern(name)
     if (!pattern.test(result)) continue
-    const marks = refs.filter(ref => ref.name.toLocaleLowerCase('de') === name.toLocaleLowerCase('de')).map(ref => ref.mark)
-    if (!marks.length) throw new InputError(`„${name}“ ist nicht mit diesem Knoten verbunden. Verbinde den Knoten oder entferne @${name} aus dem Text.`)
-    result = result.replace(pattern, marks.join(', '))
+    const same = item => item.toLocaleLowerCase('de') === name.toLocaleLowerCase('de')
+    const marks = refs.filter(ref => same(ref.name)).map(ref => ref.mark)
+    const said = Object.entries(texts).find(([key]) => same(key))?.[1]
+    if (!marks.length && !said) throw new InputError(`„${name}“ ist nicht mit diesem Knoten verbunden. Verbinde den Knoten, lege ihn als Projekt-Asset fest oder entferne @${name} aus dem Text.`)
+    const value = said && marks.length ? `${said} (${marks.join(', ')})` : said || marks.join(', ')
+    result = result.replace(mentionPattern(name), () => value)
   }
   return result
 }
@@ -74,7 +80,13 @@ export function createEngine(store, registry) {
     const data = store.appData(projectId, 'flow').data
     const doc = { nodes: Array.isArray(data.nodes) ? data.nodes : [], edges: Array.isArray(data.edges) ? data.edges : [] }
     // Flows saved before frames were sub-flows have no `parentId`; read them the same way the editor shows them.
-    return adoptIntoFrames(doc, node => Boolean(registry.node(node.type)?.contains)).doc
+    const framed = adoptIntoFrames(doc, node => Boolean(registry.node(node.type)?.contains)).doc
+    // Mentions of project assets count as lines for ordering, planning and staleness.
+    return { ...framed, edges: [...framed.edges, ...implicitEdges(framed, typeOf)] }
+  }
+  function typeOf(name) {
+    const type = registry.node(name)
+    return type && { ...type, runs: Boolean(type.run) }
   }
 
   function live(projectId, state, nodeId) {
@@ -111,7 +123,9 @@ export function createEngine(store, registry) {
   /**
    * Values arriving at each input of `node`. Several edges on one input are ordered by the source nodes' reading order.
    * Inputs with a `mark` number their values per mark (`@Bild1`, `@Bild2` …) in input order; `refs` lists them.
-   * @returns {{ inputs: Record<string, string[]>, missing: string[], refs: { mark: string, nodeId: string, name: string, value: string }[] }}
+   * Text assets mentioned in the prompt arrive in `texts` by name; when there are any, `inputs._texts` carries them too,
+   * so a changed asset text marks the result stale.
+   * @returns {{ inputs: Record<string, string[]>, missing: string[], refs: { mark: string, nodeId: string, name: string, value: string }[], texts: Record<string, string> }}
    *   `missing` lists upstream nodes without a result.
    */
   function inputsOf(projectId, doc, state, node) {
@@ -140,12 +154,21 @@ export function createEngine(store, registry) {
         }
       }
     }
-    return { inputs, missing, refs }
+    const texts = {}
+    for (const edge of doc.edges.filter(item => item.target === node.id && item.targetHandle === textHandle && byId.has(item.source))) {
+      const source = byId.get(edge.source)
+      const outputs = outputsOf(projectId, doc, state, source)
+      if (!outputs) { missing.push(edge.source); continue }
+      const said = (outputs[edge.sourceHandle] ?? []).join('\n').trim()
+      if (said) texts[nodeName(source, registry.node(source.type))] = said
+    }
+    if (Object.keys(texts).length) inputs._texts = Object.entries(texts).map(([name, said]) => name + ': ' + said)
+    return { inputs, missing, refs, texts }
   }
 
-  /** Names of all nodes that carry media, for checking `@` mentions. */
+  /** Names of all nodes that carry media and of all project assets, for checking `@` mentions. */
   function mediaNames(doc) {
-    return doc.nodes.filter(node => registry.node(node.type)?.outputs.some(port => port.kind !== 'text'))
+    return doc.nodes.filter(node => node.asset || registry.node(node.type)?.outputs.some(port => port.kind !== 'text'))
       .map(node => nodeName(node, registry.node(node.type)))
   }
 
@@ -242,24 +265,27 @@ export function createEngine(store, registry) {
     const started = Date.now()
     try {
       const state = readState(projectId)
-      const { inputs, missing, refs } = inputsOf(projectId, doc, state, node)
+      const { inputs, missing, refs, texts } = inputsOf(projectId, doc, state, node)
       if (missing.length) {
         const names = missing.map(id => registry.node(doc.nodes.find(n => n.id === id)?.type)?.title ?? 'Knoten')
         throw new InputError(`Führe zuerst ${[...new Set(names)].map(name => '„' + name + '“').join(', ')} aus.`)
       }
       for (const port of type.inputs) if (port.required && !inputs[port.id].length) throw new InputError(`Verbinde den Eingang „${port.label}“.`)
       const key = keyOf(node, inputs)
-      // Mentions are resolved only on nodes that number references; elsewhere `@Name` stays text.
+      // File mentions are resolved only on nodes that number references; text assets are put in everywhere.
       let prompt = node.prompt ?? ''
-      if (type.inputs.some(port => port.mark)) {
-        const names = mediaNames(doc)
-        prompt = resolveMentions(prompt, refs, names)
-        for (const port of type.inputs) if (port.kind === 'text') inputs[port.id] = inputs[port.id].map(text => resolveMentions(text, refs, names))
+      const marked = type.inputs.some(port => port.mark)
+      if (marked || Object.keys(texts).length) {
+        const names = marked ? mediaNames(doc) : []
+        prompt = resolveMentions(prompt, refs, names, texts)
+        for (const port of type.inputs) if (port.kind === 'text') inputs[port.id] = inputs[port.id].map(text => resolveMentions(text, refs, names, texts))
       }
+      delete inputs._texts
+      const assets = doc.nodes.filter(item => item.asset && item.id !== node.id).map(item => nodeName(item, registry.node(item.type)))
       patch(projectId, nodeId, () => ({ status: 'running', startedAt: new Date(started).toISOString(), error: undefined }))
-      const result = await type.run({ inputs, params: node.params ?? {}, prompt, projectId, stopped: () => stopped })
+      const result = await type.run({ inputs, params: node.params ?? {}, prompt, projectId, assets, stopped: () => stopped })
       patch(projectId, nodeId, entry => {
-        const done = { outputs: result.outputs, credits: result.credits ?? null, at: new Date().toISOString(), key }
+        const done = { outputs: result.outputs, ...(result.data !== undefined && { data: result.data }), credits: result.credits ?? null, at: new Date().toISOString(), key }
         return { status: 'done', ...done, ms: Date.now() - started, error: undefined, history: [done, ...(entry.history ?? [])].slice(0, keepHistory) }
       })
       return true
@@ -316,7 +342,7 @@ export function createEngine(store, registry) {
           const { inputs, refs } = inputsOf(projectId, doc, state, node)
           const stale = entry.status === 'done' && entry.key !== keyOf(node, inputs)
           const warnings = type.check ? type.check({ inputs, params: node.params ?? {} }) : []
-          nodes[node.id] = { status: entry.status, outputs: entry.outputs ?? null, stale, refs, warnings, error: entry.error, credits: entry.credits, ms: entry.ms, startedAt: entry.startedAt, history: entry.history ?? [] }
+          nodes[node.id] = { status: entry.status, outputs: entry.outputs ?? null, data: entry.data, stale, refs, warnings, error: entry.error, credits: entry.credits, ms: entry.ms, startedAt: entry.startedAt, history: entry.history ?? [] }
         } catch (error) {
           nodes[node.id] = { status: 'failed', outputs: null, stale: false, error: failureText(error) }
         }
@@ -329,7 +355,7 @@ export function createEngine(store, registry) {
       const chosen = entry?.history?.[index]
       if (!chosen) throw new InputError('Dieses Ergebnis ist nicht mehr im Verlauf.', 404)
       if (active.get(projectId)?.has(nodeId)) throw new InputError('Der Knoten läuft gerade.', 409)
-      patch(projectId, nodeId, () => ({ outputs: chosen.outputs, credits: chosen.credits, at: chosen.at, key: chosen.key }))
+      patch(projectId, nodeId, () => ({ outputs: chosen.outputs, data: chosen.data, credits: chosen.credits, at: chosen.at, key: chosen.key }))
       return this.view(projectId)
     },
   }

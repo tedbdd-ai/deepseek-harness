@@ -17,7 +17,8 @@ import * as schnittPlugin from './apps/schnitt/host.mjs'
 import * as llmPlugin from './nodes/llm/host.mjs'
 import { templates } from './apps/flows/engine/templates.mjs'
 import { absolute, adoptIntoFrames } from './apps/flows/engine/frames.mjs'
-import { llmNode } from './nodes/llm/host.mjs'
+import { directorNode, llmNode, parseJson, styleNode } from './nodes/llm/host.mjs'
+import { implicitEdges } from './apps/flows/engine/mentions.mjs'
 import { openStore } from './store.mjs'
 import { createHarness } from './test-harness.mjs'
 
@@ -377,7 +378,7 @@ test('the video node warns about a start frame next to sound and about a clip sh
   assert.deepEqual(node.check({ inputs: { ...empty, start: ['bild'], audio: ['ton'] }, params: { modelId: 'kling' } }), [])
 })
 
-test('every template fits the registered node types, connects what its prompts mention and fills its moodboard', async () => {
+test('every template fits the registered node types, connects or registers as asset what its prompts mention and fills its moodboard', async () => {
   const harness = createHarness()
   harness.mount(core, { databasePath: ':memory:' })
   for (const plugin of [flows, playgroundPlugin, videoPlugin, schnittPlugin, llmPlugin]) harness.mount(plugin)
@@ -398,7 +399,7 @@ test('every template fits the registered node types, connects what its prompts m
         if (!text.includes('@' + name)) continue
         text = text.replaceAll('@' + name, '')
         const source = nodes.find(item => item.name === name)
-        assert.ok(edges.some(edge => edge.source === source.key && edge.target === node.key), `${template.id}: ${node.key} nennt @${name} ohne Verbindung`)
+        assert.ok(source.asset || edges.some(edge => edge.source === source.key && edge.target === node.key), `${template.id}: ${node.key} nennt @${name} ohne Verbindung`)
       }
     }
   }
@@ -407,7 +408,10 @@ test('every template fits the registered node types, connects what its prompts m
   const outfit = store.createAsset({ library: 'clips', title: 'Mantel', mediaType: 'image/png', media: png.toString('base64'), projectId: project }).id
   store.editTags({ ids: [outfit], add: ['Outfit'] })
   const inserted = await harness.json('POST', `/creativity-flows/api/projects/${project}/templates`, { templateId: 'kurzfilm', revision: 0 }, 201)
-  assert.equal(inserted.added, 27)
+  assert.equal(inserted.added, 28)
+  const regie = inserted.record.data.nodes.find(node => node.type === 'director')
+  assert.deepEqual(inserted.record.data.nodes.filter(node => node.type === 'scene').map(node => node.params.from), [regie.id, regie.id, regie.id], 'die Beispielszenen gehören zur Regie')
+  assert.deepEqual(inserted.record.data.nodes.filter(node => node.asset).map(node => node.name).sort(), ['Figur', 'Figuren', 'Look', 'Orte', 'Outfits', 'Set'])
   assert.deepEqual(inserted.skipped, [])
   const outfits = inserted.record.data.nodes.find(node => node.name === 'Outfits')
   assert.deepEqual(outfits.params.assetIds, [outfit])
@@ -451,4 +455,73 @@ test('the Flows editor never uses class names that the hub stylesheet also defin
       .filter(token => new RegExp(`(className=|cn\\()[^\\n]*["'\`\\s]${token}["'\`\\s]`).test(readFileSync(file, 'utf8')))
     assert.deepEqual(clash, [], `${file} nutzt Hub-Klassen: ${clash.join(', ')}`)
   }
+})
+
+test('project assets reach every prompt that mentions them, without a line: files as marks, text in place', async () => {
+  const { store, registry, project, save } = setup()
+  const seen = []
+  registry.register({ type: 'probe', title: 'Probe', group: 'image', icon: 'image', prompt: true,
+    inputs: [{ id: 'prompt', kind: 'text', label: 'Prompt', multiple: true }, { id: 'start', kind: 'image', label: 'Start', mark: 'Bild' }, { id: 'refs', kind: 'image', label: 'Referenzen', multiple: true, mark: 'Bild' }],
+    outputs: [{ id: 'image', kind: 'image', label: 'Bild' }],
+    run: async ({ inputs, prompt }) => { seen.push({ prompt, text: inputs.prompt, refs: inputs.refs, keys: Object.keys(inputs) }); return { outputs: { image: inputs.refs } } } })
+  registry.register({ type: 'looker', title: 'Look', group: 'text', icon: 'text', prompt: true,
+    inputs: [], outputs: [{ id: 'text', kind: 'text', label: 'Look' }], run: async ({ prompt }) => ({ outputs: { text: [prompt] } }) })
+  const a = store.createAsset({ library: 'clips', title: 'A', mediaType: 'image/png', media: png.toString('base64') }).id
+  save({ nodes: [
+    { id: 'figur', type: 'library', name: 'Figur', asset: true, x: 0, y: 0, params: { assetIds: [a] } },
+    { id: 'look', type: 'looker', name: 'Look', asset: true, x: 0, y: 300, prompt: 'Analoger Film' },
+    { id: 'szene', type: 'scene', x: 400, y: 0, prompt: '@Figur geht durch den Flur.' },
+    { id: 'p', type: 'probe', x: 800, y: 0, prompt: 'Im Stil @Look.' },
+    { id: 'fremd', type: 'probe', x: 800, y: 600, prompt: 'Ohne Bezug.' },
+  ], edges: [edge('szene', 'text', 'p', 'prompt')] })
+  const typeOf = name => { const type = registry.node(name); return type && { ...type, runs: Boolean(type.run) } }
+  assert.deepEqual(implicitEdges(store.appData(project, 'flow').data, typeOf).map(item => [item.source, item.sourceHandle, item.target, item.targetHandle]),
+    [['figur', 'image', 'p', 'refs'], ['look', 'text', 'p', '@text']], 'die Szene trägt @Figur, der eigene Prompt @Look; Startbild bleibt frei')
+  const engine = createEngine(store, registry)
+  assert.deepEqual(engine.plan(project, 'p', 'upstream').map(step => step.id), ['look', 'p'], 'das Asset ohne Ergebnis läuft vorher')
+  engine.run(project, 'p', 'upstream')
+  await until(() => engine.view(project).p.status === 'done')
+  assert.deepEqual(seen[0].refs, [a])
+  assert.deepEqual(seen[0].text, ['@Bild1 geht durch den Flur.'])
+  assert.equal(seen[0].prompt, 'Im Stil Analoger Film.')
+  assert.ok(!seen[0].keys.includes('_texts'), 'der Look-Text geht nicht als Eingang an den Knoten')
+  assert.equal(engine.view(project).p.stale, false)
+  save({ ...store.appData(project, 'flow').data, nodes: store.appData(project, 'flow').data.nodes.map(node => node.id === 'look' ? { ...node, prompt: 'Neon' } : node) })
+  engine.run(project, 'look')
+  await until(() => engine.view(project).look.status === 'done' && engine.view(project).look.outputs.text[0] === 'Neon')
+  assert.equal(engine.view(project).p.stale, true, 'ein neuer Look macht das Ergebnis veraltet')
+  assert.equal(engine.view(project).fremd.stale, false)
+  store.close()
+})
+
+test('Style-DNA condenses a moodboard into a look text and key images; Regie returns shots and assets as data', async () => {
+  const store = openStore(':memory:')
+  const images = ['A', 'B', 'C', 'D'].map(title => store.createAsset({ library: 'clips', title, mediaType: 'image/png', media: png.toString('base64') }).id)
+  const answers = []
+  const calls = []
+  const providers = {
+    list: async () => [{ id: 'litellm', title: 'LiteLLM', capabilities: ['chat'], chatImages: true, chatFiles: false, secrets: [{ configured: true }] }],
+    call: async (id, action, input) => { calls.push(input); return { text: answers.shift() } },
+  }
+  assert.deepEqual(parseJson('Hier: ```json\n{"a": 1}\n``` fertig'), { a: 1 })
+  assert.equal(parseJson('kein JSON'), null)
+  const dna = styleNode(providers, store)
+  answers.push('{"look": "Kaltes Klinikweiß.", "light": "hart", "camera": "35 mm, Korn", "palette": "#B3122E", "materials": "Latex", "keyImages": [4, 2, 9]}')
+  const look = await dna.run({ inputs: { text: ['Farbe #B3122E'], images }, params: {}, prompt: '' })
+  assert.deepEqual(look.outputs.image, [images[3], images[1]], 'nur gültige Nummern, in der Reihenfolge des Modells')
+  assert.equal(look.outputs.text[0], 'Kaltes Klinikweiß.\nLicht: hart\nKamera: 35 mm, Korn\nPalette: #B3122E\nMaterial: Latex')
+  assert.match(calls[0].prompt, /Farbe #B3122E/)
+  answers.push('Leider nein.')
+  await assert.rejects(dna.run({ inputs: { text: [], images }, params: {}, prompt: '' }), /keinen lesbaren Look/)
+  const director = directorNode(providers, store)
+  answers.push(JSON.stringify({ shots: [{ title: 'Erwachen', duration: 30, shot: 'Totale', prompt: '@Figur wacht auf.', motion: 'Kamera steht.' }, { title: '', duration: 'x', prompt: '@Figur geht.' }, { title: 'leer' }],
+    assets: [{ name: '@Figur', kind: 'figur', description: 'Frau' }, { name: 'Tür', kind: 'tür' }] }))
+  const plan = await director.run({ inputs: { prompt: ['Story'], images: [] }, params: {}, prompt: 'Drei Einstellungen.', assets: ['Figur', 'Look'] })
+  assert.match(calls.at(-1).prompt, /Projekt-Assets: @Figur, @Look/)
+  assert.deepEqual(plan.data.shots.map(shot => [shot.title, shot.duration]), [['Erwachen', 15], ['Einstellung 2', 5]])
+  assert.deepEqual(plan.data.assets, [{ name: 'Figur', kind: 'figur', description: 'Frau' }, { name: 'Tür', kind: 'requisite', description: '' }])
+  assert.equal(plan.outputs.text[0], '1. Erwachen (15 s, Totale): @Figur wacht auf. Bewegung: Kamera steht.\n2. Einstellung 2 (5 s): @Figur geht.')
+  answers.push('{"shots": []}')
+  await assert.rejects(director.run({ inputs: { prompt: ['Story'], images: [] }, params: {}, prompt: '' }), /keine lesbare Shotliste/)
+  store.close()
 })

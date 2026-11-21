@@ -17,50 +17,62 @@ const color = (key, name, x, y, value) => ({ key, type: 'color', name, x, y, par
 const scene = (key, name, x, y, prompt, duration) => ({ key, type: 'scene', name, x, y, prompt, params: { duration: String(duration) } })
 const link = (source, sourceHandle, target, targetHandle) => ({ source, sourceHandle, target, targetHandle })
 
-/** Moodboard phase: look, colours and references from the Library. */
+/**
+ * Moodboard phase: a free container without lines (notes, colours, references from the Library), and beside it the
+ * Style-DNA that condenses the frame into the project asset @Look. Outfits, places and figures are project assets too.
+ */
 function moodboard(x, y) {
   return {
     nodes: [
       frame('mood', '1 · Moodboard', x, y, 4 * W + 64, 880),
-      note('look', 'Look', x + 32, y + 72, 'Analoger Film, sichtbares Korn, harte Schatten. Glänzendes Latex gegen kalte Klinikfliesen, einzelne Neonakzente. Ruhige, lange Einstellungen.'),
+      note('notiz', 'Notizen', x + 32, y + 72, 'Analoger Film, sichtbares Korn, harte Schatten. Glänzendes Latex gegen kalte Klinikfliesen, einzelne Neonakzente. Ruhige, lange Einstellungen.'),
       color('rot', 'Akzent', x + 32, y + 432, '#B3122E'),
       color('kalt', 'Grundton', x + 32 + W, y + 432, '#5E7A82'),
-      files('outfits', 'Outfits', x + 32 + W, y + 72, 'Outfit', 4),
-      files('orte', 'Orte', x + 32 + 2 * W, y + 72, 'Location', 4),
-      files('figuren', 'Figuren', x + 32 + 3 * W, y + 72, 'Person', 4),
+      { ...files('outfits', 'Outfits', x + 32 + W, y + 72, 'Outfit', 4), asset: true },
+      { ...files('orte', 'Orte', x + 32 + 2 * W, y + 72, 'Location', 4), asset: true },
+      { ...files('figuren', 'Figuren', x + 32 + 3 * W, y + 72, 'Person', 4), asset: true },
+      { key: 'look', type: 'style-dna', name: 'Look', asset: true, x: x + 4 * W + 160, y: y + 72, prompt: '' },
     ],
-    edges: [],
+    edges: [link('mood', 'image', 'look', 'images'), link('mood', 'text', 'look', 'text')],
   }
 }
+/** Width the moodboard phase takes, Style-DNA included. */
+const moodWidth = 5 * W + 160
 
-/** Storyboard phase: story, a scene list written by the LLM from story and look, and three scenes. */
+/**
+ * Storyboard phase: the story goes to Regie, which writes the shot list from it and @Look; „Szenen anlegen“ turns the
+ * shots into the scenes beside it. The three scenes here are examples that Regie updates.
+ */
 function storyboard(x, y, mood = true) {
+  const look = mood ? ' Halte dich an @Look.' : ''
   return {
     nodes: [
-      frame('story', '2 · Storyboard', x, y, 4 * W + 64, 880),
+      frame('story', '2 · Storyboard', x, y, 5 * W + 64, 880),
       note('idee', 'Story', x + 32, y + 72, 'Eine Frau im schwarzen Latexmantel wacht in einer verlassenen Klinik auf. Sie folgt einem flackernden Neonlicht durch den Flur und spricht am Ende direkt in die Kamera.'),
-      { key: 'szenenliste', type: 'llm', name: 'Szenenliste', x: x + 32, y: y + 432,
-        prompt: 'Teile die Story in drei Einstellungen von je 5 bis 10 Sekunden. Nenne pro Einstellung Bildausschnitt, Bewegung und Licht in einem Satz. Halte dich an den Look.' },
-      scene('s1', 'Erwachen', x + 32 + W, y + 72, 'Totale: Sie liegt auf einer Metallliege im Klinikraum und richtet sich langsam auf. Kaltes Licht, Staub in der Luft.', 6),
-      scene('s2', 'Flur', x + 32 + 2 * W, y + 72, 'Halbnahe Kamerafahrt rückwärts: Sie geht den gefliesten Flur entlang, ein Neonrohr flackert über ihr.', 8),
-      scene('s3', 'Ansprache', x + 32 + 3 * W, y + 72, 'Nahaufnahme: Sie bleibt stehen, sieht in die Kamera und spricht. Gegenlicht aus der offenen Tür.', 10),
-    ],
-    edges: [link('idee', 'text', 'szenenliste', 'prompt'), ...(mood ? [link('look', 'text', 'szenenliste', 'prompt'), link('mood', 'image', 'szenenliste', 'images')] : [])],
+      { key: 'regie', type: 'director', name: 'Regie', x: x + 32, y: y + 432,
+        // Regie gets the names of all project assets (@Figur, @Set …) with its request; mentioning them here would make it
+        // wait for the rendered sheet and set.
+        prompt: 'Teile die Story in drei Einstellungen von 5 bis 10 Sekunden. Die Frau ist die Figur, der Ort das Set.' + look },
+      scene('s1', 'Erwachen', x + 32 + W + 32, y + 72, 'Totale: @Figur liegt in @Set auf einer Metallliege und richtet sich langsam auf. Bewegung: Staub in der Luft, die Kamera steht.', 6),
+      scene('s2', 'Flur', x + 32 + 2 * W + 32, y + 72, 'Halbnahe: @Figur geht durch @Set, ein Neonrohr flackert über ihr. Bewegung: Kamerafahrt rückwärts vor ihr her.', 8),
+      scene('s3', 'Ansprache', x + 32 + 3 * W + 32, y + 72, 'Nahaufnahme: @Figur bleibt in @Set stehen, sieht in die Kamera und spricht. Bewegung: langsamer Zoom, Gegenlicht aus der offenen Tür.', 10),
+    ].map(node => (node.type === 'scene' ? { ...node, params: { ...node.params, from: 'regie' } } : node)),
+    edges: [link('idee', 'text', 'regie', 'prompt')],
   }
 }
 
-/** Character and set phase: a reference sheet from the outfits and a set without people from the locations. */
+/** Character and set phase: a reference sheet and a set without people, both project assets (@Figur, @Set). */
 function cast(x, y, mood = true) {
   return {
     nodes: [
       frame('cast', '3 · Figur und Set', x, y, 2 * W + 64, 880),
-      { key: 'figur', type: 'character', name: 'Figur', x: x + 32, y: y + 72,
-        prompt: mood ? 'Frau Anfang 30, kantiges Gesicht, helle Haut mit feinen Sommersprossen, schwarzer Bob, kleine Narbe über der linken Augenbraue. Outfit-Details aus @Outfits.' : 'Frau Anfang 30, kantiges Gesicht, helle Haut mit feinen Sommersprossen, schwarzer Bob, kleine Narbe über der linken Augenbraue.',
+      { key: 'figur', type: 'character', name: 'Figur', asset: true, x: x + 32, y: y + 72,
+        prompt: 'Frau Anfang 30, kantiges Gesicht, helle Haut mit feinen Sommersprossen, schwarzer Bob, kleine Narbe über der linken Augenbraue.' + (mood ? ' Outfit-Details aus @Outfits, Look aus @Look.' : ''),
         params: { outfit: 'Knielanger schwarzer Latexmantel mit hohem Kragen, schwarze Latexhandschuhe, kniehohe Lackstiefel. Rücken: durchgehender Reißverschluss.', head: 'cropped', mouth: true } },
-      { key: 'set', type: 'set', name: 'Set', x: x + 32 + W, y: y + 72,
-        prompt: mood ? 'Verlassener Klinikflur mit weißen Fliesen, Metalltüren und einem flackernden Neonrohr, angelehnt an @Orte. Analoger Film, Korn.' : 'Verlassener Klinikflur mit weißen Fliesen, Metalltüren und einem flackernden Neonrohr. Analoger Film, Korn.' },
+      { key: 'set', type: 'set', name: 'Set', asset: true, x: x + 32 + W, y: y + 72,
+        prompt: 'Verlassener Klinikflur mit weißen Fliesen, Metalltüren und einem flackernden Neonrohr.' + (mood ? ' Angelehnt an @Orte, Look aus @Look.' : ' Analoger Film, Korn.') },
     ],
-    edges: mood ? [link('outfits', 'image', 'figur', 'refs'), link('orte', 'image', 'set', 'refs')] : [],
+    edges: [],
   }
 }
 
@@ -79,19 +91,20 @@ function voice(x, y) {
   }
 }
 
-/** Shot phase: one video per scene with the sheet and the set as image references; the third one speaks. */
+/** Shot phase: one video per scene; the scene text names @Figur and @Set, which arrive as image references. The third one speaks. */
 function shots(x, y, { story = true, speaking = true } = {}) {
   const video = (key, name, dy, prompt, sceneKey, seconds) => ({ key, type: 'video', name, x: x + 32, y: y + dy, prompt,
     params: { modelId: 'seedance', settings: { seedance: { duration: String(seconds), resolution: '720p', aspect: '16:9', audio: true } } }, sceneKey })
   const list = [
-    video('v1', 'Video Erwachen', 72, '@Figur liegt in @Set auf einer Metallliege und richtet sich langsam auf.', 's1', 6),
-    video('v2', 'Video Flur', 72 + 760, '@Figur geht durch @Set, die Kamera fährt vor ihr rückwärts.', 's2', 8),
+    video('v1', 'Video Erwachen', 72, story ? '' : '@Figur liegt in @Set auf einer Metallliege und richtet sich langsam auf.', 's1', 6),
+    video('v2', 'Video Flur', 72 + 760, story ? '' : '@Figur geht durch @Set, die Kamera fährt vor ihr rückwärts.', 's2', 8),
     video('v3', 'Video Ansprache', 72 + 1520, speaking ? '@Figur kommt in @Set zum Stehen, sieht in die Kamera und spricht den Text aus @Schwarzes Video. Die Zeitstempel oben geben vor, wann sie welches Wort sagt; vorher bewegt sie sich nur.' : '@Figur bleibt in @Set stehen und sieht in die Kamera.', 's3', speaking ? 15 : 10),
   ]
   return {
     nodes: [frame('dreh', '5 · Videos', x, y, W + 64, 2360), ...list],
     edges: [
-      ...list.flatMap(item => [link('figur', 'image', item.key, 'images'), link('set', 'image', item.key, 'images'), ...(story ? [link(item.sceneKey, 'text', item.key, 'prompt')] : [])]),
+      // Figur, Set and Look arrive through their @mentions; the line carries only the scene text.
+      ...(story ? list.map(item => link(item.sceneKey, 'text', item.key, 'prompt')) : []),
       ...(speaking ? [link('schwarz', 'video', 'v3', 'videos'), link('transkript', 'text', 'v3', 'prompt')] : []),
     ],
   }
@@ -110,11 +123,15 @@ const merge = (...parts) => ({ nodes: parts.flatMap(part => part.nodes), edges: 
 /** All templates: id, title, description and a builder returning nodes and edges at the origin. */
 export const templates = [
   { id: 'kurzfilm', title: 'Kurzfilm mit sprechender Figur', phases: 6,
-    description: 'Der ganze Ablauf: Moodboard, Storyboard, Charakterblatt und Set, Stimme mit schwarzem Video und Transkript, drei Videos und der Schnitt. Rahmen 1 bis 6 von links nach rechts.',
-    build: () => merge(moodboard(0, 0), storyboard(4 * W + 160, 0), cast(8 * W + 320, 0), voice(10 * W + 480, 0), shots(13 * W + 640, 0), edit(14 * W + 800, 0)) },
+    description: 'Der ganze Ablauf: Moodboard ohne Linien mit Style-DNA (@Look), Regie mit Shotliste und Szenen, Figur und Set als @Assets, Stimme mit Transkript, drei Videos und der Schnitt. Rahmen 1 bis 6 von links nach rechts.',
+    build: () => {
+      const at = [0, moodWidth + 160]
+      for (const width of [5 * W + 64, 2 * W + 64, 3 * W + 64, W + 64]) at.push(at.at(-1) + width + 160)
+      return merge(moodboard(at[0], 0), storyboard(at[1], 0), cast(at[2], 0), voice(at[3], 0), shots(at[4], 0), edit(at[5], 0))
+    } },
   { id: 'look-und-story', title: 'Moodboard und Storyboard', phases: 2,
-    description: 'Look, Farben und Referenzen aus deiner Sammlung, daneben Story, Szenenliste vom LLM und drei Szenen.',
-    build: () => merge(moodboard(0, 0), storyboard(4 * W + 160, 0)) },
+    description: 'Freies Moodboard mit Style-DNA (@Look), daneben Story, Regie mit Shotliste und die Szenen daraus.',
+    build: () => merge(moodboard(0, 0), storyboard(moodWidth + 160, 0)) },
   { id: 'figur-und-set', title: 'Figur und Set', phases: 1,
     description: 'Charakterblatt in vier Feldern auf Studiograu und ein Set ohne Personen, für gleichbleibende Figuren und Orte.',
     build: () => cast(0, 0, false) },
@@ -166,7 +183,7 @@ export function insertTemplate(store, projectId, templateId, revision, known) {
   }
   const added = nodes.filter(node => known(node.type)).map(({ key, find, count, sceneKey, ...node }) => ({
     ...node, id: ids.get(key), x: Math.round(node.x + right), y: Math.round(node.y + top), prompt: node.prompt ?? '',
-    params: { ...node.params, ...(node.type === 'library' && { assetIds: find ? pick(find, count) : [] }) },
+    params: { ...node.params, ...(node.type === 'library' && { assetIds: find ? pick(find, count) : [] }), ...(node.params?.from && { from: ids.get(node.params.from) }) },
   }))
   const placed = new Set(added.map(node => node.id))
   const newEdges = edges.map(edge => ({ id: randomUUID(), source: ids.get(edge.source), sourceHandle: edge.sourceHandle, target: ids.get(edge.target), targetHandle: edge.targetHandle }))

@@ -14,7 +14,7 @@ import '@xyflow/react/dist/style.css'
 import './ui/flows.css'
 import {
   Archive, AudioLines, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Copy, Download, Hand, History, Image, LayoutGrid,
-  Link, Map as MapIcon, Maximize, Maximize2, Minus, MoreHorizontal, MousePointer2, Palette, Play, Plus, Scissors, SlidersHorizontal, Sparkles, Trash2, Type, Upload, User, Video, Volume2, VolumeX, X,
+  AtSign, Link, Map as MapIcon, Maximize, Maximize2, Minus, MoreHorizontal, MousePointer2, Palette, Play, Plus, Scissors, SlidersHorizontal, Sparkles, Trash2, Type, Upload, User, Video, Volume2, VolumeX, X,
 } from 'lucide-react'
 import { BaseNode, BaseNodeContent, BaseNodeFooter, BaseNodeHeader, BaseNodeHeaderTitle } from '@/components/base-node'
 import { BaseHandle } from '@/components/base-handle'
@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/utils'
 import { absolute, adoptIntoFrames } from './engine/frames.mjs'
+import { implicitEdges, textHandle } from './engine/mentions.mjs'
 
 const flowsApi = async (path, method = 'GET', body) => {
   const response = await fetch('/creativity-flows/api' + path, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined })
@@ -153,6 +154,47 @@ function Preview({ type, view }) {
   </div>
 }
 
+/** Answer of a text-only run node (LLM, Style-DNA): readable, selectable and copyable. */
+function TextResult({ view }) {
+  const { ctx } = useContext(Actions)
+  const text = (view?.outputs?.text ?? []).join('\n\n')
+  const busy = view?.status === 'running' || view?.status === 'waiting'
+  if (!text) {
+    return <div className="flex min-h-24 items-center justify-center rounded-md bg-background p-4 text-center text-sm text-muted-foreground">
+      {busy ? <span>{statusNames[view.status]} <Seconds since={view.startedAt}/></span> : 'Hier erscheint die Antwort.'}</div>
+  }
+  return <div className="group/answer relative">
+    <div className="flow-answer nodrag nowheel" tabIndex={0} aria-label="Antwort">{text}</div>
+    <Button variant="secondary" size="icon-sm" className="nodrag absolute right-2 top-2 opacity-0 transition-opacity group-hover/answer:opacity-100 focus-visible:opacity-100"
+      aria-label="Antwort kopieren" title="Kopieren" onClick={() => navigator.clipboard?.writeText(text).then(() => ctx.toast('Antwort kopiert.'), () => ctx.toast('Kopieren ging nicht.', true))}><Copy/></Button>
+  </div>
+}
+
+/**
+ * Result of the Regie node: the shots as a compact list and the figures and places it needs; „Szenen anlegen“ turns
+ * the shots into Szene nodes. Scenes made before are updated in place, after a second click, so their lines stay.
+ */
+function ShotList({ node, view }) {
+  const { spawnScenes, sceneCount } = useContext(Actions)
+  const [sure, setSure] = useState(false)
+  const shots = view?.data?.shots ?? []
+  const needed = view?.data?.assets ?? []
+  const made = sceneCount(node.id)
+  useEffect(() => setSure(false), [view?.history?.[0]?.at, made])
+  if (!shots.length) return <TextResult view={view}/>
+  return <div className="[display:grid] gap-2">
+    <ol className="flow-shots nodrag nowheel" aria-label="Shotliste">{shots.map((shot, i) => <li key={i}>
+      <span className="flow-shot-head"><b>{i + 1} · {shot.title}</b><span className="tabular-nums">{shot.duration} s{shot.shot ? ' · ' + shot.shot : ''}</span></span>
+      <span>{shot.prompt}</span>{shot.motion && <span className="text-muted-foreground">{shot.motion}</span>}
+    </li>)}</ol>
+    {needed.length > 0 && <p className="text-xs text-muted-foreground">Braucht: {needed.map(item => '@' + item.name).join(', ')}</p>}
+    <Button variant={sure ? 'default' : 'outline'} size="sm" className="nodrag justify-self-start" onClick={() => {
+      if (made && !sure) { setSure(true); return }
+      spawnScenes(node.id); setSure(false)
+    }}>{sure ? `${made} Szenen überschreiben?` : made ? `Szenen aktualisieren (${shots.length})` : `Szenen anlegen (${shots.length})`}</Button>
+  </div>
+}
+
 function RunButton({ node, view }) {
   const { run } = useContext(Actions)
   const [open, setOpen] = useState(false)
@@ -243,7 +285,7 @@ function PromptField({ node, type, names }) {
     requestAnimationFrame(() => { element.focus(); element.setSelectionRange(before.length, before.length) })
   }
   const placeholder = node.type === 'text' ? 'Idee, Story oder Prompt. Mit @ nennst du eine Datei oder ein Bild.'
-    : node.type === 'scene' ? 'Was passiert in dieser Einstellung?'
+    : node.type === 'scene' ? 'Was passiert in dieser Einstellung? Mit @ nennst du Figur, Ort oder Look.'
       : names.length ? 'Beschreibe, was entstehen soll. Mit @ sprichst du eine Referenz an.' : 'Beschreibe, was entstehen soll.'
   return <div className="nodrag relative">
     <textarea ref={field} className="flow-prompt nowheel" rows={node.type === 'text' ? 6 : 3} aria-label={nodeName(node, type) + ': Text'}
@@ -364,7 +406,9 @@ function NodeHeader({ node, type, right, className }) {
         aria-label="Name des Knotens" maxLength={40}
         onBlur={e => { rename(node.id, e.target.value.trim()); setRenaming(null) }}
         onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') setRenaming(null) }}/>
-      : <span className="truncate font-medium text-secondary-foreground" onDoubleClick={() => setRenaming(node.id)} title="Doppelklick zum Umbenennen">{nodeName(node, type)}</span>}
+      : node.asset
+        ? <span className="flow-asset truncate" onDoubleClick={() => setRenaming(node.id)} title={`Projekt-Asset: @${nodeName(node, type)} wirkt in jedem Prompt, auch ohne Linie. Doppelklick zum Umbenennen.`}>@{nodeName(node, type)}</span>
+        : <span className="truncate font-medium text-secondary-foreground" onDoubleClick={() => setRenaming(node.id)} title="Doppelklick zum Umbenennen">{nodeName(node, type)}</span>}
     {right && <span className="ml-auto max-w-[55%] truncate tabular-nums">{right}</span>}
   </header>
 }
@@ -441,7 +485,7 @@ function QuickSetting({ node, field }) {
 
 /** The ⋯ menu: rarely used node actions with their shortcuts, as in ElevenLabs Flows. */
 function NodeMenu({ node, type, view }) {
-  const { run, remove, duplicate, copyNodes, pasteNodes, focusNode, setRenaming, pick } = useContext(Actions)
+  const { run, remove, duplicate, copyNodes, pasteNodes, focusNode, setRenaming, pick, toggleAsset } = useContext(Actions)
   const media = type.outputs.filter(port => port.kind !== 'text').flatMap(port => view?.outputs?.[port.id] ?? [])[0]
   // The menu hands focus back to its trigger when it closes; a rename starts only after that, or the name field would lose focus at once.
   const renameNext = useRef(false)
@@ -458,6 +502,8 @@ function NodeMenu({ node, type, view }) {
       </DropdownMenuSub>}
       <DropdownMenuSeparator/>
       <DropdownMenuItem onSelect={() => { renameNext.current = true }}>Umbenennen</DropdownMenuItem>
+      {!type.contains && <DropdownMenuItem onSelect={() => { if (toggleAsset(node.id)) renameNext.current = true }}>
+        {node.asset ? 'Projekt-Asset lösen' : 'Als Projekt-Asset festlegen'}</DropdownMenuItem>}
       <DropdownMenuItem onSelect={() => copyNodes([node.id])}>Kopieren<DropdownMenuShortcut>⌘C</DropdownMenuShortcut></DropdownMenuItem>
       <DropdownMenuItem onSelect={() => pasteNodes()}>Einfügen<DropdownMenuShortcut>⌘V</DropdownMenuShortcut></DropdownMenuItem>
       <DropdownMenuItem onSelect={() => duplicate(node.id)}>Duplizieren<DropdownMenuShortcut>⌘D</DropdownMenuShortcut></DropdownMenuItem>
@@ -487,7 +533,7 @@ function Grid() {
 const detailOf = zoom => (zoom >= 0.6 ? 'full' : zoom >= 0.35 ? 'card' : 'glance')
 
 function FlowNode({ id, data, selected }) {
-  const { update, remove, duplicate, run, edges, mentionNames, assets } = useContext(Actions)
+  const { update, remove, duplicate, run, edges, mentionNames, assets, assetNames } = useContext(Actions)
   const detail = useViewportStore(store => detailOf(store.transform[2]))
   const { node, type, view } = data
   if (!type) {
@@ -509,12 +555,16 @@ function FlowNode({ id, data, selected }) {
   const firstMedia = type.outputs.filter(port => port.kind !== 'text').flatMap(port => view?.outputs?.[port.id] ?? [])[0]
   const tall = Math.max(type.inputs.length, outputs.length)
   const state = view?.stale ? 'Veraltet' : statusNames[view?.status] ?? ''
-  // Run nodes can mention what is connected to them; notes can mention every file node, resolved where the text arrives.
+  // Run nodes can mention what is connected to them and every project asset; notes and scenes can mention every file
+  // node and asset, resolved where the text arrives.
   const refs = view?.refs ?? []
+  const own = new Set(refs.map(ref => ref.name))
+  const projectAssets = assetNames.filter(item => item.id !== id && !own.has(item.name)).map(item => ({ name: item.name, hint: 'Projekt-Asset' }))
   const names = type.inputs.some(port => port.mark)
     ? [...refs.map(ref => ({ name: ref.mark.slice(1), hint: assets[ref.value]?.title, asset: ref.value })),
-      ...[...new Set(refs.map(ref => ref.name))].map(name => ({ name, hint: refs.filter(ref => ref.name === name).length === 1 ? 'Knoten' : 'alle Dateien des Knotens' }))]
-    : node.type === 'text' ? mentionNames.map(name => ({ name })) : []
+      ...[...own].map(name => ({ name, hint: refs.filter(ref => ref.name === name).length === 1 ? 'Knoten' : 'alle Dateien des Knotens' })), ...projectAssets]
+    : type.runs ? projectAssets
+      : node.type === 'text' || node.type === 'scene' ? mentionNames.filter(name => name !== nodeName(node, type)).map(name => ({ name, ...(assetNames.some(item => item.name === name) && { hint: 'Projekt-Asset' }) })) : []
   const status = view?.status === 'running' || view?.status === 'waiting' ? 'loading' : view?.status === 'failed' ? 'error' : 'initial'
   const right = modelName || (node.type === 'text' ? `${(node.prompt ?? '').length} Zeichen` : node.name ? type.title : '')
   const runsAfter = !type.runs && edges.some(edge => edge.source === id)
@@ -524,6 +574,8 @@ function FlowNode({ id, data, selected }) {
       <NodeStatusIndicator status={status}>
         <BaseNode className={cn('flow-node overflow-hidden rounded-xl', node.type === 'text' && 'bg-[var(--c-fill)]')}>
           {type.runs && type.outputs.some(port => port.kind !== 'text') && <Preview type={type} view={view}/>}
+          {type.runs && detail !== 'glance' && (type.outputs.every(port => port.kind === 'text') || view?.outputs?.text?.length > 0) &&
+            <div className="p-3 pb-0">{node.type === 'director' ? <ShotList node={node} view={view}/> : <TextResult view={view}/>}</div>}
           {detail === 'glance' ? (node.type === 'library' || node.type === 'scene') && <BaseNodeContent><NodeBody node={node} type={type}/></BaseNodeContent> :
           <BaseNodeContent className={cn(type.runs && type.outputs.some(port => port.kind !== 'text') && 'border-t')}>
             <NodeBody node={node} type={type}/>
@@ -928,7 +980,18 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
 
   const running = id => ['running', 'waiting'].includes(view.nodes[id]?.status)
   // While a node runs, the lines into it animate (React Flow's animated edges).
-  const edges = doc.edges.map(edge => ({ ...edge, zIndex: 1, animated: running(edge.target), className: 'flow-edge kind-' + (portKind(edge.source, edge.sourceHandle, 'source') ?? 'text') }))
+  const byNode = new Map(doc.nodes.map(node => [node.id, node]))
+  // Mentioned project assets reach their nodes without a line. A dashed line shows that link, but only while the asset
+  // or the node that mentions it is selected, so the canvas stays free of lines across the phases.
+  const implied = implicitEdges(doc, name => typeOf.get(name)).flatMap(edge => {
+    if (!meta[edge.source]?.selected && !meta[edge.target]?.selected) return []
+    const outputs = view.nodes[edge.source]?.outputs
+    if (outputs ? !outputs[edge.sourceHandle]?.length : !typeOf.get(byNode.get(edge.source)?.type)?.runs) return []
+    const handle = edge.targetHandle === textHandle ? typeOf.get(byNode.get(edge.target)?.type)?.inputs.find(port => port.kind === 'text')?.id : edge.targetHandle
+    return handle ? [{ ...edge, targetHandle: handle, selectable: false, deletable: false, focusable: false }] : []
+  })
+  const edges = [...doc.edges, ...implied].map(edge => ({ ...edge, zIndex: 1, animated: running(edge.target),
+    className: 'flow-edge kind-' + (portKind(edge.source, edge.sourceHandle, 'source') ?? 'text') + (edge.implicit ? ' implicit' : '') }))
   /** What a frame shows as a poster in the overview: pictures (results before references) and how much is inside. */
   function storyOf(frame) {
     const kids = doc.nodes.filter(item => item.parentId === frame.id).sort((a, b) => (a.y - b.y) || (a.x - b.x))
@@ -955,8 +1018,63 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
     }
   })
   const frames = doc.nodes.filter(isFrame).sort((a, b) => (a.x - b.x) || (a.y - b.y))
-  const mentionNames = [...new Set(doc.nodes.filter(node => typeOf.get(node.type)?.outputs.some(port => port.kind !== 'text') && !isFrame(node))
+  const mentionNames = [...new Set(doc.nodes.filter(node => (node.asset || typeOf.get(node.type)?.outputs.some(port => port.kind !== 'text')) && !isFrame(node))
     .map(node => nodeName(node, typeOf.get(node.type))))]
+  const sceneCount = id => doc.nodes.filter(node => node.type === 'scene' && node.params?.from === id).length
+  /**
+   * Turns the shots of a Regie node into Szene nodes, four per row in shot order (reading order is also the order
+   * downstream). Scenes made from it before are updated in order and keep their lines, surplus ones go, missing ones are
+   * added; the grid starts where the first scene was, or right of the Regie node. A frame around it grows to fit.
+   */
+  function spawnScenes(id) {
+    const director = state.data.nodes.find(node => node.id === id)
+    const shots = view.nodes[id]?.data?.shots ?? []
+    const sceneType = typeOf.get('scene')
+    if (!director || !shots.length || !sceneType) return
+    const map = new Map(state.data.nodes.map(node => [node.id, node]))
+    const origin = absolute(director, map)
+    const options = sceneType.fields.find(field => field.key === 'duration')?.options ?? []
+    const nearest = seconds => options.map(Number).reduce((best, value) => (Math.abs(value - seconds) < Math.abs(best - seconds) ? value : best), Number(options[0] ?? seconds))
+    const textOf = shot => [shot.shot && shot.shot + ':', shot.prompt, shot.motion && 'Bewegung: ' + shot.motion].filter(Boolean).join(' ')
+    const before = state.data.nodes.filter(node => node.type === 'scene' && node.params?.from === id)
+      .map(node => ({ node, at: absolute(node, map) })).sort((a, b) => (a.at.y - b.at.y) || (a.at.x - b.at.x)).map(item => item.node)
+    const start = before.length ? absolute(before[0], map) : { x: origin.x + 384, y: origin.y }
+    const slot = i => ({ x: start.x + (i % 4) * 304, y: start.y + Math.floor(i / 4) * 456 })
+    const made = shots.map((shot, i) => {
+      const old = before[i]
+      const fields = { name: shot.title, prompt: textOf(shot), ...slot(i), params: { ...old?.params, from: id, duration: String(nearest(shot.duration)) } }
+      if (!old) return { id: crypto.randomUUID(), type: 'scene', ...fields }
+      const { parentId, ...rest } = old
+      return { ...rest, ...fields }
+    })
+    const gone = new Set(before.slice(shots.length).map(node => node.id))
+    const kept = new Map(made.filter(node => map.has(node.id)).map(node => [node.id, node]))
+    const fresh = made.filter(node => !map.has(node.id))
+    change(d => {
+      let nodes = d.nodes.filter(node => !gone.has(node.id)).map(node => kept.get(node.id) ?? node).concat(fresh)
+      const frame = director.parentId && nodes.find(node => node.id === director.parentId)
+      if (frame) {
+        const right = Math.max(...made.map(node => node.x)) + 256 + 48 - frame.x
+        const bottom = Math.max(...made.map(node => node.y)) + 408 - frame.y
+        const width = Math.max(Number(frame.params?.width) || 640, Math.ceil(right / 8) * 8)
+        const height = Math.max(Number(frame.params?.height) || 480, Math.ceil(bottom / 8) * 8)
+        nodes = nodes.map(node => (node.id === frame.id ? { ...node, params: { ...node.params, width, height } } : node))
+        // The frame's measured size would otherwise keep it at its old size until the next resize.
+        setMeta(m => ({ ...m, [frame.id]: { ...m[frame.id], width, height } }))
+      }
+      return { nodes, edges: d.edges.filter(edge => !gone.has(edge.source) && !gone.has(edge.target)) }
+    }, true)
+    ctx.toast(fresh.length && kept.size ? `${kept.size} Szenen aktualisiert, ${fresh.length} neu.` : fresh.length ? `${fresh.length} Szenen angelegt.` : `${kept.size} Szenen aktualisiert.`)
+  }
+  const assetNames = doc.nodes.filter(node => node.asset).map(node => ({ id: node.id, name: nodeName(node, typeOf.get(node.type)) }))
+  /** Makes a node a project asset or releases it; returns true when the node still needs a name of its own. */
+  function toggleAsset(id) {
+    const node = state.data.nodes.find(item => item.id === id)
+    if (!node) return false
+    update(id, n => { const { asset, ...rest } = n; return asset ? rest : { ...rest, asset: true } })
+    if (!node.asset) ctx.toast(`@${nodeName(node, typeOf.get(node.type))} wirkt jetzt in jedem Prompt dieses Flows, auch ohne Linie.`)
+    return !node.asset && !String(node.name ?? '').trim()
+  }
   /** Node clipboard: the chosen nodes and the lines between them, as text with a marker so a normal paste can tell them apart. */
   const clipMark = 'atelier-flow-nodes:'
   const clip = useRef(null)
@@ -1019,7 +1137,7 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
   })
   const removeAsset = (nodeId, assetId) => update(nodeId, n => ({ ...n, params: { ...n.params, assetIds: (n.params?.assetIds ?? []).filter(id => id !== assetId) } }))
   const actions = { ctx, focusFrame, assets: view.assets, edges: doc.edges, update, remove, duplicate, run, pick, pickAssets, uploadAssets, mentionNames, portMenu,
-    renaming, setRenaming, rename, copyNodes, pasteNodes, focusNode, openViewer: setViewer, removeAsset }
+    renaming, setRenaming, rename, copyNodes, pasteNodes, focusNode, openViewer: setViewer, removeAsset, toggleAsset, assetNames, spawnScenes, sceneCount }
 
   return <Actions.Provider value={actions}>
     <div className="flow-shell" ref={shell} data-drop-hint="Loslassen legt einen Datei-Knoten an">
