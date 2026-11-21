@@ -27,8 +27,19 @@ Projektfarben (Punkte): #FF6B57, #BF5AF2, #0A84FF, #30D158, #FF9F0A, #64D2FF, #F
 Porttypen in Flows (`--c-port-*`, hell/dunkel): Text #6B655B/#A8A49C, Bild #2E7D9A/#7CC4DA, Video #7E4BB5/#B48AE0, Ton #B06A0B/#E0A458. Sie färben nur Ports und Linien, und jeder Port trägt zusätzlich das Symbol seines Typs.
 
 ## Typografie
-Inter Variable (`web/fonts`, OFL): 400 für Text, 500 für Buttons, Seitentitel 300 mit −0,02em (ElevenLabs-Flüsterton), nie fett.
-Systemschrift (SF Pro). Titel 28/34 halbfett, Abschnitt 17–20 halbfett, Fließtext 15, Nebentext 12–13. Monospace nur für technische Kennungen hinter „Technische Details“.
+Eine Schrift: Inter Variable (`web/fonts`, OFL). Gewichte 300 (nur Seitentitel), 400 (Text), 500 (Bedienelemente, Hervorhebung), nie fetter. Sieben Rollen als Tokens in `web/app.css`; im Flows-Canvas sind Tailwinds `text-xs` … `text-xl` in px auf dieselben Rollen gemappt (`apps/flows/ui/flows.css`). Freie Größen wie `font-size: 17px` oder `text-[13px]` gibt es nicht.
+
+| Rolle | Token | Größe / Zeile | Gewicht, Laufweite | Tailwind | Einsatz |
+| --- | --- | --- | --- | --- | --- |
+| Display | `--fs-display` | 32 / 36 | 300, −0,02em | – | Seitentitel |
+| Titel | `--fs-title` | 20 / 26 | 500 | `text-xl` | Kartentitel, große Zahlen |
+| Überschrift | `--fs-heading` | 16 / 22 | 500 | `text-lg` | Abschnitte, Dialoge, Vorlagen |
+| Text | `--fs-body` | 15 / 22 | 400, +0,01em | – | Fließtext, Eingabefelder |
+| UI | `--fs-ui` | 14 / 20 | 400 oder 500 | `text-base` | Buttons, Listen, Menüs |
+| Meta | `--fs-meta` | 13 / 18 | 400 | `text-sm` | Nebentext, Knotenköpfe, Status |
+| Mikro | `--fs-micro` | 12 / 16 | 400 oder 500 | `text-xs` | Zähler, Badges, Tastenkürzel |
+
+Monospace nur für technische Kennungen hinter „Technische Details“.
 
 ## Maße
 - Raster 8 pt (4 als Halbschritt): `--s-1` … `--s-6` = 4, 8, 12, 16, 24, 32.
@@ -65,6 +76,7 @@ Der Canvas nutzt Standardbausteine statt eigener: React Flow, React Flow UI und 
 - **Werkzeugleiste unter jedem Knoten** (wie ElevenLabs Flows), als Pille im Knoten selbst, damit sie mitzoomt. Ab 60 % Zoom offen, darunter ausgeblendet; unter 35 % zeigt der Knoten nur noch Kopfzeile und Bilder. Inhalt: Modell-Picker, die wichtigsten Einstellungen als Werte (Format, Auflösung, Dauer, Anzahl, Ton), „Weitere Einstellungen“ hinter dem Regler-Symbol, Download, Löschen und ⋯. Im ⋯-Menü stehen nur seltene Aktionen mit Kürzeln: Ausführen ⌘↩, Download ⌘⇧D, frühere Ergebnisse, Umbenennen, Kopieren ⌘C, Einfügen ⌘V, Duplizieren ⌘D, Knoten fokussieren ⌘., Löschen ⌫.
 - **Kopfzeile über der Karte:** Typ-Symbol und Name links, Modell oder Zeichenzahl rechts. Doppelklick benennt um; Erwähnungen (`@Name`) ziehen mit.
 - **Zustände am Knoten:** Wartet, Läuft (mit Sekunden), Fertig (mit Credits, wenn der Anbieter sie meldet), Fehler (Satz in Rot und „Erneut ausführen“), Veraltet (Orange, Ergebnis bleibt sichtbar).
+- **Übersicht als Drehbrett** (unter 35 % Zoom, also auch „Alles“): jeder Rahmen wird zum Plakat mit Phasentitel (Flüstergewicht), Anzahl Knoten und Ergebnisse und bis zu vier Bildern, generierte Ergebnisse vor Referenzen. Knoten im Rahmen und ihre Linien treten zurück. Die Schrift wächst gegenläufig zum Zoom, begrenzt durch die Rahmenbreite. Ein Klick aufs Plakat öffnet die Phase.
 - **Rahmen:** durchscheinende Fläche mit 2-px-Rand, Kopfzeile oben links, Griffe zum Größenziehen nur bei Auswahl. Nur Kopfzeile, Ports und Griffe nehmen Klicks an. Wer den Rahmen verschiebt, verschiebt seinen Inhalt mit.
 - **Referenz-Chips:** 32 px hoch, Miniatur, Marke fett und Name. Ein Klick fügt `@Name` in den Prompt ein. Die `@`-Liste unter dem Prompt zeigt höchstens sechs Namen und lässt sich mit den Pfeiltasten und Enter bedienen.
 - **Modellauswahl:** Knopf mit dem gewählten Modell, darüber ein Popover mit Suchfeld, Schnellfiltern als Chips (Anbieter, Bearbeiten, Text zu Bild) und der Liste mit Tags in Nebentext. Ohne Modelle steht dort, wo man eins einrichtet.

@@ -9,12 +9,12 @@
  */
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { ReactFlow, ReactFlowProvider, Background, Controls, MiniMap, NodeResizer, NodeToolbar, Panel, Position, useReactFlow, useViewportStore } from '@xyflow/react'
+import { ReactFlow, ReactFlowProvider, Background, MiniMap, NodeResizer, NodeToolbar, Panel, Position, useReactFlow, useViewportStore } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import './ui/flows.css'
 import {
   Archive, AudioLines, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Copy, Download, Hand, History, Image, LayoutGrid,
-  Link, MoreHorizontal, MousePointer2, Palette, Play, Plus, Scissors, SlidersHorizontal, Sparkles, Trash2, Type, Upload, User, Video, Volume2, VolumeX,
+  Link, Map as MapIcon, Maximize, Minus, MoreHorizontal, MousePointer2, Palette, Play, Plus, Scissors, SlidersHorizontal, Sparkles, Trash2, Type, Upload, User, Video, Volume2, VolumeX,
 } from 'lucide-react'
 import { BaseNode, BaseNodeContent, BaseNodeFooter, BaseNodeHeader, BaseNodeHeaderTitle } from '@/components/base-node'
 import { BaseHandle } from '@/components/base-handle'
@@ -89,7 +89,7 @@ function Preview({ type, view }) {
   const busy = view?.status === 'running' || view?.status === 'waiting'
   useEffect(() => setPage(0), [media.join()])
   if (!media.length) {
-    return <div className="flex aspect-[4/3] flex-col items-center justify-center gap-2 rounded-md bg-background p-4 text-center text-[13px] text-muted-foreground">
+    return <div className="flex aspect-[4/3] flex-col items-center justify-center gap-2 rounded-md bg-background p-4 text-center text-sm text-muted-foreground">
       <Icon name={type.outputs[0]?.kind ?? 'image'} className="size-5"/>
       <span>{busy ? <>{statusNames[view.status]} <Seconds since={view.startedAt}/></> : 'Hier erscheint dein Ergebnis.'}</span>
     </div>
@@ -97,8 +97,8 @@ function Preview({ type, view }) {
   const shown = media[Math.min(page, media.length - 1)]
   return <div className="relative overflow-hidden rounded-md bg-background">
     <Media asset={assets[shown]} ctx={ctx} full/>
-    {busy && <span className="absolute left-2 top-2 rounded-sm bg-black/70 px-2 py-0.5 text-xs">{statusNames[view.status]} <Seconds since={view.startedAt}/></span>}
-    {media.length > 1 && <div className="nodrag absolute bottom-2 right-2 flex items-center gap-1 rounded-md bg-black/70 p-0.5 text-xs tabular-nums">
+    {busy && <span className="absolute left-2 top-2 rounded-sm bg-[var(--c-scrim)] text-[var(--c-on-scrim)] px-2 py-0.5 text-xs">{statusNames[view.status]} <Seconds since={view.startedAt}/></span>}
+    {media.length > 1 && <div className="nodrag absolute bottom-2 right-2 flex items-center gap-1 rounded-md bg-[var(--c-scrim)] text-[var(--c-on-scrim)] p-0.5 text-xs tabular-nums">
       <Button variant="ghost" size="icon-sm" aria-label="Vorheriges Ergebnis" disabled={page === 0} onClick={() => setPage(page - 1)}><ChevronLeft/></Button>
       <span>{page + 1} / {media.length}</span>
       <Button variant="ghost" size="icon-sm" aria-label="Nächstes Ergebnis" disabled={page >= media.length - 1} onClick={() => setPage(page + 1)}><ChevronRight/></Button>
@@ -154,7 +154,7 @@ function Picker({ field, value, onChange }) {
   const shown = options.filter(option => !tag || option.tags?.includes(tag))
   return <Popover open={open} onOpenChange={setOpen}>
     <PopoverTrigger asChild><Button variant="outline" size="sm" className="max-w-60" title={field.label}>
-      <span className="truncate">{current ? optionLabel(current) : field.label}</span><ChevronDown/></Button></PopoverTrigger>
+      <span className="truncate">{current ? optionLabel(current) : field.label + ' wählen'}</span><ChevronDown/></Button></PopoverTrigger>
     <PopoverContent align="start" className="w-[360px] p-0">
       <Command filter={contains}>
         <CommandInput placeholder={field.label + ' suchen'}/>
@@ -227,7 +227,7 @@ function References({ node, view }) {
   return <div className="nodrag flex flex-wrap gap-1" aria-label="Referenzen">
     {shown.map(ref => <Button key={ref.mark} variant="outline" size="sm" className={chip} title={`${ref.mark} ist „${ref.name}“. Klicken fügt @${ref.name} in den Prompt ein.`}
       onClick={() => update(node.id, n => ({ ...n, prompt: ((n.prompt ?? '').replace(/\s*$/, '') + ' @' + ref.name + ' ').trimStart() }))}>
-      {assets[ref.value] && <Media asset={assets[ref.value]} ctx={ctx}/>}<span className="truncate"><b className="font-semibold text-foreground">{ref.mark}</b> {ref.name}</span></Button>)}
+      {assets[ref.value] && <Media asset={assets[ref.value]} ctx={ctx}/>}<span className="truncate"><b className="font-medium text-foreground">{ref.mark}</b> {ref.name}</span></Button>)}
     {refs.length > shown.length && <Button variant="outline" size="sm" className={chip + ' pl-2'} onClick={() => setAll(true)}>+{refs.length - shown.length} weitere</Button>}
     {all && refs.length > 5 && <Button variant="outline" size="sm" className={chip + ' pl-2'} onClick={() => setAll(false)}>Weniger</Button>}
   </div>
@@ -258,7 +258,7 @@ function NodeBody({ node, type }) {
     const duration = type.fields.find(field => field.key === 'duration')
     return <>
       <AssetStrip node={node} single/>
-      <label className="nodrag [display:grid] grid-cols-[1fr_144px] items-center gap-2 text-[13px] text-muted-foreground"><span>Dauer</span>
+      <label className="nodrag [display:grid] grid-cols-[1fr_144px] items-center gap-2 text-sm text-muted-foreground"><span>Dauer</span>
         <select className={selectClass} value={node.params?.duration ?? duration.default} onChange={e => set('duration', e.target.value)}>
           {duration.options.map(option => <option key={option} value={option}>{option} s</option>)}</select></label>
     </>
@@ -267,7 +267,7 @@ function NodeBody({ node, type }) {
     const color = /^#[0-9a-f]{6}$/i.test(node.params?.color ?? '') ? node.params.color : '#8A6A4F'
     return <>
       <div className="h-24 rounded-md border" style={{ backgroundColor: color }}/>
-      <label className="nodrag flex items-center justify-between text-[13px] text-muted-foreground"><span className="tabular-nums">{color.toUpperCase()}</span>
+      <label className="nodrag flex items-center justify-between text-sm text-muted-foreground"><span className="tabular-nums">{color.toUpperCase()}</span>
         <input type="color" aria-label="Farbton" className="h-8 w-11 cursor-pointer rounded-sm border border-input bg-transparent p-0" value={color} onChange={e => set('color', e.target.value)}/></label>
     </>
   }
@@ -275,7 +275,7 @@ function NodeBody({ node, type }) {
     const url = node.params?.url ?? ''
     return <div className="nodrag [display:grid] gap-2">
       <input className="text-in" type="url" aria-label="Adresse" placeholder="https://…" value={url} onChange={e => set('url', e.target.value.trim())}/>
-      {/^https?:\/\//i.test(url) && <a className="text-[13px] text-muted-foreground hover:text-foreground" href={url} target="_blank" rel="noreferrer">{domainOf(url)} öffnen</a>}
+      {/^https?:\/\//i.test(url) && <a className="text-sm text-muted-foreground hover:text-foreground" href={url} target="_blank" rel="noreferrer">{domainOf(url)} öffnen</a>}
     </div>
   }
   return null
@@ -285,7 +285,7 @@ function NodeBody({ node, type }) {
 function NodeHeader({ node, type, right, className }) {
   const { rename, renaming, setRenaming } = useContext(Actions)
   const editing = renaming === node.id
-  return <header className={cn('flow-drag flex h-7 cursor-grab items-center gap-1.5 px-1 text-xs text-muted-foreground', className)}>
+  return <header className={cn('flow-drag flex h-7 cursor-grab items-center gap-1.5 px-1 text-sm text-muted-foreground', className)}>
     <Icon name={type.icon} className="size-3.5 shrink-0"/>
     {editing
       ? <input autoFocus className="nodrag h-6 min-w-0 flex-1 rounded-sm border border-input bg-background px-1.5 text-xs text-foreground" defaultValue={node.name ?? ''} placeholder={type.title}
@@ -298,9 +298,33 @@ function NodeHeader({ node, type, right, className }) {
 }
 
 /** A frame is a React Flow group node: its children (`parentId`) move with it and lie inside it. */
+/**
+ * A frame zoomed far out (the storyboard overview): a poster with the phase title, what is inside and up to four
+ * pictures, generated results first, then references. Text is counter-scaled so it stays readable; a click opens the phase.
+ */
+function FramePoster({ node, type, story }) {
+  const { ctx, assets, focusFrame } = useContext(Actions)
+  const zoom = useViewportStore(store => store.transform[2])
+  const name = nodeName(node, type)
+  // Text grows as the canvas shrinks, but never wider than the frame allows (narrow phases such as Schnitt).
+  const width = Number(node.params?.width) || 640
+  const size = (screen, share) => Math.min(screen / zoom, width * share)
+  const facts = [story.nodes === 1 ? '1 Knoten' : `${story.nodes} Knoten`, story.made ? (story.made === 1 ? '1 Ergebnis' : `${story.made} Ergebnisse`) : 'noch kein Ergebnis'].join(' · ')
+  return <button type="button" className="flow-poster" onClick={() => focusFrame(node)} aria-label={`${name} öffnen. ${facts}`}>
+    <span className="flow-poster-title" style={{ fontSize: size(22, 0.2) }}>{name}</span>
+    <span className="flow-poster-facts" style={{ fontSize: size(13, 0.09) }}>{facts}</span>
+    {story.cover.length > 0
+      ? <span className="flow-poster-cover" style={{ gridTemplateColumns: `repeat(${Math.min(story.cover.length, 4)}, minmax(0, 1fr))` }}>
+        {story.cover.map(id => <Media key={id} asset={assets[id]} ctx={ctx}/>)}</span>
+      : <span className="flow-poster-empty" style={{ fontSize: size(13, 0.09) }}>Noch keine Bilder in dieser Phase</span>}
+  </button>
+}
+
 function FrameNode({ id, data, selected }) {
   const { update, remove, edges } = useContext(Actions)
-  const { node, type, view } = data
+  const { node, type, view, story } = data
+  const glance = useViewportStore(store => store.transform[2] < 0.35)
+  if (glance && story) return <section className="flow-frame flow-frame-poster" aria-label={nodeName(node, type)}><FramePoster node={node} type={type} story={story}/></section>
   const count = Object.values(view?.outputs ?? {}).reduce((sum, list) => sum + list.length, 0)
   return <section className={cn('flow-frame', selected && 'active')} aria-label={nodeName(node, type)}>
     <NodeResizer isVisible={selected} minWidth={320} minHeight={240} lineClassName="flow-resize-line" handleClassName="flow-resize-handle"
@@ -373,15 +397,21 @@ function NodeMenu({ node, type, view }) {
 }
 
 /**
+ * Dot grid with a constant look on screen, like Figma or ElevenLabs: React Flow scales gap and dot with the zoom, so the
+ * dot size is divided by the zoom (always about 1 px) and the gap doubles whenever it would fall under 20 px on screen.
+ * Far out (below 25 %) the grid goes away.
+ */
+function Grid() {
+  const zoom = useViewportStore(store => store.transform[2])
+  if (zoom < 0.25) return null
+  const step = 2 ** Math.max(0, Math.ceil(Math.log2(20 / (24 * zoom))))
+  return <Background gap={24 * step} size={1.2 / zoom} color="var(--c-dot)"/>
+}
+
+/**
  * Level of detail by zoom (React Flow's contextual zoom): the toolbar under the node scales with the canvas and goes away
  * below 60 %; below 35 % the card keeps only its header and pictures.
  */
-/** Dot grid that only shows while it is readable; zoomed far out the shrinking dots would turn into a grey moiré. */
-function Grid() {
-  const visible = useViewportStore(store => store.transform[2] >= 0.4)
-  return visible ? <Background gap={20} size={1} color="var(--c-dot)"/> : null
-}
-
 const detailOf = zoom => (zoom >= 0.6 ? 'full' : zoom >= 0.35 ? 'card' : 'glance')
 
 function FlowNode({ id, data, selected }) {
@@ -454,7 +484,7 @@ function NodeTools({ id, node, type, view, model, modelField, quick, more, first
       {quick.map(field => <QuickSetting key={(field.model ?? '') + field.key} node={node} field={field}/>)}
       {more.length > 0 && <Popover>
         <PopoverTrigger asChild><Button variant="ghost" size="icon-sm" aria-label="Weitere Einstellungen" title="Weitere Einstellungen"><SlidersHorizontal/></Button></PopoverTrigger>
-        <PopoverContent className="[display:grid] w-80 gap-2">{more.map(field => <label key={(field.model ?? '') + field.key} className="[display:grid] min-h-9 grid-cols-[1fr_144px] items-center gap-2 text-[13px] text-secondary-foreground">
+        <PopoverContent className="[display:grid] w-80 gap-2">{more.map(field => <label key={(field.model ?? '') + field.key} className="[display:grid] min-h-9 grid-cols-[1fr_144px] items-center gap-2 text-sm text-secondary-foreground">
           <span>{field.label}</span>
           {field.type === 'enum'
             ? <select className={selectClass} value={String(fieldValue(node, field))} onChange={e => update(id, n => withField(n, field, e.target.value))}>
@@ -481,14 +511,14 @@ function AddMenu({ types, at, filter, onPick, onClose, onUpload, onLibrary }) {
       <CommandList className="max-h-[400px]">
         <CommandEmpty>Keine Knotenart passt.</CommandEmpty>
         {onUpload && <CommandGroup heading="Datei">
-          <CommandItem value="Hochladen Datei vom Mac" onSelect={onUpload}><Upload/><span className="[display:grid]"><b className="font-semibold">Hochladen</b><span className="text-xs text-muted-foreground">Vom Mac in die Sammlung, dann hier verbunden.</span></span></CommandItem>
-          <CommandItem value="Aus Sammlung und Library wählen" onSelect={onLibrary}><Archive/><span className="[display:grid]"><b className="font-semibold">Aus Sammlung und Library</b><span className="text-xs text-muted-foreground">Vorhandene Dateien wählen.</span></span></CommandItem>
+          <CommandItem value="Hochladen Datei vom Mac" onSelect={onUpload}><Upload/><span className="[display:grid]"><b className="font-medium">Hochladen</b><span className="text-xs text-muted-foreground">Vom Mac in die Sammlung, dann hier verbunden.</span></span></CommandItem>
+          <CommandItem value="Aus Sammlung und Library wählen" onSelect={onLibrary}><Archive/><span className="[display:grid]"><b className="font-medium">Aus Sammlung und Library</b><span className="text-xs text-muted-foreground">Vorhandene Dateien wählen.</span></span></CommandItem>
         </CommandGroup>}
         {groups.map(([group, title]) => {
           const items = list.filter(type => type.group === group)
           return items.length > 0 && <CommandGroup key={group} heading={title}>
             {items.map(type => <CommandItem key={type.type} value={type.title + ' ' + type.description} onSelect={() => onPick(type)} className="items-start">
-              <Icon name={type.icon} className="mt-0.5 size-4"/><span className="[display:grid] gap-0.5"><b className="font-semibold">{type.title}{type.paid ? ' · kostet Credits' : ''}</b>
+              <Icon name={type.icon} className="mt-0.5 size-4"/><span className="[display:grid] gap-0.5"><b className="font-medium">{type.title}{type.paid ? ' · kostet Credits' : ''}</b>
                 <span className="text-xs text-muted-foreground">{type.description}</span></span></CommandItem>)}
           </CommandGroup>
         })}
@@ -536,8 +566,8 @@ function Templates({ list, onPick, onClose, busy }) {
         <DialogDescription>Die Vorlage kommt rechts neben das, was schon auf der Fläche liegt. Datei-Knoten füllt sie mit passenden Bildern aus deiner Sammlung, zuerst aus diesem Projekt. Ausgeführt wird nichts.</DialogDescription></DialogHeader>
       <div className="[display:grid] grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-2">{list.map((item, i) =>
         <button key={item.id} autoFocus={i === 0} disabled={busy} onClick={() => onPick(item)}
-          className="[display:grid] content-start gap-1 rounded-md border bg-card p-3 text-left text-[13px] leading-[18px] text-secondary-foreground hover:bg-secondary active:bg-accent disabled:opacity-50">
-          <b className="text-[15px] text-foreground">{item.title}</b><span>{item.description}</span>{item.phases > 0 && <small className="text-muted-foreground">{item.phases === 1 ? '1 Rahmen' : `${item.phases} Rahmen`}</small>}</button>)}</div>
+          className="[display:grid] content-start gap-1 rounded-md border bg-card p-3 text-left text-sm text-secondary-foreground hover:bg-secondary active:bg-accent disabled:opacity-50">
+          <b className="text-lg text-foreground">{item.title}</b><span>{item.description}</span>{item.phases > 0 && <small className="text-muted-foreground">{item.phases === 1 ? '1 Rahmen' : `${item.phases} Rahmen`}</small>}</button>)}</div>
       <DialogFooter><Button variant="outline" onClick={onClose}>Abbrechen</Button></DialogFooter>
     </DialogContent>
   </Dialog>
@@ -553,6 +583,22 @@ function Confirm({ steps, onYes, onNo }) {
       <DialogFooter><Button variant="outline" autoFocus onClick={onNo}>Abbrechen</Button><Button onClick={onYes}>Alle ausführen</Button></DialogFooter>
     </DialogContent>
   </Dialog>
+}
+
+/** Room around fitted content: the floating bar sits on top, the dock and zoom bar at the bottom. */
+const fitPadding = { top: '80px', right: '48px', bottom: '96px', left: '48px' }
+
+/** Zoom controls in the product's language and button size, with the current zoom and the optional overview map. */
+function ZoomBar({ overview, setOverview }) {
+  const flow = useReactFlow()
+  const zoom = useViewportStore(store => store.transform[2])
+  return <Panel position="bottom-right" className="flex items-center gap-0.5 rounded-full border bg-popover p-1 shadow-[var(--shadow-subtle)]" role="toolbar" aria-label="Ansicht">
+    <Button variant="ghost" size="icon" aria-label="Verkleinern" title="Verkleinern" onClick={() => flow.zoomOut({ duration: 0 })}><Minus/></Button>
+    <span className="w-12 text-center text-sm tabular-nums text-muted-foreground" aria-live="polite">{Math.round(zoom * 100)} %</span>
+    <Button variant="ghost" size="icon" aria-label="Vergrößern" title="Vergrößern" onClick={() => flow.zoomIn({ duration: 0 })}><Plus/></Button>
+    <Button variant="ghost" size="icon" aria-label="Alles zeigen" title="Alles zeigen" onClick={() => flow.fitView({ padding: fitPadding, duration: 0 })}><Maximize/></Button>
+    <Button variant={overview ? 'secondary' : 'ghost'} size="icon" aria-pressed={overview} aria-label="Übersichtskarte" title="Übersichtskarte" onClick={() => setOverview(!overview)}><MapIcon/></Button>
+  </Panel>
 }
 
 function Canvas({ ctx, project, record, types, boards, templates }) {
@@ -572,6 +618,9 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
   const [inserting, setInserting] = useState(false)
   const [hand, setHand] = useState(false)
   const [renaming, setRenaming] = useState(null)
+  const [overview, setOverview] = useState(false)
+  // Fit once React Flow has measured the nodes; the initial fit runs before the cards have their real size.
+  const fitted = useRef(false)
   // React Flow's own colours (controls, minimap) follow the hub theme switch.
   const [colorMode, setColorMode] = useState(() => document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light')
   useEffect(() => {
@@ -581,6 +630,8 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
   }, [])
   // React Flow's own per-node state (measured size, selection, dragging, live resize), kept by its changesets.
   const [meta, setMeta] = useState({})
+  const glance = useViewportStore(store => store.transform[2] < 0.35)
+  const measuredCount = Object.values(meta).filter(item => item.measured).length
   const state = useRef({ data: initial.doc, saved: initial.changed ? null : initial.doc, revision: record.revision, timer: null, saving: null }).current
   const shell = useRef(null)
   const pointer = useRef(null)
@@ -614,6 +665,11 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
   function report(e) { setError(e.message); setStatus('Speichern prüfen') }
   useEffect(() => { if (initial.changed) flush().catch(report); else refresh() }, [])
   useEffect(() => () => { if (state.saved !== state.data) flush().catch(e => ctx.toast(e.message, true)) }, [])
+  useEffect(() => {
+    if (fitted.current || !doc.nodes.length || measuredCount < doc.nodes.filter(item => !(glance && item.parentId)).length) return
+    fitted.current = true
+    flow.fitView({ padding: fitPadding, duration: 0 })
+  }, [measuredCount])
   const busy = Object.values(view.nodes).some(item => item.status === 'running' || item.status === 'waiting')
   useEffect(() => {
     if (!busy) return
@@ -765,7 +821,8 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
   }
   /** Shows one frame (a phase of the production) filling the canvas. */
   function focusFrame(node) {
-    flow.fitBounds({ x: node.x, y: node.y, width: node.params?.width ?? 640, height: node.params?.height ?? 480 }, { padding: 0.08, duration: 0 })
+    // The floating bar covers the top 64 px; the frame title must stay visible below it.
+    flow.fitBounds({ x: node.x, y: node.y, width: node.params?.width ?? 640, height: node.params?.height ?? 480 }, { padding: fitPadding, duration: 0 })
   }
   /** Opens the node menu at a screen point; new nodes go to the matching point on the canvas. */
   function openMenu(point, filter, position = flow.screenToFlowPosition(point)) {
@@ -790,14 +847,29 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
   const running = id => ['running', 'waiting'].includes(view.nodes[id]?.status)
   // While a node runs, the lines into it animate (React Flow's animated edges).
   const edges = doc.edges.map(edge => ({ ...edge, zIndex: 1, animated: running(edge.target), className: 'flow-edge kind-' + (portKind(edge.source, edge.sourceHandle, 'source') ?? 'text') }))
+  /** What a frame shows as a poster in the overview: pictures (results before references) and how much is inside. */
+  function storyOf(frame) {
+    const kids = doc.nodes.filter(item => item.parentId === frame.id).sort((a, b) => (a.y - b.y) || (a.x - b.x))
+    const made = [], refs = []
+    for (const kid of kids) {
+      const kind = typeOf.get(kid.type)
+      const outputs = view.nodes[kid.id]?.outputs
+      if (!kind || !outputs) continue
+      const media = kind.outputs.filter(port => port.kind === 'image' || port.kind === 'video').flatMap(port => outputs[port.id] ?? []).filter(item => view.assets[item])
+      ;(kind.runs ? made : refs).push(...media)
+    }
+    return { cover: [...new Set([...made, ...refs])].slice(0, 4), made: made.length, nodes: kids.length }
+  }
   const nodes = doc.nodes.map(node => {
     const frame = isFrame(node)
     const own = meta[node.id] ?? {}
     return {
       id: node.id, type: frame ? 'frame' : 'flow', position: { x: node.x, y: node.y }, ...(node.parentId && { parentId: node.parentId }),
+      // In the storyboard overview the frames show posters; what lies inside (and its lines) steps aside.
+      ...(glance && node.parentId && { hidden: true }),
       dragHandle: frame ? '.flow-frame-head' : '.flow-drag', zIndex: 2, selected: own.selected, dragging: own.dragging, measured: own.measured,
       ...(frame && { width: own.width ?? node.params?.width ?? 640, height: own.height ?? node.params?.height ?? 480, zIndex: 0, style: { pointerEvents: 'none' } }),
-      data: { node, type: typeOf.get(node.type), view: view.nodes[node.id] },
+      data: { node, type: typeOf.get(node.type), view: view.nodes[node.id], ...(frame && glance && { story: storyOf(node) }) },
     }
   })
   const frames = doc.nodes.filter(isFrame).sort((a, b) => (a.x - b.x) || (a.y - b.y))
@@ -863,7 +935,7 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   })
-  const actions = { ctx, assets: view.assets, edges: doc.edges, update, remove, duplicate, run, pick, pickAssets, uploadAssets, mentionNames, portMenu,
+  const actions = { ctx, focusFrame, assets: view.assets, edges: doc.edges, update, remove, duplicate, run, pick, pickAssets, uploadAssets, mentionNames, portMenu,
     renaming, setRenaming, rename, copyNodes, pasteNodes, focusNode }
 
   return <Actions.Provider value={actions}>
@@ -906,16 +978,17 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
         }}
         onEdgeDoubleClick={(_, edge) => change(d => ({ edges: d.edges.filter(item => item.id !== edge.id) }))}>
         <Grid/>
-        <Controls showInteractive={false} position="bottom-right"/>
-        <MiniMap position="bottom-left" pannable zoomable ariaLabel="Übersicht der Fläche" bgColor="var(--c-panel)" maskColor="var(--c-tint-3)"
-          nodeColor={item => (isFrame(byId.get(item.id) ?? {}) ? 'var(--c-fill-2)' : 'var(--c-fill-4)')}/>
-        <Panel position="top-left" className="flex flex-wrap items-center gap-3">
-          <select className="text-in w-auto max-w-72" aria-label="Projekt" value={project} onChange={async e => { try { await flush(); location.hash = route(e.target.value) } catch (err) { report(err) } }}>
+        {overview && <MiniMap position="bottom-right" style={{ marginBottom: 72 }} pannable zoomable ariaLabel="Übersicht der Fläche" bgColor="var(--c-panel)" maskColor="var(--c-tint-3)"
+          nodeColor={item => (isFrame(byId.get(item.id) ?? {}) ? 'var(--c-fill-2)' : 'var(--c-fill-4)')}/>}
+        <ZoomBar overview={overview} setOverview={setOverview}/>
+        {/* One opaque floating bar (ElevenLabs layout): project, phases, save state. Nothing translucent over the nodes. */}
+        <Panel position="top-left" className="flex max-w-[calc(100%-32px)] flex-wrap items-center gap-1 rounded-full border bg-popover p-1 shadow-[var(--shadow-subtle)]">
+          <select className="text-in h-9 w-auto max-w-60 rounded-full border-0 bg-transparent text-base font-medium" aria-label="Projekt" value={project} onChange={async e => { try { await flush(); location.hash = route(e.target.value) } catch (err) { report(err) } }}>
             {ctx.projects.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select>
-          <span className="text-[13px] text-muted-foreground" role="status">{status}</span>
-          {frames.length > 1 && <nav className="flex flex-wrap gap-1" aria-label="Rahmen anspringen">
-            {frames.map(node => <Button key={node.id} variant="outline" size="sm" className="rounded-full bg-popover" onClick={() => focusFrame(node)}>{nodeName(node, typeOf.get(node.type))}</Button>)}
-            <Button variant="outline" size="sm" className="rounded-full bg-popover" onClick={() => flow.fitView({ padding: 0.1, duration: 0 })}>Alles</Button></nav>}
+          {frames.length > 1 && <><span className="mx-1 h-5 w-px bg-border" aria-hidden="true"/><nav className="flex flex-wrap gap-0.5" aria-label="Rahmen anspringen">
+            {frames.map(node => <Button key={node.id} variant="ghost" size="sm" onClick={() => focusFrame(node)}>{nodeName(node, typeOf.get(node.type))}</Button>)}
+            <Button variant="ghost" size="sm" onClick={() => flow.fitView({ padding: fitPadding, duration: 0 })}>Alles</Button></nav></>}
+          {status && <span className="px-2 text-sm text-muted-foreground" role="status">{status}</span>}
         </Panel>
         {error && <Panel position="top-right"><p className="flow-alert" role="alert">{error} <Button variant="outline" size="sm" onClick={() => { setError(''); refresh() }}>Erneut versuchen</Button></p></Panel>}
         <Panel position="bottom-center" className="flex items-center gap-2 rounded-xl border bg-popover p-1" role="toolbar" aria-label="Werkzeuge">
@@ -931,7 +1004,7 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
         {boards > 0
           ? <div className="flex flex-wrap gap-2"><Button size="lg" variant="brand" onClick={importBoards}>Moodboard und Storyboard übernehmen</Button><Button size="lg" variant="outline" onClick={() => setShowTemplates(true)}>Mit Vorlage beginnen</Button></div>
           : <div className="flex flex-wrap gap-2"><Button size="lg" variant="brand" onClick={() => setShowTemplates(true)}>Mit Vorlage beginnen</Button><Button size="lg" variant="outline" onClick={openCentered}>Knoten hinzufügen</Button></div>}
-        {boards > 0 && <p className="text-[13px]">Aus den bisherigen Boards entstehen {boards} Knoten in Rahmen. Die alten Boards bleiben gespeichert.</p>}
+        {boards > 0 && <p className="text-sm">Aus den bisherigen Boards entstehen {boards} Knoten in Rahmen. Die alten Boards bleiben gespeichert.</p>}
       </div>}
       {menu && <AddMenu types={types} at={menu} filter={menu.filter} onClose={() => setMenu(null)} onPick={type => addNode(type, menu.position, menu.filter)}
         {...(menu.filter?.side === 'target' && menu.filter.kind !== 'text' && typeOf.has('library') && {
