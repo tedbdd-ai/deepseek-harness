@@ -431,39 +431,70 @@ test('every template creates new documents that fit the node types, reach each o
   store.editTags({ ids: [outfit], add: ['Outfit'] })
   const api = `/creativity-flows/api/projects/${project}/documents`
   const made = await harness.json('POST', api, { templateId: 'konsistenter-film' }, 201)
-  assert.deepEqual(made.docs.map(doc => [doc.kind, doc.title]), [['moodboard', 'Moodboard'], ['cast', 'Figur und Set'], ['storyboard', 'Film']], 'eine Vorlage legt neue Dokumente an')
+  assert.deepEqual(made.docs.map(doc => [doc.kind, doc.title]), [['moodboard', 'Moodboard'], ['storyboard', 'Storyboard'], ['film', 'Film · Storyboard']], 'eine Vorlage legt neue Dokumente an, der Film entsteht durch die Übergabe')
   assert.deepEqual(made.skipped, [])
   const canvas = doc => store.appData(project, 'flow-' + doc.id).data
-  const [mood, castDoc, filmDoc] = made.docs.map(canvas)
-  const board = mood.nodes.find(node => node.type === 'moodboard')
-  assert.deepEqual(board.params.items.filter(item => item.kind === 'file').map(item => item.assetId), [outfit], 'das Moodboard bekommt passende Bilder als freie Elemente')
-  assert.deepEqual(board.params.items.filter(item => item.kind !== 'file').map(item => item.kind), ['note', 'word', 'word', 'word', 'word', 'word', 'color', 'color'])
+  const [mood, board, film] = made.docs.map(canvas)
+  const pin = mood.nodes.find(node => node.type === 'moodboard')
+  assert.deepEqual(pin.params.items.filter(item => item.kind === 'file').map(item => item.assetId), [outfit], 'das Moodboard bekommt passende Bilder als freie Elemente')
+  assert.deepEqual(pin.params.items.filter(item => item.kind !== 'file').map(item => item.kind), ['note', 'word', 'word', 'word', 'word', 'word', 'color', 'color'])
   assert.equal(mood.nodes.length, 1, 'im Moodboard liegt nur die Pinnwand')
-  assert.deepEqual(castDoc.nodes.filter(node => node.asset).map(node => node.name).sort(), ['Figur', 'Orte', 'Outfits', 'Set'])
-  const regie = filmDoc.nodes.find(node => node.type === 'director')
-  assert.deepEqual(filmDoc.nodes.filter(node => node.type === 'scene').map(node => node.params.from), [regie.id, regie.id, regie.id], 'die Beispielszenen gehören zur Regie')
-  const of = type => filmDoc.nodes.filter(node => node.type === type).map(node => node.id)
-  assert.equal(filmDoc.edges.filter(edge => of('image').includes(edge.source) && edge.targetHandle === 'start').length, 3, 'jedes Keyframe ist Startbild seines Videos')
-  assert.equal(filmDoc.edges.filter(edge => of('composition').includes(edge.target)).length, 3)
-  assert.ok(filmDoc.nodes.filter(node => node.type === 'image' || node.type === 'video').every(node => node.parentId), 'Keyframes und Videos liegen im Rahmen')
+  assert.deepEqual(board.nodes.filter(node => node.asset).map(node => node.name).sort(), ['Figur', 'Orte', 'Outfits', 'Set'], 'das Charakterstudio liegt im Storyboard')
+  assert.ok(!board.nodes.some(node => node.type === 'video'), 'im Storyboard entstehen keine Videos')
+  const regie = board.nodes.find(node => node.type === 'director')
+  const scenes = board.nodes.filter(node => node.type === 'scene')
+  assert.deepEqual(scenes.map(node => [node.params.from, node.params.shot]), [[regie.id, 'Totale'], [regie.id, 'Halbnahe'], [regie.id, 'Nahaufnahme']])
+  assert.equal(board.edges.filter(edge => scenes.some(scene => scene.id === edge.source) && board.nodes.find(node => node.id === edge.target)?.type === 'image').length, 3, 'jede Szene hat ihr Storyboard-Bild')
+  assert.deepEqual(film.nodes.filter(node => node.type === 'scene').map(node => [node.name, node.params.source]), scenes.map(scene => [scene.name, `${made.docs[1].id}:${scene.id}`]))
+  assert.equal(film.edges.filter(edge => film.nodes.find(node => node.id === edge.target)?.type === 'composition').length, 3, 'jede Szene wird ein Clip im Schnitt')
+  assert.equal(film.edges.filter(edge => edge.targetHandle === 'start').length, 3, 'das Storyboard-Bild wird Startbild des Videos')
   const state = await harness.json('GET', `${api}/${made.docs[2].id}/state`)
-  assert.deepEqual(state.projectAssets.map(item => [item.name, item.docTitle]).sort(), [['Figur', 'Figur und Set'], ['Look', 'Moodboard'], ['Orte', 'Figur und Set'], ['Outfits', 'Figur und Set'], ['Set', 'Figur und Set']], 'der Film sieht die Assets der anderen Dokumente')
+  assert.ok(state.projectAssets.some(item => item.name === 'Figur' && item.docTitle === 'Storyboard'), 'der Film sieht die Assets des Storyboards')
   const again = await harness.json('POST', api, { templateId: 'moodboard' }, 201)
   assert.deepEqual(again.docs.map(doc => doc.title), ['Moodboard 2'], 'ein zweites Moodboard kommt neben das erste, nichts wird überschrieben')
   assert.equal(canvas(again.docs[0]).nodes[0].name, 'Look 2', 'Projekt-Assets bleiben eindeutig')
-  assert.equal(canvas(made.docs[0]).nodes.length, 1, 'das erste Moodboard bleibt unverändert')
   const both = await harness.json('POST', api, { templateId: 'moodboard-und-storyboard' }, 201)
   assert.match(canvas(both.docs[1]).nodes.find(node => node.type === 'director').prompt, /@Look 3\./, 'die Regie nennt das Moodboard aus derselben Vorlage')
   const blank = await harness.json('POST', api, { kind: 'flow', title: 'Experimente' }, 201)
   assert.deepEqual([blank.docs[0].kind, canvas(blank.docs[0]).nodes], ['flow', []])
-  await harness.json('POST', api, { kind: 'nope' }, 400)
+  await harness.json('POST', api, { kind: 'cast' }, 400)
   await harness.json('POST', api, { templateId: 'nope' }, 404)
   const listed = await harness.json('GET', '/creativity-flows/api/templates')
   assert.deepEqual(listed.filter(item => item.listed).map(item => item.id), ['moodboard', 'storyboard', 'moodboard-und-storyboard', 'konsistenter-film'])
   const docs = await harness.json('GET', api)
-  assert.deepEqual(docs.docs.map(doc => doc.title), ['Moodboard', 'Figur und Set', 'Film', 'Moodboard 2', 'Moodboard 3', 'Storyboard', 'Experimente'])
+  assert.deepEqual(docs.docs.map(doc => doc.title), ['Moodboard', 'Storyboard', 'Film · Storyboard', 'Moodboard 2', 'Moodboard 3', 'Storyboard 2', 'Experimente'])
   assert.deepEqual(docs.docs[0].cover, [outfit])
   assert.equal(docs.assets[outfit].title, 'Mantel')
+  harness.unmountAll()
+})
+
+test('handing scenes to the film carries their storyboard picture, updates in place and follows the strip order', async () => {
+  const harness = createHarness()
+  harness.mount(core, { databasePath: ':memory:' })
+  for (const plugin of [flows, playgroundPlugin, videoPlugin, schnittPlugin, llmPlugin]) harness.mount(plugin)
+  const store = harness.ctx.creativeStore
+  const project = store.createProject({ title: 'Übergabe' }).id
+  const picture = store.createAsset({ library: 'generation', title: 'Bild', mediaType: 'image/png', media: png.toString('base64') }).id
+  const api = `/creativity-flows/api/projects/${project}/documents`
+  const made = await harness.json('POST', api, { templateId: 'storyboard' }, 201)
+  const id = made.docs[0].id
+  const board = store.appData(project, 'flow-' + id).data
+  const scenes = board.nodes.filter(node => node.type === 'scene').sort((a, b) => a.x - b.x)
+  const first = board.edges.find(edge => edge.source === scenes[0].id).target
+  store.setSettings('flows:state:' + project, { [first]: { status: 'done', outputs: { image: [picture] }, key: 'x' } })
+  const handed = await harness.json('POST', `${api}/${id}/handoff`, { sceneIds: [scenes[1].id, scenes[0].id] }, 201)
+  assert.deepEqual([handed.doc.kind, handed.doc.source, handed.added, handed.updated], ['film', id, 2, 0])
+  const film = () => store.appData(project, 'flow-' + handed.doc.id).data
+  const rows = () => film().nodes.filter(node => node.type === 'scene').sort((a, b) => a.y - b.y)
+  assert.deepEqual(rows().map(node => [node.name, node.params.assetIds, node.params.shot]), [['Flur', [], 'Halbnahe'], ['Erwachen', [picture], 'Totale']])
+  const video = film().nodes.find(node => node.type === 'video')
+  assert.equal(video.params.modelId, 'seedance')
+  const again = await harness.json('POST', `${api}/${id}/handoff`, { sceneIds: scenes.map(scene => scene.id) }, 201)
+  assert.deepEqual([again.doc.id, again.added, again.updated], [handed.doc.id, 1, 2], 'derselbe Film, vorhandene Szenen werden aktualisiert')
+  assert.deepEqual(rows().map(node => node.name), ['Erwachen', 'Flur', 'Ansprache'], 'die Reihenfolge folgt dem Filmstreifen')
+  assert.equal(film().nodes.filter(node => node.type === 'video').length, 3)
+  await harness.json('POST', `${api}/${again.doc.id}/handoff`, { sceneIds: [rows()[0].id] }, 400)
+  await harness.json('POST', `${api}/${id}/handoff`, { sceneIds: ['fehlt'] }, 400)
   harness.unmountAll()
 })
 
@@ -672,7 +703,7 @@ test('the moodboard pins items without lines, gives its pictures at once and its
   assert.match(calls[0].prompt, /Stichworte: Latex, Neon/)
   assert.equal(calls[0].images.length, 3, 'nur Bilder gehen an das Modell')
   const look = engine.view(project).look
-  assert.deepEqual(look.data, { look: 'Kalt und glänzend.', light: 'hart', camera: '', palette: 'Rot #B3122E', materials: 'Latex' })
+  assert.deepEqual(look.data, { look: 'Kalt und glänzend.', light: 'hart', camera: '', palette: 'Rot #B3122E', materials: 'Latex', idea: '', keyImages: [pictures[2]], sketches: [] })
   assert.deepEqual(look.outputs.keys, [pictures[2]])
   assert.deepEqual(look.outputs.images, [pictures[0], pictures[1], pictures[2]], 'die Bilder bleiben neben dem Ergebnis')
   assert.deepEqual(seen[0].refs, [pictures[2]], '@Look bringt nur die Leitbilder, nicht das ganze Board')
@@ -681,5 +712,27 @@ test('the moodboard pins items without lines, gives its pictures at once and its
   assert.equal(engine.view(project).look.stale, true, 'ein geändertes Board macht den Look veraltet')
   const empty = moodboardNode(providers, store)
   await assert.rejects(empty.run({ params: { items: [] } }), /Leg zuerst Bilder/)
+  const rendered = []
+  const fakeImage = {
+    fields: async () => [{ key: 'modelId', label: 'Modell', type: 'enum', options: [{ value: 'm1', label: 'Modell 1' }], default: 'm1' }],
+    run: async ({ prompt, inputs, params }) => {
+      rendered.push({ prompt, refs: inputs.refs, params })
+      if (prompt.startsWith('B')) throw new Error('kaputt')
+      return { outputs: { image: ['skizze-' + rendered.length] }, credits: 2 }
+    },
+  }
+  const sketchy = moodboardNode(providers, store, { node: type => (type === 'image' ? fakeImage : undefined) })
+  assert.deepEqual((await sketchy.fields()).slice(1).map(field => [field.key, field.default]), [['sketches', '3'], ['sketchModel', 'm1']])
+  answers.push(JSON.stringify({ look: 'Kalt.', idea: 'Sie wacht auf und geht.', keyImages: [1], sketches: [{ title: 'Erwachen', prompt: 'A wakes up' }, { title: 'Flur', prompt: 'B corridor' }, { title: 'Tür', prompt: 'C door' }, { title: 'zu viel', prompt: 'D' }] }))
+  const result = await sketchy.run({ params: { items: [{ id: '1', kind: 'file', assetId: pictures[0], x: 0, y: 0 }, { id: '2', kind: 'note', text: 'Klinik', x: 0, y: 100 }], sketches: '3', sketchModel: 'm1' }, projectId: project, stopped: () => false })
+  assert.match(calls.at(-1).system, /exactly 3 key scenes/)
+  assert.equal(rendered.length, 3, 'genau so viele Skizzen wie eingestellt')
+  assert.deepEqual(rendered[0].refs, [pictures[0]], 'die Leitbilder sind Referenz der Skizzen')
+  assert.equal(rendered[0].params.modelId, 'm1')
+  assert.match(rendered[0].prompt, /Look: Kalt\./)
+  assert.deepEqual(result.outputs, { look: ['Kalt.'], keys: ['skizze-1', 'skizze-3'], idea: ['Sie wacht auf und geht.'] }, '@Look bringt die gelungenen Skizzen')
+  assert.deepEqual(result.data.sketches.map(item => [item.title, item.assetId]), [['Erwachen', 'skizze-1'], ['Flur', null], ['Tür', 'skizze-3']])
+  assert.match(result.data.warning, /1 von 3 Skizzen sind fehlgeschlagen: kaputt/)
+  assert.equal(result.credits, 4)
   store.close()
 })

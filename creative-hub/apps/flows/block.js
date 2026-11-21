@@ -1,6 +1,6 @@
 /**
  * Browser module of the Flows page: loads the canvas bundle built from `editor.jsx` and mounts it. The pages for one
- * kind of document (`moodboard.js`, `storyboard.js`, `cast.js`) and the project page section (`project.js`) mount it
+ * kind of document (`moodboard.js`, `storyboard.js`, `film.js`) and the project page section (`project.js`) mount it
  * with `options`.
  * @param {{ kind?: string, page?: string, projectId?: string, embedded?: boolean }} [options]
  */

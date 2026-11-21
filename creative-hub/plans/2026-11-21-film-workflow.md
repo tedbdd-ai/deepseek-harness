@@ -64,6 +64,13 @@ Befund: Jedes Projekt hatte nur eine Fläche. Die Schritt-Seiten filterten sie n
 - Die Engine rechnet pro Dokument. Projekt-Assets anderer Dokumente kommen als fremde Knoten dazu: Ihre Ergebnisse zählen, laufen tun sie nur in ihrem Dokument.
 - Die alte eine Fläche wird ohne Kopie zum Dokument „Flow“, „Rahmen in Dokumente aufteilen“ zerlegt sie.
 
+### Nachtrag: Moodboard → Storyboard → Film (umgesetzt)
+
+- Moodboard: „Look erzeugen“ liefert Look, Story-Idee und 0, 3 oder 6 Skizzen (über den „Bild“-Knoten aus `creativeNodes`, Leitbilder als Referenz). `@Look` bringt Look-Text und Skizzen.
+- Storyboard: Die Regie übernimmt die Idee per Knopf. Szenen haben eine Einstellungsgröße, das Charakterstudio (Figur, Set, Outfits, Orte) liegt im Storyboard, und pro Szene gibt es ein Storyboard-Bild. Videos gibt es hier nicht mehr.
+- „An Film übergeben“ bringt die gewählten Szenen mit ihrem Bild als Startbild in den Film dieses Storyboards. Ein erneutes Übergeben aktualisiert in Filmstreifen-Reihenfolge.
+- Film: Videos, Startbilder und Schnitt. Neue Dokumentart „Film“, die Seite „Filme“ ersetzt „Figuren und Sets“.
+
 ### Phase 3: ComfyUI über Rancher und Rezepte
 
 - Provider-Plugin `providers/comfyui`: Es nimmt einen exportierten API-Workflow (JSON) und macht die markierten Eingänge (`prompt`, `ref_image`, `seed`, `denoise`) zu Ports. Aufträge gehen an eine Queue vor dem Rancher-Cluster, und Fortschritt und Ergebnis kommen zurück in den Knoten. Adresse und Zugang sind Plugin-Einstellungen.

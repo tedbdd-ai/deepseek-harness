@@ -45,8 +45,10 @@ const route = (project, page = 'flows') => `#/${page}?project=${encodeURICompone
 export const kinds = {
   moodboard: { title: 'Moodboard', plural: 'Moodboards', page: 'moodboard', icon: 'board', blank: 'Neues Moodboard', empty: 'Ein Moodboard ist eine freie Pinnwand für Bilder, Farben, Notizen und Stichworte. „Look erzeugen“ macht daraus @Look für alle anderen Dokumente des Projekts.' },
   storyboard: { title: 'Storyboard', plural: 'Storyboards', page: 'storyboard', icon: 'shot', blank: 'Neues Storyboard', empty: 'Im Storyboard schreibt die Regie aus deiner Story die Szenen. Der Filmstreifen zeigt jede Einstellung mit Keyframe, Video und Status.' },
-  cast: { title: 'Figur und Set', plural: 'Figuren und Sets', page: 'figur-und-set', icon: 'person', blank: 'Neue Figur mit Set', empty: 'Hier entstehen Charakterblatt und Set. Als Projekt-Assets wirken sie mit @Figur und @Set in jedem Dokument des Projekts.' },
+  film: { title: 'Film', plural: 'Filme', page: 'filme', icon: 'video', blank: 'Neuer Film', empty: 'Ein Film entsteht aus dem Storyboard: „An Film übergeben“ bringt die Szenen mit ihren Storyboard-Bildern hierher, wo sie zu Videos und zum Schnitt werden.' },
   flow: { title: 'Flow', plural: 'Flows', page: 'flows', icon: 'sparkle', blank: 'Leerer Flow', empty: 'Ein Flow ist eine freie Fläche für eigene Abläufe aus Bild-, Video- und Textknoten.' },
+  // Documents from before the character studio moved into the storyboard: listed when there are any, never created.
+  cast: { title: 'Figur und Set', plural: 'Figuren und Sets', page: 'flows', icon: 'person', legacy: true, blank: '', empty: '' },
 }
 /** App-data key of a document's canvas (`flow` is the canvas a project had before documents). */
 const docKey = id => (id === 'flow' ? 'flow' : 'flow-' + id)
@@ -212,6 +214,25 @@ function TextResult({ view }) {
     <div className="flow-answer nodrag nowheel" tabIndex={0} aria-label="Antwort">{text}</div>
     <Button variant="secondary" size="icon-sm" className="nodrag absolute right-2 top-2 opacity-0 transition-opacity group-hover/answer:opacity-100 focus-visible:opacity-100"
       aria-label="Antwort kopieren" title="Kopieren" onClick={() => navigator.clipboard?.writeText(text).then(() => ctx.toast('Antwort kopiert.'), () => ctx.toast('Kopieren ging nicht.', true))}><Copy/></Button>
+  </div>
+}
+
+/**
+ * Takes the story idea of a moodboard into the Regie's story field: the moodboards of the project that have one, the
+ * idea shown before it is used. Replacing a story that is already there needs a second click.
+ */
+function IdeaPicker({ node }) {
+  const { ideas, update } = useContext(Actions)
+  const [sure, setSure] = useState(null)
+  if (!ideas.length) return null
+  const take = item => {
+    if ((node.params?.story ?? '').trim() && sure !== item.key) { setSure(item.key); return }
+    update(node.id, n => ({ ...n, params: { ...n.params, story: item.idea } }))
+    setSure(null)
+  }
+  return <div className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+    <span>Idee aus</span>{ideas.map(item => <Button key={item.key} variant={sure === item.key ? 'default' : 'outline'} size="sm" title={item.idea} onClick={() => take(item)}>
+      {sure === item.key ? 'Story ersetzen?' : `@${item.name}${item.docTitle ? ' · ' + item.docTitle : ''}`}</Button>)}
   </div>
 }
 
@@ -415,8 +436,12 @@ function NodeBody({ node, type }) {
   if (node.type === 'library') return <AssetStrip node={node}/>
   if (node.type === 'scene') {
     const duration = type.fields.find(field => field.key === 'duration')
+    const shot = type.fields.find(field => field.key === 'shot')
     return <>
       <AssetStrip node={node} single/>
+      {shot && <label className="nodrag [display:grid] grid-cols-[1fr_144px] items-center gap-2 text-sm text-muted-foreground"><span>Einstellung</span>
+        <select className={selectClass} value={node.params?.shot ?? shot.default} onChange={e => set('shot', e.target.value)}>
+          {shot.options.map(option => <option key={option} value={option}>{option}</option>)}</select></label>}
       <label className="nodrag [display:grid] grid-cols-[1fr_144px] items-center gap-2 text-sm text-muted-foreground"><span>Dauer</span>
         <select className={selectClass} value={node.params?.duration ?? duration.default} onChange={e => set('duration', e.target.value)}>
           {duration.options.map(option => <option key={option} value={option}>{option} s</option>)}</select></label>
@@ -624,6 +649,7 @@ function FlowNode({ id, data, selected }) {
           {detail === 'glance' ? (node.type === 'library' || node.type === 'scene') && <BaseNodeContent><NodeBody node={node} type={type}/></BaseNodeContent> :
           <BaseNodeContent className={cn(type.runs && type.outputs.some(port => port.kind !== 'text') && 'border-t')}>
             <NodeBody node={node} type={type}/>
+            {node.type === 'director' && <IdeaPicker node={node}/>}
             {type.fields.filter(field => field.type === 'longtext').map(field => <label key={field.key} className="nodrag [display:grid] gap-1 text-xs text-muted-foreground"><span>{field.label}</span>
               <textarea className="flow-prompt nowheel" rows={field.rows ?? 3} placeholder={field.placeholder} value={node.params?.[field.key] ?? ''}
                 onChange={e => update(id, n => ({ ...n, params: { ...n.params, [field.key]: e.target.value } }))}/></label>)}
@@ -710,14 +736,24 @@ function LookCard({ view }) {
   const { ctx, assets, openViewer } = useContext(Actions)
   const dna = view?.data
   if (!dna?.look) return null
-  const keys = (view.outputs?.keys ?? []).filter(id => assets[id])
+  const sketches = (dna.sketches ?? []).filter(item => item.assetId && assets[item.assetId])
+  const picks = (dna.keyImages ?? []).filter(id => assets[id])
   const rows = [['Licht', dna.light], ['Kamera', dna.camera], ['Palette', dna.palette], ['Material', dna.materials]].filter(([, value]) => value)
   const hexes = String(dna.palette ?? '').match(/#[0-9a-f]{6}/gi) ?? []
   return <div className={cn('flow-look', view.stale && 'stale')}>
-    <p className="flow-look-lead">{dna.look}</p>
-    <dl>{rows.map(([label, value]) => <React.Fragment key={label}><dt>{label}</dt><dd>{value}
-      {label === 'Palette' && hexes.length > 0 && <span className="flow-look-chips">{hexes.map(hex => <span key={hex} style={{ backgroundColor: hex }} title={hex}/>)}</span>}</dd></React.Fragment>)}</dl>
-    {keys.length > 0 && <div className="flow-look-keys" aria-label="Leitbilder">{keys.map((id, i) => <button key={id} type="button" className="nodrag" aria-label={`Leitbild ${i + 1} ansehen`} onClick={() => openViewer({ ids: keys, index: i })}><Media asset={assets[id]} ctx={ctx}/></button>)}</div>}
+    {sketches.length > 0 && <section aria-label="Skizzen">
+      <h3>Skizzen</h3>
+      <div className="flow-look-sketches">{sketches.map((item, i) => <button key={item.assetId} type="button" className="nodrag" title={item.prompt}
+        onClick={() => openViewer({ ids: sketches.map(sketch => sketch.assetId), index: i })}><Media asset={assets[item.assetId]} ctx={ctx}/><span>{i + 1} · {item.title}</span></button>)}</div>
+    </section>}
+    {dna.warning && <p className="flow-warning" role="status">{dna.warning}</p>}
+    {dna.idea && <section aria-label="Story-Idee"><h3>Idee</h3><p className="flow-look-lead">{dna.idea}</p></section>}
+    <section aria-label="Look"><h3>Look</h3><p className="flow-look-lead">{dna.look}</p>
+      <dl>{rows.map(([label, value]) => <React.Fragment key={label}><dt>{label}</dt><dd>{value}
+        {label === 'Palette' && hexes.length > 0 && <span className="flow-look-chips">{hexes.map(hex => <span key={hex} style={{ backgroundColor: hex }} title={hex}/>)}</span>}</dd></React.Fragment>)}</dl></section>
+    {picks.length > 0 && <section aria-label="Leitbilder vom Board"><h3>Leitbilder vom Board</h3>
+      <div className="flow-look-keys">{picks.map((id, i) => <button key={id} type="button" className="nodrag" aria-label={`Leitbild ${i + 1} ansehen`} onClick={() => openViewer({ ids: picks, index: i })}><Media asset={assets[id]} ctx={ctx}/></button>)}</div></section>}
+    <p className="text-xs text-muted-foreground">Mit @Look nennt ein anderes Dokument diesen Look: Es bekommt den Look-Text und {sketches.length ? 'die Skizzen' : 'die Leitbilder'} als Referenz. Die Idee übernimmt die Regie im Storyboard per Knopf.</p>
   </div>
 }
 
@@ -739,6 +775,8 @@ function BoardNode({ id, data, selected }) {
   const model = modelOf(node, type)
   const modelField = type.fields.find(field => field.key === 'modelId')
   const outbound = new Set(edges.filter(edge => edge.source === id).map(edge => edge.sourceHandle))
+  const sketchField = type.fields.find(field => field.key === 'sketches')
+  const sketchCount = sketchField ? Number(node.params?.sketches ?? sketchField.default) || 0 : 0
   const status = view?.status === 'running' || view?.status === 'waiting' ? 'loading' : view?.status === 'failed' ? 'error' : 'initial'
   const facts = [items.length === 1 ? '1 Element' : `${items.length} Elemente`, view?.stale ? 'Look veraltet' : view?.status === 'done' ? 'Look fertig' : ''].filter(Boolean).join(' · ')
   return <>
@@ -766,18 +804,18 @@ function BoardNode({ id, data, selected }) {
           </div>
           <BaseNodeContent className="border-t">
             <LookCard view={view}/>
-            {!view?.data?.look && view?.status !== 'running' && <p className="text-sm text-muted-foreground">„Look erzeugen“ liest alles auf dem Board und macht daraus einen Look mit Licht, Kamera, Palette, Material und zwei bis drei Leitbildern. Als Projekt-Asset wirkt er mit @{nodeName(node, type)} in jedem Prompt.</p>}
+            {!view?.data?.look && view?.status !== 'running' && <p className="text-sm text-muted-foreground">„Look erzeugen“ liest Bilder, Notizen, Stichworte und Farben auf dem Board und macht daraus den Look (Licht, Kamera, Palette, Material), eine Story-Idee aus deinen Notizen{sketchCount ? ` und ${sketchCount} erste Skizzen von Schlüsselszenen` : ''}. Als Projekt-Asset wirkt er mit @{nodeName(node, type)} in jedem Dokument des Projekts.</p>}
             {(view?.warnings ?? []).map(text => <p key={text} className="flow-warning" role="status">{text}</p>)}
             {view?.status === 'failed' && view.error && <p className="flow-error" role="alert">{view.error}</p>}
             <div className="flex items-center justify-between gap-2">
               <span className={cn('text-xs tabular-nums text-muted-foreground', view?.stale && 'text-[var(--c-port-audio)]')}>{view?.stale ? 'Board geändert, Look veraltet' : statusNames[view?.status] ?? ''}</span>
-              <RunButton node={node} view={view} first="Look erzeugen" again="Look neu erzeugen"/>
+              <RunButton node={node} view={view} first={sketchCount ? `Look und ${sketchCount} Skizzen erzeugen` : 'Look erzeugen'} again={sketchCount ? `Neu erzeugen (${sketchCount} Skizzen)` : 'Look neu erzeugen'}/>
             </div>
           </BaseNodeContent>
         </BaseNode>
       </NodeStatusIndicator>
       <div className="nodrag absolute left-1/2 top-full mt-2 flex w-max -translate-x-1/2 items-center gap-0.5 rounded-full border bg-popover p-1 shadow-[var(--shadow-subtle)]" role="toolbar" aria-label={nodeName(node, type) + ': Einstellungen'}>
-        <NodeTools id={id} node={node} type={type} view={view} model={model} modelField={modelField} quick={[]} more={[]} firstMedia={null}/>
+        <NodeTools id={id} node={node} type={type} view={view} model={model} modelField={modelField} quick={type.fields.filter(field => field.key === 'sketches' || field.key === 'sketchModel')} more={[]} firstMedia={null}/>
       </div>
     </div>
     <Ports ports={type.outputs} side="out" connected={outbound} nodeId={id}/>
@@ -886,7 +924,7 @@ function Confirm({ steps, onYes, onNo }) {
 }
 
 const shotStates = {
-  draft: 'Entwurf', keyframe: 'Keyframe ok', video: 'Video ok', stale: 'Veraltet', running: 'Läuft', failed: 'Fehler',
+  draft: 'Entwurf', keyframe: 'Bild ok', video: 'Video ok', stale: 'Veraltet', running: 'Läuft', failed: 'Fehler',
 }
 
 /**
@@ -894,7 +932,7 @@ const shotStates = {
  * and a status. Cards can be chosen and rendered together, reordered by dragging and given their missing steps.
  * `shots` comes from `filmOf()`; nothing here runs without a click.
  */
-function Filmstrip({ shots, film, onRun, onCreate, onReorder, onFocus, onClose }) {
+function Filmstrip({ mode, shots, film, onRun, onCreate, onHandOff, onReorder, onFocus, onClose }) {
   const { ctx, assets } = useContext(Actions)
   const [chosen, setChosen] = useState(new Set())
   const [dragged, setDragged] = useState(null)
@@ -904,7 +942,9 @@ function Filmstrip({ shots, film, onRun, onCreate, onReorder, onFocus, onClose }
   const scope = picked.length ? picked : shots
   const keyframes = scope.map(shot => shot.keyframe?.id).filter(Boolean)
   const videos = scope.map(shot => shot.video?.id).filter(Boolean)
-  const missing = scope.filter(shot => !shot.video).map(shot => shot.scene.id)
+  // In a storyboard a scene needs its picture; in a film (or a free flow) it needs its video.
+  const board = mode === 'storyboard'
+  const missing = scope.filter(shot => (board ? !shot.keyframe && !shot.start : !shot.video)).map(shot => shot.scene.id)
   const toggle = id => setChosen(current => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next })
   const which = picked.length ? ` (${picked.length})` : ' (alle)'
   return <section className="flow-strip nodrag nowheel" aria-label="Filmstreifen">
@@ -913,14 +953,15 @@ function Filmstrip({ shots, film, onRun, onCreate, onReorder, onFocus, onClose }
       <span className="text-sm text-muted-foreground tabular-nums">{shots.length === 1 ? '1 Einstellung' : `${shots.length} Einstellungen`} · {shots.reduce((sum, shot) => sum + shot.duration, 0)} s</span>
       <div className="ml-auto flex flex-wrap items-center gap-1">
         {shots.length > 0 && <Button variant="ghost" size="sm" onClick={() => setChosen(picked.length === shots.length ? new Set() : new Set(ids))}>{picked.length === shots.length ? 'Keine wählen' : 'Alle wählen'}</Button>}
-        {missing.length > 0 && <Button variant="outline" size="sm" onClick={() => onCreate(missing)}><Plus/>Schritte anlegen{picked.length ? ` (${missing.length})` : ''}</Button>}
-        <Button variant="outline" size="sm" disabled={!keyframes.length} onClick={() => onRun(keyframes, 'node')}><Image/>Keyframes rendern{which}</Button>
-        <Button variant="outline" size="sm" disabled={!videos.length} onClick={() => onRun(videos, 'upstream')}><Video/>Videos rendern{which}</Button>
+        {missing.length > 0 && <Button variant="outline" size="sm" onClick={() => onCreate(missing)}><Plus/>{board ? 'Bilder anlegen' : 'Videos anlegen'}{picked.length ? ` (${missing.length})` : ''}</Button>}
+        <Button variant="outline" size="sm" disabled={!keyframes.length} onClick={() => onRun(keyframes, 'node')}><Image/>{board ? 'Bilder rendern' : 'Startbilder rendern'}{which}</Button>
+        {board ? <Button variant="brand" size="sm" disabled={!scope.length} onClick={() => onHandOff(scope.map(shot => shot.scene.id))}><Clapperboard/>An Film übergeben{which}</Button>
+          : <Button variant="outline" size="sm" disabled={!videos.length} onClick={() => onRun(videos, 'upstream')}><Video/>Videos rendern{which}</Button>}
         <Button variant="ghost" size="icon-sm" aria-label="Filmstreifen schließen" title="Schließen" onClick={onClose}><X/></Button>
       </div>
     </header>
     {!shots.length
-      ? <p className="flow-strip-empty">Noch keine Szenen. Führe die Regie aus und klicke „Szenen anlegen“, oder lege Szene-Knoten im Storyboard an.</p>
+      ? <p className="flow-strip-empty">{board ? 'Noch keine Szenen. Führe die Regie aus und klicke „Szenen anlegen“, oder lege Szene-Knoten an.' : 'Noch keine Szenen. Übergib sie im Storyboard mit „An Film übergeben“.'}</p>
       : <ol className="flow-strip-cards">
         {shots.map((shot, i) => {
           const thumb = shot.thumb && assets[shot.thumb]
@@ -939,15 +980,18 @@ function Filmstrip({ shots, film, onRun, onCreate, onReorder, onFocus, onClose }
               <p className="flow-card-text">{shot.prompt || 'Noch ohne Beschreibung.'}</p>
               {shot.mentions.length > 0 && <p className="flow-card-assets">{shot.mentions.map(name => '@' + name).join(' ')}</p>}
               <div className="flex gap-1">
-                {shot.video
-                  ? <>{shot.keyframe && <Button variant="outline" size="sm" onClick={() => onRun([shot.keyframe.id], 'node')}><Image/>Keyframe</Button>}
-                    <Button variant="outline" size="sm" onClick={() => onRun([shot.video.id], 'upstream')}><Video/>Video</Button></>
-                  : <Button variant="outline" size="sm" onClick={() => onCreate([shot.scene.id])}><Plus/>Schritte anlegen</Button>}
+                {board
+                  ? shot.keyframe ? <Button variant="outline" size="sm" onClick={() => onRun([shot.keyframe.id], 'node')}><Image/>Bild rendern</Button>
+                    : !shot.start && <Button variant="outline" size="sm" onClick={() => onCreate([shot.scene.id])}><Plus/>Bild anlegen</Button>
+                  : shot.video
+                    ? <>{shot.keyframe && <Button variant="outline" size="sm" onClick={() => onRun([shot.keyframe.id], 'node')}><Image/>Startbild</Button>}
+                      <Button variant="outline" size="sm" onClick={() => onRun([shot.video.id], 'upstream')}><Video/>Video</Button></>
+                    : <Button variant="outline" size="sm" onClick={() => onCreate([shot.scene.id])}><Plus/>Video anlegen</Button>}
               </div>
             </div>
           </li>
         })}
-        {film && <li className="flow-card flow-card-film">
+        {film && !board && <li className="flow-card flow-card-film">
           <div className="flow-card-media">{film.thumb && assets[film.thumb] ? <Media asset={assets[film.thumb]} ctx={ctx}/> : <span className="flow-card-blank"><Icon name="composition" className="size-5"/></span>}
             <span className={cn('flow-card-state', 'is-' + film.status)}>{shotStates[film.status]}</span></div>
           <div className="flow-card-body">
@@ -985,7 +1029,7 @@ function Canvas({ ctx, project, doc: current, docs, record, types, page = 'flows
   const [doc, setDoc] = useState(initial.doc)
   const [view, setView] = useState({ nodes: {}, assets: {} })
   const hidden = new Set()
-  const [strip, setStrip] = useState(current.kind === 'storyboard')
+  const [strip, setStrip] = useState(current.kind === 'storyboard' || current.kind === 'film')
   const base = '/projects/' + project + '/documents/' + current.id
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
@@ -1284,14 +1328,15 @@ function Canvas({ ctx, project, doc: current, docs, record, types, page = 'flows
     const origin = absolute(director, map)
     const options = sceneType.fields.find(field => field.key === 'duration')?.options ?? []
     const nearest = seconds => options.map(Number).reduce((best, value) => (Math.abs(value - seconds) < Math.abs(best - seconds) ? value : best), Number(options[0] ?? seconds))
-    const textOf = shot => [shot.shot && shot.shot + ':', shot.prompt, shot.motion && 'Bewegung: ' + shot.motion].filter(Boolean).join(' ')
+    const textOf = shot => [shot.prompt, shot.motion && 'Bewegung: ' + shot.motion].filter(Boolean).join(' ')
+    const sizes = sceneType.fields.find(field => field.key === 'shot')?.options ?? []
     const before = state.data.nodes.filter(node => node.type === 'scene' && node.params?.from === id)
       .map(node => ({ node, at: absolute(node, map) })).sort((a, b) => (a.at.y - b.at.y) || (a.at.x - b.at.x)).map(item => item.node)
     const start = before.length ? absolute(before[0], map) : { x: origin.x + 384, y: origin.y }
-    const slot = i => ({ x: start.x + (i % 4) * 304, y: start.y + Math.floor(i / 4) * 456 })
+    const slot = i => ({ x: start.x + (i % 4) * 304, y: start.y + Math.floor(i / 4) * 520 })
     const made = shots.map((shot, i) => {
       const old = before[i]
-      const fields = { name: shot.title, prompt: textOf(shot), ...slot(i), params: { ...old?.params, from: id, duration: String(nearest(shot.duration)) } }
+      const fields = { name: shot.title, prompt: textOf(shot), ...slot(i), params: { ...old?.params, from: id, duration: String(nearest(shot.duration)), ...(sizes.includes(shot.shot) && { shot: shot.shot }) } }
       if (!old) return { id: crypto.randomUUID(), type: 'scene', ...fields }
       const { parentId, ...rest } = old
       return { ...rest, ...fields }
@@ -1312,6 +1357,9 @@ function Canvas({ ctx, project, doc: current, docs, record, types, page = 'flows
     }, true)
     ctx.toast(fresh.length && kept.size ? `${kept.size} Szenen aktualisiert, ${fresh.length} neu.` : fresh.length ? `${fresh.length} Szenen angelegt.` : `${kept.size} Szenen aktualisiert.`)
   }
+  // Story ideas of the moodboards, in this document and in the others, for the Regie's story field.
+  const ideas = [...doc.nodes.filter(node => node.type === 'moodboard' && view.nodes[node.id]?.data?.idea).map(node => ({ key: node.id, name: nodeName(node, typeOf.get(node.type)), docTitle: '', idea: view.nodes[node.id].data.idea })),
+    ...(view.projectAssets ?? []).filter(item => item.idea).map(item => ({ key: item.docId + item.name, name: item.name, docTitle: item.docTitle, idea: item.idea }))]
   // Project assets of this document and of the other documents of the project (@Look from a moodboard, @Figur …).
   const assetNames = [...doc.nodes.filter(node => node.asset).map(node => ({ id: node.id, name: nodeName(node, typeOf.get(node.type)) })),
     ...(view.projectAssets ?? []).map(item => ({ id: 'doc:' + item.docId + ':' + item.name, name: item.name, from: item.docTitle }))]
@@ -1406,7 +1454,7 @@ function Canvas({ ctx, project, doc: current, docs, record, types, page = 'flows
       const status = states.some(item => item.status === 'running' || item.status === 'waiting') ? 'running'
         : states.some(item => item.status === 'failed') ? 'failed'
           : clip ? (view.nodes[video.id]?.stale ? 'stale' : 'video') : frame || start ? 'keyframe' : 'draft'
-      return { scene, video, keyframe, status, thumb: clip ?? frame ?? start ?? null, title: nodeName(scene, typeOf.get('scene')),
+      return { scene, video, keyframe, start, status, thumb: clip ?? frame ?? start ?? null, title: nodeName(scene, typeOf.get('scene')),
         duration: Number(scene.params?.duration) || 5, prompt: scene.prompt ?? '', mentions: assetNames.map(item => item.name).filter(name => mentions(scene.prompt, name)) }
     })
     const composition = doc.nodes.find(node => node.type === 'composition')
@@ -1421,6 +1469,7 @@ function Canvas({ ctx, project, doc: current, docs, record, types, page = 'flows
    * created right of everything when there is none, one row per scene.
    */
   function createSteps(sceneIds) {
+    if (current.kind === 'storyboard') return createPictures(sceneIds)
     const imageType = typeOf.get('image'), videoType = typeOf.get('video')
     if (!videoType) return ctx.toast('Der Video Playground ist nicht geladen, daher gibt es keinen Video-Knoten.', true)
     const all = new Map(state.data.nodes.map(node => [node.id, node]))
@@ -1465,6 +1514,51 @@ function Canvas({ ctx, project, doc: current, docs, record, types, page = 'flows
     if (grown) setMeta(m => ({ ...m, [frame.id]: { ...m[frame.id], width: grown.width, height: grown.height } }))
     ctx.toast(sceneIds.length === 1 ? 'Keyframe und Video angelegt.' : `Schritte für ${sceneIds.length} Einstellungen angelegt.`)
   }
+  /** The first project asset whose name is `wanted` or starts with it („Figur 2“), for mentions in new prompts. */
+  const assetCalled = wanted => assetNames.find(item => item.name === wanted)?.name ?? assetNames.find(item => item.name.startsWith(wanted + ' '))?.name
+  /**
+   * Gives storyboard scenes their picture: one Bild node per scene in the frame „Storyboard-Bilder“ (created right of
+   * everything when there is none), fed by the scene text with its framing; figure, set and look come through @names.
+   */
+  function createPictures(sceneIds) {
+    const imageType = typeOf.get('image')
+    if (!imageType) return ctx.toast('Der Foto Playground ist nicht geladen, daher gibt es keinen Bild-Knoten.', true)
+    const all = new Map(state.data.nodes.map(node => [node.id, node]))
+    const nodes = [], edges = []
+    let frame = state.data.nodes.find(node => isFrame(node) && phaseOf(node) === 'frames')
+    if (!frame) {
+      const outer = state.data.nodes.filter(node => !node.parentId)
+      const right = outer.length ? Math.max(...outer.map(node => node.x + (Number(node.params?.width) || 320))) + 160 : 0
+      const top = outer.length ? Math.min(...outer.map(node => node.y)) : 0
+      frame = { id: crypto.randomUUID(), type: 'frame', name: 'Storyboard-Bilder', x: right, y: top, prompt: '', params: { width: 352 + 64, height: 880, phase: 'frames' } }
+      nodes.push(frame)
+    }
+    const inside = state.data.nodes.filter(node => node.parentId === frame.id)
+    let y = frame.y + (inside.length ? Math.max(...inside.map(node => node.y)) + 760 : 72)
+    const named = [['Figur', 'Die Figur ist'], ['Set', 'Der Ort ist'], ['Look', 'Look aus']].map(([wanted, words]) => assetCalled(wanted) && `${words} @${assetCalled(wanted)}.`).filter(Boolean)
+    for (const id of sceneIds) {
+      const scene = all.get(id)
+      if (!scene) continue
+      const picture = { id: crypto.randomUUID(), type: 'image', name: 'Bild ' + nodeName(scene, typeOf.get('scene')), x: frame.x + 32, y,
+        prompt: ['Storyboard-Bild dieser Einstellung als Filmstandbild im Format 16:9.', ...named].join(' '), params: {} }
+      nodes.push(picture)
+      edges.push({ id: crypto.randomUUID(), source: id, sourceHandle: 'text', target: picture.id, targetHandle: 'prompt' })
+      y += 760
+    }
+    change(d => ({ nodes: growFrame([...d.nodes, ...nodes], frame.id, 352 + 64, y - frame.y + 120, new Set(nodes.map(node => node.id))), edges: [...d.edges, ...edges] }), true)
+    const grown = state.data.nodes.find(node => node.id === frame.id)?.params
+    if (grown) setMeta(m => ({ ...m, [frame.id]: { ...m[frame.id], width: grown.width, height: grown.height } }))
+    ctx.toast(sceneIds.length === 1 ? 'Storyboard-Bild angelegt.' : `${sceneIds.length} Storyboard-Bilder angelegt. Gerendert wird erst mit „Bilder rendern“.`)
+  }
+  /** Gives the chosen scenes with their storyboard pictures to the film of this storyboard and opens it. */
+  async function handOff(sceneIds) {
+    try {
+      await flush()
+      const result = await flowsApi(base + '/handoff', 'POST', { sceneIds })
+      ctx.toast(`Im Film „${result.doc.title}“: ${result.added} neu, ${result.updated} aktualisiert. Szenen ohne Bild bekommen ihr Startbild beim nächsten Übergeben.`)
+      location.hash = docRoute(project, result.doc.id, page === 'flows' ? 'flows' : kinds.film.page)
+    } catch (e) { setError(e.message) }
+  }
   /**
    * Moves one shot before another. Scenes, keyframes and videos swap their canvas places in the same way, so the reading
    * order (and with it the order in the composition) follows the strip.
@@ -1484,7 +1578,7 @@ function Canvas({ ctx, project, doc: current, docs, record, types, page = 'flows
   }
   const removeAsset = (nodeId, assetId) => update(nodeId, n => ({ ...n, params: { ...n.params, assetIds: (n.params?.assetIds ?? []).filter(id => id !== assetId) } }))
   const actions = { ctx, focusFrame, assets: view.assets, edges: doc.edges, update, remove, duplicate, run, pick, pickAssets, uploadAssets, mentionNames, portMenu,
-    renaming, setRenaming, rename, copyNodes, pasteNodes, focusNode, openViewer: setViewer, removeAsset, toggleAsset, assetNames, spawnScenes, sceneCount }
+    renaming, setRenaming, rename, copyNodes, pasteNodes, focusNode, openViewer: setViewer, removeAsset, toggleAsset, assetNames, spawnScenes, sceneCount, ideas }
 
   return <Actions.Provider value={actions}>
     <div className="flow-shell" ref={shell} data-drop-hint="Loslassen legt einen Datei-Knoten an">
@@ -1545,7 +1639,7 @@ function Canvas({ ctx, project, doc: current, docs, record, types, page = 'flows
             <span className="text-muted-foreground" aria-hidden="true">/</span>
             <DocSwitch project={project} current={current} docs={docs} page={page} onLeave={() => flush()}/>
           </nav>
-          {(current.kind === 'storyboard' || current.kind === 'flow') && <Button variant={strip ? 'secondary' : 'ghost'} size="sm" aria-pressed={strip} onClick={() => setStrip(!strip)}><Clapperboard/>Filmstreifen</Button>}
+          {current.kind !== 'moodboard' && <Button variant={strip ? 'secondary' : 'ghost'} size="sm" aria-pressed={strip} onClick={() => setStrip(!strip)}><Clapperboard/>Filmstreifen</Button>}
           {frames.length > 1 && <><span className="mx-1 h-5 w-px bg-border" aria-hidden="true"/><nav className="flex flex-wrap gap-0.5" aria-label="Rahmen anspringen">
             {frames.map(node => <Button key={node.id} variant="ghost" size="sm" onClick={() => focusFrame(node)}>{nodeName(node, typeOf.get(node.type))}</Button>)}
             <Button variant="ghost" size="sm" onClick={() => flow.fitView({ padding: fitPadding, duration: 0 })}>Alles</Button></nav></>}
@@ -1560,7 +1654,7 @@ function Canvas({ ctx, project, doc: current, docs, record, types, page = 'flows
       </ReactFlow>
       {strip && (() => {
         const { shots, film } = filmOf()
-        return <Filmstrip shots={shots} film={film} onRun={run} onCreate={createSteps} onReorder={reorder} onClose={() => setStrip(false)} onFocus={focusNode}/>
+        return <Filmstrip mode={current.kind} shots={shots} film={film} onRun={run} onCreate={createSteps} onHandOff={handOff} onReorder={reorder} onClose={() => setStrip(false)} onFocus={focusNode}/>
       })()}
       {!doc.nodes.length && <div className="flow-start">
         <strong>„{current.title}“ ist noch leer</strong>
@@ -1674,6 +1768,7 @@ function Documents({ ctx, project, kind, page, embedded = false }) {
     try { await fetch(`/creativity-flows/api/projects/${project}/documents/${doc.id}`, { method: 'DELETE' }); ctx.toast(`„${doc.title}“ gelöscht. Die Bilder und Videos bleiben in der Library.`); await load() } catch (e) { ctx.toast(e.message, true) }
   }
   const shownKinds = kind ? [kind] : Object.keys(kinds)
+  const newKinds = shownKinds.filter(item => !kinds[item].legacy)
   const offered = templates.filter(item => item.listed && (!kind || item.kind === kind || (item.steps ?? []).length > 1))
   if (error) return <div className="flow-docs"><p className="flow-error" role="alert">{error} <Button variant="outline" size="sm" onClick={load}>Erneut versuchen</Button></p></div>
   return <div className={cn('flow-docs', embedded && 'embedded')}>
@@ -1683,15 +1778,15 @@ function Documents({ ctx, project, kind, page, embedded = false }) {
           {ctx.projects.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
       <h1>{kind ? kinds[kind].plural : 'Dokumente'}</h1>
       <div className="ml-auto flex flex-wrap gap-2">
-        {shownKinds.map(item => <Button key={item} variant={kind ? 'brand' : 'outline'} disabled={busy} onClick={() => create({ kind: item })}><Plus/>{kinds[item].blank}</Button>)}
+        {newKinds.map(item => <Button key={item} variant={kind ? 'brand' : 'outline'} disabled={busy} onClick={() => create({ kind: item })}><Plus/>{kinds[item].blank}</Button>)}
       </div>
     </header>}
     {embedded && <div className="flex flex-wrap items-center gap-2"><h2 className="mr-auto text-[length:var(--fs-title)] font-medium">Dokumente</h2>
-      {shownKinds.map(item => <Button key={item} variant="outline" size="sm" disabled={busy} onClick={() => create({ kind: item })}><Plus/>{kinds[item].blank}</Button>)}</div>}
+      {newKinds.map(item => <Button key={item} variant="outline" size="sm" disabled={busy} onClick={() => create({ kind: item })}><Plus/>{kinds[item].blank}</Button>)}</div>}
     {!docs ? <div className="flow-doc-grid" aria-label="Lädt">{Array.from({ length: 4 }, (_, i) => <span key={i} className="flow-doc-skeleton"/>)}</div>
       : shownKinds.map(item => {
         const list = docs.filter(doc => doc.kind === item)
-        if (!kind && !list.length && item === 'flow') return null
+        if (!kind && !list.length && (item === 'flow' || kinds[item].legacy)) return null
         return <section key={item} className="flow-doc-group" aria-label={kinds[item].plural}>
           {!kind && <h2>{kinds[item].plural} <span className="tabular-nums">{list.length}</span></h2>}
           {!list.length ? <div className="flow-doc-empty"><p>{kinds[item].empty}</p>

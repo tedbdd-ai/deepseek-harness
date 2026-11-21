@@ -1,5 +1,5 @@
 /**
- * Section of the hub's project page: the documents of this project (Moodboards, Storyboards, Figuren und Sets, Flows)
+ * Section of the hub's project page: the documents of this project (Moodboards, Storyboards, Filme, Flows)
  * as cards that open them. Called by the hub with the project's id.
  */
 import { render as renderFlows } from './block.js'

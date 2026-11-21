@@ -36,98 +36,69 @@ function moodboard() {
 
 const story = 'Eine Frau im schwarzen Latexmantel wacht in einer verlassenen Klinik auf. Sie folgt einem flackernden Neonlicht durch den Flur und spricht am Ende direkt in die Kamera.'
 const exampleScenes = [
-  ['s1', 'Erwachen', 6, 'Totale: @Figur liegt in @Set auf einer Metallliege und richtet sich langsam auf. Bewegung: Staub in der Luft, die Kamera steht.'],
-  ['s2', 'Flur', 8, 'Halbnahe: @Figur geht durch @Set, ein Neonrohr flackert über ihr. Bewegung: Kamerafahrt rückwärts vor ihr her.'],
-  ['s3', 'Ansprache', 10, 'Nahaufnahme: @Figur bleibt in @Set stehen, sieht in die Kamera und spricht. Bewegung: langsamer Zoom, Gegenlicht aus der offenen Tür.'],
+  ['s1', 'Erwachen', 6, 'Totale', '@Figur liegt in @Set auf einer Metallliege und richtet sich langsam auf. Bewegung: Staub in der Luft, die Kamera steht.'],
+  ['s2', 'Flur', 8, 'Halbnahe', '@Figur geht durch @Set, ein Neonrohr flackert über ihr. Bewegung: Kamerafahrt rückwärts vor ihr her.'],
+  ['s3', 'Ansprache', 10, 'Nahaufnahme', '@Figur bleibt in @Set stehen, sieht in die Kamera und spricht. Bewegung: langsamer Zoom, Gegenlicht aus der offenen Tür.'],
 ]
 
 /**
- * Storyboard document: Regie holds the story and writes the shot list; the scenes beside it are examples that
- * „Szenen anlegen“ replaces. The film strip below shows them. `look` mentions the moodboard's @Look.
+ * Storyboard document: Regie holds the story (or takes the moodboard's idea) and writes the scenes beside it; the
+ * character studio below makes @Figur and @Set; per scene a storyboard picture (Bild) in its framing. No videos here:
+ * „An Film übergeben“ moves the scenes with their pictures into the film. `look` mentions the moodboard's @Look.
  */
 function storyboard({ look = false } = {}) {
+  const pictures = 384 + 3 * 304 + 160
+  const lookLine = look ? ' Look aus @Look.' : ''
   return {
     nodes: [
       { key: 'regie', type: 'director', name: 'Regie', x: 0, y: 0,
         // Regie gets the names of all project assets (@Figur, @Set …) with its request; mentioning them here would make it
         // wait for the rendered sheet and set.
         prompt: 'Teile die Story in drei Einstellungen von 5 bis 10 Sekunden. Die Frau ist die Figur, der Ort das Set.' + (look ? ' Halte dich an @Look.' : ''), params: { story } },
-      ...exampleScenes.map(([key, name, seconds, prompt], i) => scene(key, name, 384 + i * 304, 0, prompt, seconds)),
-    ],
-    edges: [],
-  }
-}
-
-/** Figur-und-Set document: outfits and places as references beside the sheet and the set made from them, all four project assets. */
-function cast({ look = false } = {}) {
-  return {
-    nodes: [
-      { ...files('outfits', 'Outfits', 0, 0, 'Outfit', 4), asset: true },
-      { key: 'figur', type: 'character', name: 'Figur', asset: true, x: W, y: 0,
-        prompt: 'Frau Anfang 30, kantiges Gesicht, helle Haut mit feinen Sommersprossen, schwarzer Bob, kleine Narbe über der linken Augenbraue. Outfit-Details aus @Outfits.' + (look ? ' Look aus @Look.' : ''),
+      ...exampleScenes.map(([key, name, seconds, shot, prompt], i) => ({ ...scene(key, name, 384 + i * 304, 0, prompt, seconds), params: { duration: String(seconds), shot, from: 'regie' } })),
+      frame('bilder', 'Storyboard-Bilder', pictures, -72, W + 64, 72 + exampleScenes.length * 760, 'frames'),
+      ...exampleScenes.map(([key, name], i) => ({ key: 'b' + i, type: 'image', name: 'Bild ' + name, x: pictures + 32, y: i * 760,
+        prompt: 'Storyboard-Bild dieser Einstellung als Filmstandbild im Format 16:9. Die Figur ist @Figur, der Ort ist @Set.' + lookLine })),
+      frame('studio', 'Charakterstudio', 0, 600, 4 * W + 64, 880, 'studio'),
+      { ...files('outfits', 'Outfits', 32, 672, 'Outfit', 4), asset: true },
+      { key: 'figur', type: 'character', name: 'Figur', asset: true, x: 32 + W, y: 672,
+        prompt: 'Frau Anfang 30, kantiges Gesicht, helle Haut mit feinen Sommersprossen, schwarzer Bob, kleine Narbe über der linken Augenbraue. Outfit-Details aus @Outfits.' + lookLine,
         params: { outfit: 'Knielanger schwarzer Latexmantel mit hohem Kragen, schwarze Latexhandschuhe, kniehohe Lackstiefel. Rücken: durchgehender Reißverschluss.', head: 'cropped', mouth: true } },
-      { ...files('orte', 'Orte', 2 * W, 0, 'Location', 4), asset: true },
-      { key: 'set', type: 'set', name: 'Set', asset: true, x: 3 * W, y: 0,
-        prompt: 'Verlassener Klinikflur mit weißen Fliesen, Metalltüren und einem flackernden Neonrohr, angelehnt an @Orte.' + (look ? ' Look aus @Look.' : ' Analoger Film, Korn.') },
+      { ...files('orte', 'Orte', 32 + 2 * W, 672, 'Location', 4), asset: true },
+      { key: 'set', type: 'set', name: 'Set', asset: true, x: 32 + 3 * W, y: 672,
+        prompt: 'Verlassener Klinikflur mit weißen Fliesen, Metalltüren und einem flackernden Neonrohr, angelehnt an @Orte.' + (look ? lookLine : ' Analoger Film, Korn.') },
     ],
-    edges: [],
+    edges: exampleScenes.map(([key], i) => link(key, 'text', 'b' + i, 'prompt')),
   }
-}
-
-/**
- * Film document: the storyboard with, per scene, a keyframe (Bild) as start image of a clip (Video), and the cut. The
- * scene text feeds keyframe and clip and names @Figur and @Set from the Figur-und-Set document; the keyframe adds
- * @Look. So figure, outfit and place stay the same from shot to shot.
- */
-function film() {
-  const base = storyboard({ look: true })
-  const x = 384 + 3 * 304 + 160
-  const nodes = [...base.nodes, frame('dreh', 'Keyframes und Videos', x, -72, 2 * W + 64, 72 + exampleScenes.length * 760, 'shots')]
-  const edges = []
-  exampleScenes.forEach(([sceneKey, name, seconds], i) => {
-    const row = i * 760
-    nodes.push(
-      { key: 'k' + i, type: 'image', name: 'Keyframe ' + name, x: x + 32, y: row,
-        prompt: 'Standbild dieser Einstellung im Format 16:9. Gleiche Figur, gleiches Outfit, gleicher Ort wie in den Referenzen. Look aus @Look.' },
-      { key: 'v' + i, type: 'video', name: 'Video ' + name, x: x + 32 + W, y: row, prompt: 'Die Figur und der Ort bleiben genau wie im Startbild.',
-        params: { modelId: 'seedance', settings: { seedance: { duration: String(seconds), resolution: '720p', aspect: '16:9', audio: true } } } },
-    )
-    edges.push(link(sceneKey, 'text', 'k' + i, 'prompt'), link(sceneKey, 'text', 'v' + i, 'prompt'), link('k' + i, 'image', 'v' + i, 'start'))
-  })
-  const cut = x + 2 * W + 64 + 160
-  nodes.push(frame('schnitt', 'Schnitt', cut, -72, W + 64, 880, 'edit'), { key: 'film', type: 'composition', name: 'Film', x: cut + 32, y: 0 })
-  edges.push(...exampleScenes.map((_, i) => link('v' + i, 'video', 'film', 'clips')))
-  return { nodes, edges }
 }
 
 /**
  * All templates: id, title, description, the steps they cover and the documents they create (`kind`, `title`,
- * canvas). `kind` without `docs` marks the template „Neu“ offers for that kind of document; `listed: false` keeps a
- * template out of the template list.
+ * canvas). `kind` marks the template a list of that kind offers; `handoff` hands the storyboard's scenes to a film
+ * right away; `listed: false` keeps a template out of the template list.
  */
 export const templates = [
-  { id: 'moodboard', title: 'Moodboard', kind: 'moodboard', steps: ['Moodboard'],
-    description: 'Eine freie Pinnwand für Bilder, Farben, Notizen und Stichworte, ohne Kästen und Linien. „Look erzeugen“ macht daraus @Look mit Licht, Kamera, Palette und Leitbildern.',
+  { id: 'moodboard', title: 'Moodboard', kind: 'moodboard', steps: ['Moodboard: Look, Idee, Skizzen'],
+    description: 'Eine freie Pinnwand für Bilder, Farben, Notizen und Stichworte. „Look erzeugen“ macht daraus den Look, eine Story-Idee und drei erste Skizzen.',
     docs: () => [{ kind: 'moodboard', title: 'Moodboard', ...moodboard() }] },
-  { id: 'storyboard', title: 'Storyboard', kind: 'storyboard', steps: ['Storyboard'],
-    description: 'Die Regie mit deiner Story schreibt die Shotliste, „Szenen anlegen“ macht daraus die Szenen. Der Filmstreifen zeigt sie mit Dauer und Status.',
+  { id: 'storyboard', title: 'Storyboard', kind: 'storyboard', steps: ['Storyboard: Szenen, Charakterstudio, Bilder'],
+    description: 'Die Regie macht aus deiner Story die Szenen mit Einstellungsgröße, das Charakterstudio Figur und Set, und pro Szene entsteht ein Storyboard-Bild. Der Filmstreifen zeigt alles und übergibt es an den Film.',
     docs: () => [{ kind: 'storyboard', title: 'Storyboard', ...storyboard() }] },
   { id: 'moodboard-und-storyboard', title: 'Moodboard und Storyboard', steps: ['Moodboard', 'Storyboard'],
-    description: 'Zwei Dokumente, die zusammenarbeiten: Der Look aus dem Moodboard (@Look) geht in die Regie, die daraus und aus der Story die Szenen schreibt.',
+    description: 'Zwei Dokumente, die zusammenarbeiten: Die Idee und der Look des Moodboards (@Look) gehen in die Regie, Figur, Set und Storyboard-Bilder folgen dem Look.',
     docs: () => [{ kind: 'moodboard', title: 'Moodboard', ...moodboard() }, { kind: 'storyboard', title: 'Storyboard', ...storyboard({ look: true }) }] },
-  { id: 'konsistenter-film', title: 'Konsistenter Film', steps: ['Moodboard', 'Figur und Set', 'Film: Szenen, Keyframes, Videos, Schnitt'],
-    description: 'Drei Dokumente für ein Video mit gleichbleibender Figur: Moodboard (@Look), Figur und Set (@Figur, @Set) und der Film mit Regie, Szenen, pro Szene Keyframe und Video, am Ende der Schnitt.',
-    docs: () => [{ kind: 'moodboard', title: 'Moodboard', ...moodboard() }, { kind: 'cast', title: 'Figur und Set', ...cast({ look: true }) }, { kind: 'storyboard', title: 'Film', ...film() }] },
-  { id: 'figur-und-set', title: 'Figur und Set', kind: 'cast', steps: ['Figur und Set'], listed: false,
-    description: 'Outfits und Orte als Referenzen, daraus Charakterblatt und Set ohne Personen. Alle vier sind @Assets für gleichbleibende Figuren und Orte.',
-    docs: () => [{ kind: 'cast', title: 'Figur und Set', ...cast() }] },
+  { id: 'konsistenter-film', title: 'Konsistenter Film', handoff: true, steps: ['Moodboard', 'Storyboard', 'Film: Videos und Schnitt'],
+    description: 'Der ganze Weg: Moodboard (@Look), Storyboard mit Charakterstudio und Storyboard-Bildern, und der Film, in dem jede Szene mit ihrem Bild als Startbild zum Video wird. Figur, Outfit und Ort bleiben gleich.',
+    docs: () => [{ kind: 'moodboard', title: 'Moodboard', ...moodboard() }, { kind: 'storyboard', title: 'Storyboard', ...storyboard({ look: true }) }] },
 ]
 
 /** Empty documents per kind („Neu“ without a template): the one node that makes the kind, or nothing for a flow. */
 export const blanks = {
   moodboard: () => ({ nodes: [{ key: 'look', type: 'moodboard', name: 'Look', asset: true, x: 0, y: 0, prompt: '', params: { width: boardWidth, height: boardHeight, items: [] } }], edges: [] }),
-  storyboard: () => ({ nodes: [{ key: 'regie', type: 'director', name: 'Regie', x: 0, y: 0, prompt: 'Teile die Story in Einstellungen von 5 bis 10 Sekunden.', params: { story: '' } }], edges: [] }),
-  cast: () => ({ nodes: [{ key: 'figur', type: 'character', name: 'Figur', asset: true, x: 0, y: 0, prompt: '' }, { key: 'set', type: 'set', name: 'Set', asset: true, x: W, y: 0, prompt: '' }], edges: [] }),
+  storyboard: () => ({ nodes: [{ key: 'regie', type: 'director', name: 'Regie', x: 0, y: 0, prompt: 'Teile die Story in Einstellungen von 5 bis 10 Sekunden.', params: { story: '' } },
+    frame('studio', 'Charakterstudio', 0, 600, 2 * W + 64, 880, 'studio'),
+    { key: 'figur', type: 'character', name: 'Figur', asset: true, x: 32, y: 672, prompt: '' }, { key: 'set', type: 'set', name: 'Set', asset: true, x: 32 + W, y: 672, prompt: '' }], edges: [] }),
+  film: () => ({ nodes: [{ key: 'film', type: 'composition', name: 'Film', x: 2 * W + 160, y: 0 }], edges: [] }),
   flow: () => ({ nodes: [], edges: [] }),
 }
 

@@ -1,9 +1,11 @@
 /**
  * Plugin "Flows": canvases on which generation steps are nodes joined by lines, organised as documents of a project.
  *
- * A project holds documents of four kinds: Moodboards, Storyboards, Figuren und Sets and free Flows, each its own
- * canvas (`engine/documents.mjs`). The pages „Flows“ (all documents of a project) and „Moodboards“, „Storyboards“,
- * „Figuren und Sets“ (one kind) list them; opening one shows only that document. Node types come from `creativeNodes`:
+ * A project holds documents: Moodboards, Storyboards, Filme and free Flows, each its own canvas
+ * (`engine/documents.mjs`). The way of a film: the moodboard makes look, idea and sketches; the storyboard makes scenes,
+ * figure and set (character studio) and a picture per scene; „An Film übergeben“ moves the scenes into a film, where
+ * they become videos and the cut. The pages „Flows“ (all documents of a project) and „Moodboards“, „Storyboards“,
+ * „Filme“ (one kind) list them; opening one shows only that document. Node types come from `creativeNodes`:
  * this plugin registers the board nodes (Notiz, Datei, Szene, Farbe, Link, Rahmen); image, video, composition and the
  * language-model nodes come from other plugins.
  *
@@ -16,6 +18,8 @@
  *   is the one to open; nothing runs
  * - `PATCH /projects/<id>/documents/<doc> { title }`, `DELETE /projects/<id>/documents/<doc>`,
  *   `POST /projects/<id>/documents/<doc>/duplicate`, `POST /projects/<id>/documents/<doc>/split` (frames become documents)
+ * - `POST /projects/<id>/documents/<storyboard>/handoff { sceneIds }` → `{ doc, added, updated }`: the scenes go with
+ *   their storyboard pictures into the storyboard's film document (`engine/handoff.mjs`); nothing runs
  * - `GET  /projects/<id>/documents/<doc>/state` → `{ nodes: { [nodeId]: { status, outputs, stale, refs, … } }, assets, projectAssets }`
  * - `POST /projects/<id>/documents/<doc>/run { nodeId, scope: 'node'|'upstream'|'downstream', dryRun? }` → `{ steps }`;
  *   without `dryRun` the steps start at once. `nodeId` may be a list of up to 64 ids (film strip). Paid nodes run only
@@ -30,9 +34,10 @@ import { readBody, responder } from '../../http.mjs'
 import { InputError, idPattern } from '../../store.mjs'
 import { defineApp } from '../define-app.mjs'
 import { createEngine } from './engine/engine.mjs'
-import { adoptIntoFrames } from './engine/frames.mjs'
+import { adoptIntoFrames, readingOrder } from './engine/frames.mjs'
 import { checkDocId, createDoc, deleteDoc, docKey, duplicateDoc, getDoc, kinds, listDocs, renameDoc, splitDoc } from './engine/documents.mjs'
 import { createFromTemplate, templates } from './engine/templates.mjs'
+import { handOff } from './engine/handoff.mjs'
 
 const app = defineApp({
   id: 'flows', title: 'Flows', page: true, project: '/creativity-apps/flows/project.js',
@@ -44,7 +49,7 @@ export const name = app.name
 export const inject = [...app.inject, 'creativeStore', 'creativeNodes']
 
 /**
- * Document lists per kind as sidebar entries of their own: the Moodboards, Storyboards or Figuren und Sets of the chosen
+ * Document lists per kind as sidebar entries of their own: the Moodboards, Storyboards or Filme of the chosen
  * project, each opening as its own document (browser modules beside this file). „Flows“ lists all documents.
  */
 export const stepPages = [
@@ -52,12 +57,15 @@ export const stepPages = [
     icon: 'M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z' },
   { id: 'storyboard', title: 'Storyboards', module: '/creativity-apps/flows/storyboard.js', description: 'Die Storyboards des Projekts: Regie, Szenen und Filmstreifen',
     icon: 'M4 5h16v14H4zM4 9h16M4 15h16M8 5v4M12 5v4M16 5v4M8 15v4M12 15v4M16 15v4' },
-  { id: 'figur-und-set', title: 'Figuren und Sets', module: '/creativity-apps/flows/cast.js', description: 'Charakterblätter und Sets des Projekts als @Assets',
-    icon: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 20a8 8 0 0 1 16 0' },
+  { id: 'filme', title: 'Filme', module: '/creativity-apps/flows/film.js', description: 'Die Filme des Projekts: Szenen aus dem Storyboard werden zu Videos und zum Schnitt',
+    icon: 'M4 6h16v12H4zM10 9l5 3-5 3z' },
 ]
 
 const base = '/creativity-flows/api'
 const uuid = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+
+/** Framings a scene can have, as in a storyboard. */
+export const shotSizes = ['Totale', 'Halbtotale', 'Amerikanisch', 'Halbnahe', 'Nahaufnahme', 'Großaufnahme', 'Detail']
 
 /** Kind of the port an asset goes out on; links with a preview count as images. */
 export function assetKind(asset) {
@@ -90,10 +98,13 @@ export function sourceNodes(store) {
       inputs: [], outputs: [{ id: 'image', kind: 'image', label: 'Bilder' }, { id: 'video', kind: 'video', label: 'Videos' }, { id: 'audio', kind: 'audio', label: 'Ton' }],
       fields: async () => [{ key: 'assetIds', label: 'Dateien', type: 'assets' }],
       resolve: ({ params }) => assetOutputs(ids(params.assetIds)) },
-    { type: 'scene', title: 'Szene', group: 'board', icon: 'shot', prompt: true, description: 'Eine Einstellung des Storyboards: was passiert, wie lange, mit welchem Startbild.',
+    { type: 'scene', title: 'Szene', group: 'board', icon: 'shot', prompt: true, description: 'Eine Einstellung des Storyboards: was passiert, in welcher Einstellungsgröße, wie lange, mit welchem Startbild.',
       inputs: [], outputs: [{ id: 'text', kind: 'text', label: 'Szenenprompt' }, { id: 'image', kind: 'image', label: 'Startbild' }],
-      fields: async () => [{ key: 'assetIds', label: 'Startbild', type: 'assets', single: true }, { key: 'duration', label: 'Dauer (s)', type: 'enum', options: ['4', '5', '6', '8', '10', '12', '15'], default: '5' }],
-      resolve: ({ params, prompt }) => ({ text: text(prompt), image: assetOutputs(ids(params.assetIds).slice(0, 1)).image }) },
+      fields: async () => [{ key: 'assetIds', label: 'Startbild', type: 'assets', single: true },
+        { key: 'shot', label: 'Einstellung', type: 'enum', options: shotSizes, default: 'Halbnahe' },
+        { key: 'duration', label: 'Dauer (s)', type: 'enum', options: ['4', '5', '6', '8', '10', '12', '15'], default: '5' }],
+      // The framing leads the text, so storyboard pictures and clips get it without a separate input.
+      resolve: ({ params, prompt }) => ({ text: text(shotSizes.includes(params.shot) && prompt.trim() ? `${params.shot}: ${prompt}` : prompt), image: assetOutputs(ids(params.assetIds).slice(0, 1)).image }) },
     { type: 'color', title: 'Farbe', group: 'board', icon: 'color', description: 'Ein Farbton für den Look. Geht als Text („Farbe #…“) weiter.',
       inputs: [], outputs: [{ id: 'text', kind: 'text', label: 'Farbe' }],
       fields: async () => [{ key: 'color', label: 'Farbton', type: 'color', default: '#8A6A4F' }],
@@ -206,6 +217,23 @@ function summary(store, projectId, doc, state) {
 /** HTTP handler for the routes listed in the module comment. */
 export function createHandler(store, registry, engine) {
   const known = type => Boolean(registry.node(type))
+  const videoFields = async () => {
+    const type = registry.node('video')
+    if (!type) throw new InputError('Der Video Playground ist nicht geladen, daher gibt es keinen Video-Knoten.', 409)
+    return type.fields()
+  }
+  /** What the hand-off needs: the storyboard's picture nodes and the params of a new Video node for a clip length. */
+  const handoffEnv = fields => {
+    const model = fields.find(field => field.key === 'modelId')?.default
+    const video = seconds => {
+      const field = fields.find(item => item.key === 'duration' && (!item.model || item.model === model))
+      const values = (field?.options ?? []).map(option => (typeof option === 'object' ? option.value : option))
+      const duration = values.length ? values.reduce((best, value) => (Math.abs(Number(value) - seconds) < Math.abs(Number(best) - seconds) ? value : best)) : undefined
+      return { ...(model && { modelId: model }), ...(duration !== undefined && (field.model ? { settings: { [model]: { duration } } } : { duration })) }
+    }
+    const isPicture = node => { const kind = registry.node(node.type); return Boolean(kind?.run) && kind.outputs.every(port => port.kind === 'image') }
+    return { store, engine, isPicture, video }
+  }
   return async (req, res) => {
     const { json, send } = responder(req, res)
     try {
@@ -224,15 +252,27 @@ export function createHandler(store, registry, engine) {
         const body = await readBody(req)
         if (body.templateId !== undefined && typeof body.templateId !== 'string') throw new InputError('Wähle eine Vorlage.')
         if (body.templateId === undefined && !kinds[body.kind]) throw new InputError('Wähle, was du anlegen willst.')
-        return json(createFromTemplate(store, list[1], body, known), 201)
+        const made = createFromTemplate(store, list[1], body, known)
+        // A template with `handoff` gives its storyboard's scenes to a film right away, as „An Film übergeben“ would.
+        const board = templates.find(item => item.id === body.templateId)?.handoff && made.docs.find(doc => doc.kind === 'storyboard')
+        if (board) {
+          const scenes = readingOrder((store.appData(list[1], docKey(board.id)).data.nodes ?? []).filter(node => node.type === 'scene')).map(node => node.id)
+          made.docs.push(handOff(handoffEnv(await videoFields()), list[1], board.id, scenes).doc)
+        }
+        return json(made, 201)
       }
-      const one = new RegExp(`^/projects/(${uuid})/documents/([a-z0-9]+)(/duplicate|/split)?$`).exec(path)
+      const one = new RegExp(`^/projects/(${uuid})/documents/([a-z0-9]+)(/duplicate|/split|/handoff)?$`).exec(path)
       if (one) {
         const [, projectId, docId, action] = one
         checkDocId(docId)
         if (method === 'PATCH' && !action) return json(renameDoc(store, projectId, docId, (await readBody(req)).title))
         if (method === 'DELETE' && !action) { deleteDoc(store, projectId, docId); return send(204, 'text/plain', '') }
         if (method === 'POST' && action === '/duplicate') { await readBody(req); return json(duplicateDoc(store, projectId, docId), 201) }
+        if (method === 'POST' && action === '/handoff') {
+          const { sceneIds } = await readBody(req)
+          if (!Array.isArray(sceneIds) || sceneIds.length > 64 || !sceneIds.every(id => typeof id === 'string' && idPattern.test(id))) throw new InputError('Wähle Szenen aus dem Storyboard.')
+          return json(handOff(handoffEnv(await videoFields()), projectId, docId, sceneIds), 201)
+        }
         if (method === 'POST' && action === '/split') { await readBody(req); return json({ docs: splitDoc(store, projectId, docId, node => Boolean(registry.node(node.type)?.contains)) }, 201) }
       }
       // State, run and pick of one document; without `/documents/<doc>` they address the former single canvas.

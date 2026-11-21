@@ -6,8 +6,9 @@
  *   in the prompt) and gives one text on: expand a prompt, transcribe a voice clip to centiseconds for Seedance.
  * - „Moodboard“ is a free pinboard (pictures, colours, notes and keywords in `params.items`, placed by hand, no lines)
  *   whose pictures and notes go out without running. Its run condenses the board into a structured look (look, light,
- *   camera, palette, materials, `data`) and two or three key images, like Scrabble does for keywords. As project asset
- *   (@Look) it gives the look text and the key images.
+ *   camera, palette, materials), a story idea from the notes and, with the Foto Playground's „Bild“ node, first scene
+ *   sketches (0, 3 or 6) made from the look and the board's key pictures. As project asset (@Look) it gives the look
+ *   text and the sketches (or, without sketches, the key pictures).
  * - „Style-DNA“ does the same for whatever is wired into it.
  * - „Regie“ turns story, look and moodboard into a shot list with the needed figures and places. Its result `data`
  *   holds `{ shots: [{ title, duration, shot, prompt, motion }], assets: [{ name, kind, description }] }`; the editor
@@ -103,30 +104,36 @@ function chatTools(providers, store) {
   }
 }
 
-const dnaSystem = [
-  'You are the art director of a film production. You get the contents of a moodboard: pictures (@Bild1 …), colours and notes.',
-  'Condense them into a style guide that an image or video model can follow.',
-  'Answer with one JSON object and nothing else: {"look": string, "light": string, "camera": string, "palette": string, "materials": string, "keyImages": number[]}.',
+/** Instructions for condensing a moodboard; with `sketches` the answer also holds that many scene sketch prompts. */
+const dnaSystem = (sketches = 0) => [
+  'You are the art director of a film production. You get the contents of a moodboard: pictures (@Bild1 …), colours, keywords and notes.',
+  'Condense them into a style guide that an image or video model can follow, and read the notes as the first idea for a short film.',
+  'Answer with one JSON object and nothing else: {"look": string, "light": string, "camera": string, "palette": string, "materials": string, "keyImages": number[], "idea": string, "sketches": [{"title": string, "prompt": string}]}.',
   'look: two or three sentences that describe the overall look. light, camera (lens, movement, film stock and grain), palette (named colours with hex codes when given) and materials: one short sentence each.',
   'keyImages: the numbers of the two or three pictures that carry the look best (1 for @Bild1).',
-  'Write in the language of the notes; German if there are none.',
+  'idea: the film idea in three to five sentences, built from the notes and keywords: who, where, what happens, how it ends. Invent only what the board suggests.',
+  sketches ? `sketches: exactly ${sketches} key scenes of that idea, in story order. title: two or three words. prompt: one English image prompt per scene with framing, subject, place, light and mood in this look, 16:9 film still.` : 'sketches: an empty list.',
+  'Write look, light, camera, palette, materials, idea and titles in the language of the notes; German if there are none.',
 ].join('\n')
 
 /**
  * Asks the model for the look of `images` and `notes` and returns it as text, structured data and key images.
  * @returns {Promise<{ text: string, data: object, keys: string[] }>}
  */
-async function condense(chat, params, notes, images) {
-  const answer = await chat(params, { system: dnaSystem, prompt: notes.length ? 'Notizen, Stichworte und Farben:\n' + notes.join('\n') : 'Es gibt nur Bilder.', images: images.slice(0, 16) })
+async function condense(chat, params, notes, images, sketches = 0) {
+  const answer = await chat(params, { system: dnaSystem(sketches), prompt: notes.length ? 'Notizen, Stichworte und Farben:\n' + notes.join('\n') : 'Es gibt nur Bilder.', images: images.slice(0, 16) })
   const dna = parseJson(answer.text)
   if (!dna || typeof dna.look !== 'string' || !dna.look.trim()) throw new InputError('Das Modell hat keinen lesbaren Look geliefert. Führe den Knoten noch einmal aus oder wähle ein anderes Modell.')
   const field = value => (typeof value === 'string' ? value.trim().slice(0, 400) : '')
   const data = { look: field(dna.look), light: field(dna.light), camera: field(dna.camera), palette: field(dna.palette), materials: field(dna.materials) }
+  const idea = typeof dna.idea === 'string' ? dna.idea.trim().slice(0, 1600) : ''
+  const scenes = (Array.isArray(dna.sketches) ? dna.sketches : []).filter(item => item && typeof item.prompt === 'string' && item.prompt.trim()).slice(0, sketches)
+    .map((item, i) => ({ title: String(item.title ?? '').trim().slice(0, 40) || `Skizze ${i + 1}`, prompt: item.prompt.trim().slice(0, 1200) }))
   const lines = [data.look, ['Licht', data.light], ['Kamera', data.camera], ['Palette', data.palette], ['Material', data.materials]]
     .map(line => (Array.isArray(line) ? (line[1] ? `${line[0]}: ${line[1]}` : '') : line)).filter(Boolean)
   const picked = (Array.isArray(dna.keyImages) ? dna.keyImages : []).map(Number).filter(n => Number.isInteger(n) && n >= 1 && n <= Math.min(images.length, 16))
   const keys = [...new Set(picked)].slice(0, 3).map(n => images[n - 1])
-  return { text: lines.join('\n'), data, keys: keys.length ? keys : images.slice(0, 3) }
+  return { text: lines.join('\n'), data, keys: keys.length ? keys : images.slice(0, 3), idea, scenes }
 }
 
 const itemKinds = ['file', 'note', 'word', 'color']
@@ -153,8 +160,12 @@ export function boardValues(params, kindOf) {
 }
 
 /** „Moodboard“: a pinboard without lines inside; its run makes the structured look. */
-export function moodboardNode(providers, store) {
-  const { fields, chat } = chatTools(providers, store)
+/**
+ * @param {ReturnType<typeof import('../../core.mjs').createNodeRegistry>} [nodes] the node registry; its „Bild“ node
+ *   (Foto Playground) renders the sketches. Without it the moodboard makes look and idea only.
+ */
+export function moodboardNode(providers, store, nodes) {
+  const { fields: chatFields, chat } = chatTools(providers, store)
   const kindOf = id => {
     try { return store.asset(id).media_type?.split('/')[0] ?? null } catch (error) { if (error instanceof InputError) return null; throw error }
   }
@@ -164,21 +175,44 @@ export function moodboardNode(providers, store) {
     inputs: [],
     outputs: [
       { id: 'look', kind: 'text', label: 'Look' },
-      { id: 'keys', kind: 'image', label: 'Leitbilder' },
+      { id: 'keys', kind: 'image', label: 'Skizzen oder Leitbilder' },
+      { id: 'idea', kind: 'text', label: 'Story-Idee', mention: false },
       { id: 'images', kind: 'image', label: 'Alle Bilder', mention: false },
       { id: 'videos', kind: 'video', label: 'Clips', mention: false },
       { id: 'notes', kind: 'text', label: 'Notizen und Farben', mention: false },
     ],
-    fields,
+    async fields() {
+      const image = nodes?.node('image')
+      const models = image ? (await image.fields()).find(field => field.key === 'modelId') : null
+      return [...await chatFields(),
+        { key: 'sketches', label: 'Skizzen', type: 'enum', options: [{ value: '0', label: 'Keine Skizzen' }, { value: '3', label: '3 Skizzen' }, { value: '6', label: '6 Skizzen' }], default: '3' },
+        ...(models?.options?.length ? [{ key: 'sketchModel', label: 'Bildmodell für Skizzen', type: 'enum', options: models.options, default: models.default }] : [])]
+    },
     passthrough({ params }) {
       const { images, videos, notes } = boardValues(params, kindOf)
       return { images, videos, notes }
     },
-    async run({ params }) {
+    async run({ params, projectId, stopped }) {
       const { images, notes } = boardValues(params, kindOf)
       if (!images.length && !notes.length) throw new InputError('Leg zuerst Bilder, Farben, Notizen oder Stichworte auf das Moodboard.')
-      const { text, data, keys } = await condense(chat, params, notes, images)
-      return { outputs: { look: [text], keys }, data, credits: null }
+      const image = nodes?.node('image')
+      const wanted = image ? Number(params.sketches ?? 3) || 0 : 0
+      const { text, data, keys, idea, scenes } = await condense(chat, params, notes, images, wanted)
+      // The sketches run as one Foto Playground job each, in parallel, with the key pictures as references.
+      const rendered = await Promise.allSettled(scenes.map(scene => image.run({
+        inputs: { prompt: [], refs: keys.slice(0, 3) }, params: { ...(params.sketchModel && { modelId: params.sketchModel }), count: '1' },
+        prompt: scene.prompt + '\nLook: ' + data.look, projectId, stopped,
+      })))
+      const sketches = scenes.map((scene, i) => ({ ...scene, assetId: rendered[i].status === 'fulfilled' ? rendered[i].value.outputs.image[0] ?? null : null }))
+      const failed = rendered.find(result => result.status === 'rejected')
+      if (scenes.length && sketches.every(scene => !scene.assetId)) throw failed?.reason ?? new InputError('Die Skizzen ließen sich nicht erzeugen.')
+      const made = sketches.map(scene => scene.assetId).filter(Boolean)
+      const credits = rendered.reduce((sum, result) => (result.status === 'fulfilled' && typeof result.value.credits === 'number' ? (sum ?? 0) + result.value.credits : sum), null)
+      return {
+        outputs: { look: [text], keys: made.length ? made : keys, idea: idea ? [idea] : [] },
+        data: { ...data, idea, keyImages: keys, sketches, ...(failed && { warning: `${scenes.length - made.length} von ${scenes.length} Skizzen sind fehlgeschlagen: ${failed.reason?.message ?? 'unbekannter Fehler'}` }) },
+        credits,
+      }
     },
   }
 }
@@ -207,7 +241,7 @@ export function styleNode(providers, store) {
 const shotSystem = [
   'You are the director of a short AI film. Break the story down into shots.',
   'Answer with one JSON object and nothing else: {"shots": [{"title": string, "duration": number, "shot": string, "prompt": string, "motion": string}], "assets": [{"name": string, "kind": "figur"|"ort"|"requisite", "description": string}]}.',
-  'title: two or three words. duration: whole seconds from 4 to 15. shot: framing (Totale, Halbnahe, Nahaufnahme …).',
+  'title: two or three words. duration: whole seconds from 4 to 15. shot: exactly one of Totale, Halbtotale, Amerikanisch, Halbnahe, Nahaufnahme, Großaufnahme, Detail.',
   'prompt: what the start frame shows, one or two sentences. motion: what moves and how the camera moves, one sentence.',
   'Refer to figures, places and the look only by their @names. Use the @names from the list of project assets when they fit; otherwise name the new figure or place in assets and write it as @Name without spaces.',
   'Write in the language of the instruction.',
@@ -252,5 +286,5 @@ export function directorNode(providers, store) {
 }
 
 export function apply(ctx) {
-  for (const make of [llmNode, moodboardNode, styleNode, directorNode]) ctx.effect(() => ctx.creativeNodes.register(make(ctx.creativeProviders, ctx.creativeStore)))
+  for (const make of [llmNode, moodboardNode, styleNode, directorNode]) ctx.effect(() => ctx.creativeNodes.register(make(ctx.creativeProviders, ctx.creativeStore, ctx.creativeNodes)))
 }

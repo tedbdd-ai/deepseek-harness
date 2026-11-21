@@ -390,12 +390,12 @@ export function createEngine(store, registry) {
     },
     /**
      * Project assets of the other documents, for `@` suggestions in the editor.
-     * @returns {{ name: string, docId: string, docTitle: string, kind: string, ready: boolean }[]}
+     * @returns {{ name: string, docId: string, docTitle: string, kind: string, ready: boolean, idea?: string }[]}
      */
     foreignAssets(projectId, docId = 'flow') {
       const state = readState(projectId)
       return foreignAssets(store, projectId, docId).map(node => ({ name: nodeName(node, registry.node(node.type)), docId: node.foreign.id, docTitle: node.foreign.title, kind: node.foreign.kind,
-        ready: Boolean(registry.node(node.type)?.resolve || state[node.id]?.status === 'done') }))
+        ready: Boolean(registry.node(node.type)?.resolve || state[node.id]?.status === 'done'), ...(state[node.id]?.data?.idea && { idea: state[node.id].data.idea }) }))
     },
   }
 }

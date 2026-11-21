@@ -1,5 +1,5 @@
 /**
- * Documents of a project: every moodboard, storyboard, Figur-und-Set board and free flow is a document of its own,
+ * Documents of a project: every moodboard, storyboard, film and free flow is a document of its own,
  * like a flow in ElevenLabs or a board in Milanote. Templates create new documents and never fill an open one.
  *
  * Storage: the index is `app_data(flows)` = `{ docs: [{ id, kind, title, createdAt, updatedAt }] }`; the canvas of a
@@ -14,8 +14,10 @@ import { InputError } from '../../../store.mjs'
 export const kinds = {
   moodboard: { title: 'Moodboard', plural: 'Moodboards' },
   storyboard: { title: 'Storyboard', plural: 'Storyboards' },
-  cast: { title: 'Figur und Set', plural: 'Figuren und Sets' },
+  film: { title: 'Film', plural: 'Filme' },
   flow: { title: 'Flow', plural: 'Flows' },
+  // Documents made before the character studio moved into the storyboard; no longer created.
+  cast: { title: 'Figur und Set', plural: 'Figuren und Sets' },
 }
 
 const indexKey = 'flows'
@@ -74,15 +76,16 @@ export function freeTitle(docs, wanted) {
 
 /**
  * Creates a document with its canvas.
- * @param {{ kind: string, title?: string, canvas?: { nodes: object[], edges: object[] } }} spec
+ * @param {{ kind: string, title?: string, canvas?: { nodes: object[], edges: object[] }, source?: string }} spec `source`: the
+ *   storyboard a film is made from.
  * @returns {object} the new index entry.
  */
-export function createDoc(store, projectId, { kind, title, canvas = { nodes: [], edges: [] } }) {
+export function createDoc(store, projectId, { kind, title, canvas = { nodes: [], edges: [] }, source }) {
   if (!kinds[kind]) throw new InputError('Unbekannte Dokumentart.')
   const id = randomUUID().replace(/-/g, '').slice(0, 12)
   let entry
   writeIndex(store, projectId, docs => {
-    entry = { id, kind, title: freeTitle(docs, String(title ?? '').trim().slice(0, 60) || kinds[kind].title), createdAt: now(), updatedAt: now() }
+    entry = { id, kind, title: freeTitle(docs, String(title ?? '').trim().slice(0, 60) || kinds[kind].title), ...(source && { source }), createdAt: now(), updatedAt: now() }
     return [...docs, entry]
   })
   store.setAppData(projectId, docKey(id), { revision: 0, data: canvas })

@@ -299,3 +299,7 @@
 .flow-template { display: grid; align-content: start; gap: var(--s-2); padding: var(--s-4); border: 1px solid var(--c-line); border-radius: var(--r-tile); background: var(--c-panel); color: var(--c-ink-2); font: inherit; font-size: var(--fs-ui); line-height: var(--lh-ui); text-align: left; cursor: pointer; }
 .flow-template:hover { border-color: var(--c-ink-3); }
 .flow-template b { color: var(--c-ink); font-size: var(--fs-heading); font-weight: 500; }
+.flow-look h3 { margin: 0 0 var(--s-2); color: var(--c-ink-3); font-size: var(--fs-micro); line-height: var(--lh-micro); font-weight: 500; letter-spacing: .02em; text-transform: uppercase; }
+.flow-look-sketches { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-2); }
+.flow-look-sketches button { display: grid; gap: var(--s-1); padding: 0; border: 0; background: none; color: var(--c-ink-2); font: inherit; font-size: var(--fs-meta); text-align: left; cursor: zoom-in; }
+.flow-look-sketches .flow-media img { aspect-ratio: 16 / 9; border-radius: var(--s-2); object-fit: cover; }

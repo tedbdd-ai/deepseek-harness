@@ -34,7 +34,7 @@ test('App plugins register, serve their module and keep per-idea data', async t 
   harness.mount(checklist)
   harness.mount(flows)
   const apps = await harness.json('GET', api + 'apps')
-  assert.deepEqual(apps.map(app => app.id), ['checklist', 'figur-und-set', 'flows', 'moodboard', 'storyboard'], 'Flows bringt seine Schritt-Seiten mit')
+  assert.deepEqual(apps.map(app => app.id), ['checklist', 'filme', 'flows', 'moodboard', 'storyboard'], 'Flows bringt seine Schritt-Seiten mit')
   for (const step of apps.filter(app => app.id !== 'checklist')) {
     const served = await harness.request('GET', step.module)
     assert.equal(served.status, 200, step.module)
