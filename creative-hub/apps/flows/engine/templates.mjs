@@ -10,7 +10,8 @@ import { InputError } from '../../../store.mjs'
 import { adoptIntoFrames } from './frames.mjs'
 
 const W = 352 // column width of a node plus gap
-const frame = (key, name, x, y, width, height) => ({ key, type: 'frame', name, x, y, params: { width, height } })
+/** A phase frame; `phase` (moodboard, storyboard, cast, voice, shots, edit) lets the step pages find it whatever its name. */
+const frame = (key, name, x, y, width, height, phase) => ({ key, type: 'frame', name, x, y, params: { width, height, ...(phase && { phase }) } })
 const note = (key, name, x, y, prompt) => ({ key, type: 'text', name, x, y, prompt })
 const files = (key, name, x, y, find, count = 4) => ({ key, type: 'library', name, x, y, find, count })
 const color = (key, name, x, y, value) => ({ key, type: 'color', name, x, y, params: { color: value } })
@@ -24,7 +25,7 @@ const link = (source, sourceHandle, target, targetHandle) => ({ source, sourceHa
 function moodboard(x, y) {
   return {
     nodes: [
-      frame('mood', '1 · Moodboard', x, y, 4 * W + 64, 880),
+      frame('mood', '1 · Moodboard', x, y, 4 * W + 64, 880, 'moodboard'),
       note('notiz', 'Notizen', x + 32, y + 72, 'Analoger Film, sichtbares Korn, harte Schatten. Glänzendes Latex gegen kalte Klinikfliesen, einzelne Neonakzente. Ruhige, lange Einstellungen.'),
       color('rot', 'Akzent', x + 32, y + 432, '#B3122E'),
       color('kalt', 'Grundton', x + 32 + W, y + 432, '#5E7A82'),
@@ -47,7 +48,7 @@ function storyboard(x, y, mood = true) {
   const look = mood ? ' Halte dich an @Look.' : ''
   return {
     nodes: [
-      frame('story', '2 · Storyboard', x, y, 5 * W + 64, 880),
+      frame('story', '2 · Storyboard', x, y, 5 * W + 64, 880, 'storyboard'),
       note('idee', 'Story', x + 32, y + 72, 'Eine Frau im schwarzen Latexmantel wacht in einer verlassenen Klinik auf. Sie folgt einem flackernden Neonlicht durch den Flur und spricht am Ende direkt in die Kamera.'),
       { key: 'regie', type: 'director', name: 'Regie', x: x + 32, y: y + 432,
         // Regie gets the names of all project assets (@Figur, @Set …) with its request; mentioning them here would make it
@@ -65,7 +66,7 @@ function storyboard(x, y, mood = true) {
 function cast(x, y, mood = true) {
   return {
     nodes: [
-      frame('cast', '3 · Figur und Set', x, y, 2 * W + 64, 880),
+      frame('cast', '3 · Figur und Set', x, y, 2 * W + 64, 880, 'cast'),
       { key: 'figur', type: 'character', name: 'Figur', asset: true, x: x + 32, y: y + 72,
         prompt: 'Frau Anfang 30, kantiges Gesicht, helle Haut mit feinen Sommersprossen, schwarzer Bob, kleine Narbe über der linken Augenbraue.' + (mood ? ' Outfit-Details aus @Outfits, Look aus @Look.' : ''),
         params: { outfit: 'Knielanger schwarzer Latexmantel mit hohem Kragen, schwarze Latexhandschuhe, kniehohe Lackstiefel. Rücken: durchgehender Reißverschluss.', head: 'cropped', mouth: true } },
@@ -80,7 +81,7 @@ function cast(x, y, mood = true) {
 function voice(x, y) {
   return {
     nodes: [
-      frame('stimme', '4 · Stimme', x, y, 3 * W + 64, 880),
+      frame('stimme', '4 · Stimme', x, y, 3 * W + 64, 880, 'voice'),
       files('ton', 'Stimme', x + 32, y + 72, null, 0),
       note('skript', 'Sprechtext', x + 32, y + 432, '[ruhig, heiser] Ich war schon einmal hier. [Pause] Und diesmal gehe ich nicht allein.'),
       { key: 'schwarz', type: 'black-video', name: 'Schwarzes Video', x: x + 32 + W, y: y + 72 },
@@ -101,7 +102,7 @@ function shots(x, y, { story = true, speaking = true } = {}) {
     video('v3', 'Video Ansprache', 72 + 1520, speaking ? '@Figur kommt in @Set zum Stehen, sieht in die Kamera und spricht den Text aus @Schwarzes Video. Die Zeitstempel oben geben vor, wann sie welches Wort sagt; vorher bewegt sie sich nur.' : '@Figur bleibt in @Set stehen und sieht in die Kamera.', 's3', speaking ? 15 : 10),
   ]
   return {
-    nodes: [frame('dreh', '5 · Videos', x, y, W + 64, 2360), ...list],
+    nodes: [frame('dreh', '5 · Videos', x, y, W + 64, 2360, 'shots'), ...list],
     edges: [
       // Figur, Set and Look arrive through their @mentions; the line carries only the scene text.
       ...(story ? list.map(item => link(item.sceneKey, 'text', item.key, 'prompt')) : []),
@@ -113,7 +114,7 @@ function shots(x, y, { story = true, speaking = true } = {}) {
 /** Edit phase: the clips in order and the voice under the film. */
 function edit(x, y) {
   return {
-    nodes: [frame('schnitt', '6 · Schnitt', x, y, W + 64, 880), { key: 'film', type: 'composition', name: 'Film', x: x + 32, y: y + 72 }],
+    nodes: [frame('schnitt', '6 · Schnitt', x, y, W + 64, 880, 'edit'), { key: 'film', type: 'composition', name: 'Film', x: x + 32, y: y + 72 }],
     edges: [link('v1', 'video', 'film', 'clips'), link('v2', 'video', 'film', 'clips'), link('v3', 'video', 'film', 'clips')],
   }
 }
@@ -132,7 +133,13 @@ export const templates = [
   { id: 'look-und-story', title: 'Moodboard und Storyboard', phases: 2,
     description: 'Freies Moodboard mit Style-DNA (@Look), daneben Story, Regie mit Shotliste und die Szenen daraus.',
     build: () => merge(moodboard(0, 0), storyboard(moodWidth + 160, 0)) },
-  { id: 'figur-und-set', title: 'Figur und Set', phases: 1,
+  { id: 'moodboard', title: 'Moodboard', phases: 1, phase: 'moodboard',
+    description: 'Freier Rahmen für Bilder, Farben und Notizen, daneben die Style-DNA, die daraus @Look macht.',
+    build: () => moodboard(0, 0) },
+  { id: 'storyboard', title: 'Storyboard', phases: 1, phase: 'storyboard',
+    description: 'Story, Regie mit Shotliste und drei Beispielszenen, die Regie beim Anlegen aktualisiert.',
+    build: () => storyboard(0, 0, false) },
+  { id: 'figur-und-set', title: 'Figur und Set', phases: 1, phase: 'cast',
     description: 'Charakterblatt in vier Feldern auf Studiograu und ein Set ohne Personen, für gleichbleibende Figuren und Orte.',
     build: () => cast(0, 0, false) },
   { id: 'sprechende-figur', title: 'Sprechende Figur', phases: 3,

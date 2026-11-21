@@ -33,12 +33,15 @@ Stand: 2026-11-21. Grundlage ist das Konzept „AI-Film-Workflow im React-Flowbo
 - „Szenen anlegen“ am Regie-Knoten, angelegte Szenen tragen `params.from`.
 - Die Vorlage „Kurzfilm“ folgt dem neuen Ablauf, und das Moodboard ist ohne Kabel.
 
-### Phase 2: Pipeline (Studio-Modus)
+### Phase 2: Pipeline und Einzelschritte (umgesetzt)
 
-- Umschalter Lab/Pipeline in der oberen Leiste, auf derselben Datenbasis.
-- Pipeline zeigt die Szenen als horizontalen Filmstreifen: Nr., Dauer, `@Assets`, Startbild, Clip und Status (Entwurf → Keyframe ok → Video ok). Umsortieren per Ziehen ändert die Lesereihenfolge auf der Fläche.
-- Mehrere Karten wählen und „Alle Keyframes rendern“ bzw. „Alle Videos rendern“, mit einer Kostenfrage vorab.
-- Das Moodboard wird zur Style-Bible: In der Pipeline ist es schreibgeschützt.
+- **Einzelschritte als Menüpunkte:** Moodboard, Storyboard und Figur und Set stehen wieder in der Sidebar. Jede Seite zeigt nur ihren Phasenrahmen desselben Flows (Rahmen tragen `params.phase`), dazu freie Knoten und das, was der Rahmen direkt speist. Fehlt die Phase, legt ein Knopf sie aus der passenden Teilvorlage an. „Ganzer Flow“ führt zur Fläche, wo die Schritte verbunden sind.
+- **Filmstreifen** (auf der Storyboard-Seite offen, in Flows über die obere Leiste): Er zeigt die Szenen in Shot-Reihenfolge mit Nr., Dauer, `@Assets`, Bild (Clip vor Keyframe vor Startbild) und Status (Entwurf → Keyframe ok → Video ok, außerdem Läuft, Fehler, Veraltet).
+- „Schritte anlegen“ baut pro Szene einen Keyframe-Bildknoten und einen Video-Knoten in den Rahmen „Videos“, verbunden mit Szene und Schnitt. Hat eine Szene ein eigenes Startbild, entfällt der Keyframe.
+- Karten lassen sich wählen. „Keyframes rendern“ und „Videos rendern“ starten einen gemeinsamen Lauf (Route `run` mit mehreren `nodeId`), ab zwei kostenpflichtigen Schritten mit Rückfrage. „Film schneiden“ rendert fehlende Clips vorher, ebenfalls nach Rückfrage.
+- Umsortieren per Ziehen tauscht die Plätze von Szenen, Keyframes und Videos, so dass Lesereihenfolge und Schnitt dem Streifen folgen.
+- Wachsende Rahmen schieben die Rahmen rechts von ihnen mit.
+- Offen: das Moodboard als schreibgeschützte Style-Bible und ein eigener Pipeline-Schalter. Mit den Schritt-Seiten ist er bisher nicht nötig.
 
 ### Phase 3: ComfyUI über Rancher und Rezepte
 

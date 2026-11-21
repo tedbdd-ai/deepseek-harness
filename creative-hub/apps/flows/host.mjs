@@ -10,7 +10,8 @@
  * - `GET  /nodes` → node types with ports and settings fields
  * - `GET  /projects/<id>/state` → `{ nodes: { [nodeId]: { status, outputs, stale, refs, warnings, error, credits, ms, history } }, assets: { [id]: asset } }`
  * - `POST /projects/<id>/run { nodeId, scope: 'node'|'upstream'|'downstream', dryRun? }` → `{ steps }`; without `dryRun`
- *   the steps start at once. Paid nodes run only through this route, which the editor calls on a click.
+ *   the steps start at once. `nodeId` may be a list of up to 64 ids (film strip), whose plans are joined. Paid nodes run
+ *   only through this route, which the editor calls on a click.
  * - `GET  /templates` → `{ id, title, description, phases }[]`, ready canvases from `engine/templates.mjs`
  * - `POST /projects/<id>/templates { templateId, revision }` → `{ record, added, skipped }`: places the template right of the
  *   existing nodes and fills its Datei nodes from the Library; nothing runs
@@ -34,6 +35,19 @@ const app = defineApp({
 
 export const name = app.name
 export const inject = [...app.inject, 'creativeStore', 'creativeNodes']
+
+/**
+ * Step pages: Moodboard, Storyboard and Figur und Set as sidebar entries of their own. Each shows one phase of the same
+ * flow (browser modules beside this file), so a step can be worked on alone and still be joined in the flow.
+ */
+export const stepPages = [
+  { id: 'moodboard', title: 'Moodboard', module: '/creativity-apps/flows/moodboard.js', description: 'Bilder, Farben und Notizen frei sammeln; die Style-DNA macht daraus @Look',
+    icon: 'M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z' },
+  { id: 'storyboard', title: 'Storyboard', module: '/creativity-apps/flows/storyboard.js', description: 'Story, Regie und Shotliste, darunter der Filmstreifen mit Keyframes und Videos',
+    icon: 'M4 5h16v14H4zM4 9h16M4 15h16M8 5v4M12 5v4M16 5v4M8 15v4M12 15v4M16 15v4' },
+  { id: 'figur-und-set', title: 'Figur und Set', module: '/creativity-apps/flows/cast.js', description: 'Charakterblatt und Set als Projekt-Assets für @Figur und @Set',
+    icon: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 20a8 8 0 0 1 16 0' },
+]
 
 const base = '/creativity-flows/api'
 const uuid = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
@@ -178,11 +192,12 @@ export function createHandler(store, registry, engine) {
       const run = new RegExp(`^/projects/(${uuid})/run$`).exec(path)
       if (req.method === 'POST' && run) {
         const body = await readBody(req)
-        if (typeof body.nodeId !== 'string' || !idPattern.test(body.nodeId)) throw new InputError('Wähle einen Knoten.')
+        const valid = id => typeof id === 'string' && idPattern.test(id)
+        if (!(valid(body.nodeId) || (Array.isArray(body.nodeId) && body.nodeId.length <= 64 && body.nodeId.every(valid)))) throw new InputError('Wähle einen Knoten.')
         if (body.dryRun) return json({ steps: engine.plan(run[1], body.nodeId, body.scope ?? 'node') })
         return json({ steps: engine.run(run[1], body.nodeId, body.scope ?? 'node') }, 202)
       }
-      if (req.method === 'GET' && path === '/templates') return json(templates.map(({ id, title, description, phases }) => ({ id, title, description, phases })))
+      if (req.method === 'GET' && path === '/templates') return json(templates.map(({ id, title, description, phases, phase }) => ({ id, title, description, phases, phase })))
       const template = new RegExp(`^/projects/(${uuid})/templates$`).exec(path)
       if (req.method === 'POST' && template) {
         const { templateId, revision } = await readBody(req)
@@ -218,6 +233,7 @@ export function createHandler(store, registry, engine) {
 
 export function apply(ctx) {
   app.apply(ctx)
+  for (const page of stepPages) ctx.effect(() => ctx.creativeApps.register({ ...page, page: true }))
   const store = ctx.creativeStore
   const registry = ctx.creativeNodes
   for (const node of sourceNodes(store)) ctx.effect(() => registry.register(node))

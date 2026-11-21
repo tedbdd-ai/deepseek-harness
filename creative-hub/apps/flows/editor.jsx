@@ -29,7 +29,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/utils'
 import { absolute, adoptIntoFrames } from './engine/frames.mjs'
-import { implicitEdges, textHandle } from './engine/mentions.mjs'
+import { implicitEdges, mentions, textHandle } from './engine/mentions.mjs'
 
 const flowsApi = async (path, method = 'GET', body) => {
   const response = await fetch('/creativity-flows/api' + path, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined })
@@ -39,7 +39,51 @@ const flowsApi = async (path, method = 'GET', body) => {
   return data
 }
 const mediaUrl = id => '/creativity-hub/api/media/' + encodeURIComponent(id)
-const route = project => '#/flows?project=' + encodeURIComponent(project)
+const route = (project, page = 'flows') => `#/${page}?project=${encodeURIComponent(project)}`
+
+/**
+ * Step pages: one phase of the film as its own sidebar entry, on the same flow. A step page shows only its phase frame
+ * (and the free nodes); the other phases stay in the flow untouched. Frames carry `params.phase`; older frames are
+ * recognised by their name.
+ */
+export const steps = {
+  moodboard: { title: 'Moodboard', name: /mood/i, empty: 'Hier sammelst du Bilder, Farben und Notizen ohne Linien. Die Style-DNA macht daraus @Look für alle späteren Schritte.' },
+  storyboard: { title: 'Storyboard', name: /story/i, empty: 'Story und Regie werden hier zur Shotliste. Unten im Filmstreifen siehst du jede Einstellung mit Keyframe, Video und Status.' },
+  cast: { title: 'Figur und Set', name: /figur|set|cast/i, empty: 'Hier entstehen Charakterblatt und Set. Als Projekt-Assets wirken sie mit @Figur und @Set in jedem Prompt.' },
+  voice: { title: 'Stimme', name: /stimme|voice|ton/i },
+  shots: { title: 'Videos', name: /video|dreh|shot/i },
+  edit: { title: 'Schnitt', name: /schnitt|edit/i },
+}
+/**
+ * Grows a frame to at least `width` × `height` and moves every top-level node right of its old right edge (frames
+ * included, with their content) by the added width, so a growing phase never runs into the next one. Nodes in `stay`
+ * (the new content that made the frame grow) keep their place.
+ * @returns {object[]} the new node list.
+ */
+function growFrame(nodes, frameId, width, height, stay = new Set()) {
+  const frame = nodes.find(node => node.id === frameId)
+  if (!frame) return nodes
+  const before = Number(frame.params?.width) || 640
+  const wider = Math.max(0, Math.ceil(width / 8) * 8 - before)
+  const taller = Math.max(Number(frame.params?.height) || 480, Math.ceil(height / 8) * 8)
+  const edge = frame.x + before
+  return nodes.map(node => {
+    if (node.id === frameId) return { ...node, params: { ...node.params, width: before + wider, height: taller } }
+    return wider && !node.parentId && !stay.has(node.id) && node.x >= edge ? { ...node, x: node.x + wider } : node
+  })
+}
+
+/**
+ * Shots in the order of a storyboard grid: rows from top to bottom (nodes less than 160 px apart in height share a
+ * row), each row left to right. Children of frames count at their absolute place.
+ */
+function readingOrderOf(list, byId) {
+  const placed = list.map(node => ({ ...absolute(node, byId), node })).sort((a, b) => a.y - b.y)
+  let row = 0
+  placed.forEach((item, i) => { if (i && item.y - placed[i - 1].y >= 160) row++; item.row = row })
+  return placed.sort((a, b) => (a.row - b.row) || (a.x - b.x)).map(item => item.node)
+}
+const phaseOf = frame => frame.params?.phase ?? Object.entries(steps).find(([, item]) => item.name.test(String(frame.name ?? '')))?.[0] ?? null
 
 // Node types name their icon; the editor maps the names onto Lucide, the one icon pack of the canvas.
 const icons = { text: Type, image: Image, video: Video, audio: AudioLines, library: Archive, board: LayoutGrid, shot: Clapperboard,
@@ -248,7 +292,7 @@ function Picker({ field, value, onChange }) {
       <Command filter={contains}>
         <CommandInput placeholder={field.label + ' suchen'}/>
         {tags.length > 1 && <div className="flex flex-wrap gap-1 border-b p-2">{tags.map(item =>
-          <Button key={item} variant={tag === item ? 'default' : 'outline'} size="xs" className="rounded-full" aria-pressed={tag === item} onClick={() => setTag(tag === item ? '' : item)}>{item}</Button>)}</div>}
+          <Button key={item} variant={tag === item ? 'default' : 'outline'} size="sm" className="rounded-full" aria-pressed={tag === item} onClick={() => setTag(tag === item ? '' : item)}>{item}</Button>)}</div>}
         <CommandList>
           <CommandEmpty>{options.length ? 'Nichts gefunden. Ändere Suche oder Filter.' : field.empty ?? 'Keine Auswahl verfügbar.'}</CommandEmpty>
           {shown.map(option => <CommandItem key={optionValue(option)} value={optionLabel(option) + ' ' + (option.tags ?? []).join(' ')} data-checked={optionValue(option) === value}
@@ -707,10 +751,85 @@ function Confirm({ steps, onYes, onNo }) {
     <DialogContent className="flow-dialog max-w-[440px]">
       <DialogHeader><DialogTitle>{steps.length} Knoten ausführen?</DialogTitle>
         <DialogDescription>{paid.length} davon rufen einen Anbieter auf und kosten Credits.</DialogDescription></DialogHeader>
-      <ol className="list-decimal pl-5 text-sm">{steps.map(step => <li key={step.id}>{step.title}{step.paid ? ' · kostet Credits' : ''}</li>)}</ol>
+      <ol className="max-h-72 list-decimal overflow-auto pl-8 text-sm">{steps.map(step => <li key={step.id}>{step.name && step.name !== step.title ? `${step.name} (${step.title})` : step.title}{step.paid ? ' · kostet Credits' : ''}</li>)}</ol>
       <DialogFooter><Button variant="outline" autoFocus onClick={onNo}>Abbrechen</Button><Button onClick={onYes}>Alle ausführen</Button></DialogFooter>
     </DialogContent>
   </Dialog>
+}
+
+const shotStates = {
+  draft: 'Entwurf', keyframe: 'Keyframe ok', video: 'Video ok', stale: 'Veraltet', running: 'Läuft', failed: 'Fehler',
+}
+
+/**
+ * Film strip (the pipeline view): every scene of the storyboard as a card in shot order, with its keyframe, its clip
+ * and a status. Cards can be chosen and rendered together, reordered by dragging and given their missing steps.
+ * `shots` comes from `filmOf()`; nothing here runs without a click.
+ */
+function Filmstrip({ shots, film, onRun, onCreate, onReorder, onFocus, onClose }) {
+  const { ctx, assets } = useContext(Actions)
+  const [chosen, setChosen] = useState(new Set())
+  const [dragged, setDragged] = useState(null)
+  const ids = shots.map(shot => shot.scene.id)
+  useEffect(() => setChosen(current => new Set([...current].filter(id => ids.includes(id)))), [ids.join()])
+  const picked = shots.filter(shot => chosen.has(shot.scene.id))
+  const scope = picked.length ? picked : shots
+  const keyframes = scope.map(shot => shot.keyframe?.id).filter(Boolean)
+  const videos = scope.map(shot => shot.video?.id).filter(Boolean)
+  const missing = scope.filter(shot => !shot.video).map(shot => shot.scene.id)
+  const toggle = id => setChosen(current => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next })
+  const which = picked.length ? ` (${picked.length})` : ' (alle)'
+  return <section className="flow-strip nodrag nowheel" aria-label="Filmstreifen">
+    <header className="flow-strip-head">
+      <strong>Filmstreifen</strong>
+      <span className="text-sm text-muted-foreground tabular-nums">{shots.length === 1 ? '1 Einstellung' : `${shots.length} Einstellungen`} · {shots.reduce((sum, shot) => sum + shot.duration, 0)} s</span>
+      <div className="ml-auto flex flex-wrap items-center gap-1">
+        {shots.length > 0 && <Button variant="ghost" size="sm" onClick={() => setChosen(picked.length === shots.length ? new Set() : new Set(ids))}>{picked.length === shots.length ? 'Keine wählen' : 'Alle wählen'}</Button>}
+        {missing.length > 0 && <Button variant="outline" size="sm" onClick={() => onCreate(missing)}><Plus/>Schritte anlegen{picked.length ? ` (${missing.length})` : ''}</Button>}
+        <Button variant="outline" size="sm" disabled={!keyframes.length} onClick={() => onRun(keyframes, 'node')}><Image/>Keyframes rendern{which}</Button>
+        <Button variant="outline" size="sm" disabled={!videos.length} onClick={() => onRun(videos, 'upstream')}><Video/>Videos rendern{which}</Button>
+        <Button variant="ghost" size="icon-sm" aria-label="Filmstreifen schließen" title="Schließen" onClick={onClose}><X/></Button>
+      </div>
+    </header>
+    {!shots.length
+      ? <p className="flow-strip-empty">Noch keine Szenen. Führe die Regie aus und klicke „Szenen anlegen“, oder lege Szene-Knoten im Storyboard an.</p>
+      : <ol className="flow-strip-cards">
+        {shots.map((shot, i) => {
+          const thumb = shot.thumb && assets[shot.thumb]
+          return <li key={shot.scene.id} className={cn('flow-card', chosen.has(shot.scene.id) && 'chosen', dragged === shot.scene.id && 'dragging')}
+            draggable onDragStart={event => { setDragged(shot.scene.id); event.dataTransfer.effectAllowed = 'move' }} onDragEnd={() => setDragged(null)}
+            onDragOver={event => { if (dragged) event.preventDefault() }}
+            onDrop={event => { event.preventDefault(); if (dragged && dragged !== shot.scene.id) onReorder(dragged, shot.scene.id); setDragged(null) }}>
+            <div className="flow-card-media" onDoubleClick={() => onFocus(shot.scene.id)}>
+              {thumb ? <Media asset={thumb} ctx={ctx}/> : <span className="flow-card-blank"><Icon name="shot" className="size-5"/></span>}
+              <label className="flow-card-pick" title="Für Sammelaktionen wählen"><input type="checkbox" checked={chosen.has(shot.scene.id)} onChange={() => toggle(shot.scene.id)} aria-label={`Einstellung ${i + 1} wählen`}/></label>
+              <span className={cn('flow-card-state', 'is-' + shot.status)}>{shotStates[shot.status]}</span>
+            </div>
+            <div className="flow-card-body">
+              <button type="button" className="flow-card-title" onClick={() => onFocus(shot.scene.id)} title="Auf der Fläche zeigen">
+                <b>{i + 1} · {shot.title}</b><span className="tabular-nums">{shot.duration} s</span></button>
+              <p className="flow-card-text">{shot.prompt || 'Noch ohne Beschreibung.'}</p>
+              {shot.mentions.length > 0 && <p className="flow-card-assets">{shot.mentions.map(name => '@' + name).join(' ')}</p>}
+              <div className="flex gap-1">
+                {shot.video
+                  ? <>{shot.keyframe && <Button variant="outline" size="sm" onClick={() => onRun([shot.keyframe.id], 'node')}><Image/>Keyframe</Button>}
+                    <Button variant="outline" size="sm" onClick={() => onRun([shot.video.id], 'upstream')}><Video/>Video</Button></>
+                  : <Button variant="outline" size="sm" onClick={() => onCreate([shot.scene.id])}><Plus/>Schritte anlegen</Button>}
+              </div>
+            </div>
+          </li>
+        })}
+        {film && <li className="flow-card flow-card-film">
+          <div className="flow-card-media">{film.thumb && assets[film.thumb] ? <Media asset={assets[film.thumb]} ctx={ctx}/> : <span className="flow-card-blank"><Icon name="composition" className="size-5"/></span>}
+            <span className={cn('flow-card-state', 'is-' + film.status)}>{shotStates[film.status]}</span></div>
+          <div className="flow-card-body">
+            <button type="button" className="flow-card-title" onClick={() => onFocus(film.node.id)}><b>Film</b><span className="tabular-nums">{film.clips} Clips</span></button>
+            <p className="flow-card-text">Setzt die Clips in dieser Reihenfolge zusammen. Fehlende Videos rendert der Schnitt vorher, nach Rückfrage.</p>
+            <Button variant="outline" size="sm" className="self-start" onClick={() => onRun([film.node.id], 'upstream')}><Scissors/>Film schneiden</Button>
+          </div>
+        </li>}
+      </ol>}
+  </section>
 }
 
 /** Room around fitted content: the floating bar sits on top, the dock and zoom bar at the bottom. */
@@ -729,7 +848,7 @@ function ZoomBar({ overview, setOverview }) {
   </Panel>
 }
 
-function Canvas({ ctx, project, record, types, boards, templates }) {
+function Canvas({ ctx, project, record, types, boards, templates, step = null, page = 'flows' }) {
   const flow = useReactFlow()
   const typeOf = useMemo(() => new Map(types.map(type => [type.type, type])), [types])
   const isFrame = node => Boolean(typeOf.get(node.type)?.contains)
@@ -737,6 +856,10 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
   const initial = useMemo(() => adoptIntoFrames({ nodes: [], edges: [], ...record.data }, isFrame), [])
   const [doc, setDoc] = useState(initial.doc)
   const [view, setView] = useState({ nodes: {}, assets: {} })
+  // On a step page only the phase frame, its content and the free nodes are shown; other phases are hidden, not removed.
+  const stepFrame = step ? doc.nodes.find(node => isFrame(node) && phaseOf(node) === step) ?? null : null
+  const hidden = new Set(step ? doc.nodes.filter(node => (isFrame(node) && node !== stepFrame) || (node.parentId && node.parentId !== stepFrame?.id)).map(node => node.id) : [])
+  const [strip, setStrip] = useState(step === 'storyboard')
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
   const [menu, setMenu] = useState(null)
@@ -795,9 +918,11 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
   useEffect(() => { if (initial.changed) flush().catch(report); else refresh() }, [])
   useEffect(() => () => { if (state.saved !== state.data) flush().catch(e => ctx.toast(e.message, true)) }, [])
   useEffect(() => {
-    if (fitted.current || !doc.nodes.length || measuredCount < doc.nodes.filter(item => !(glance && item.parentId)).length) return
+    if (fitted.current || !doc.nodes.length || measuredCount < doc.nodes.filter(item => !hidden.has(item.id) && !(glance && item.parentId)).length) return
     fitted.current = true
-    flow.fitView({ padding: fitPadding, duration: 0 })
+    // A step page shows its frame together with the nodes the frame feeds directly (the Style-DNA beside the moodboard).
+    if (stepFrame) flow.fitView({ nodes: [stepFrame.id, ...doc.edges.filter(edge => edge.source === stepFrame.id).map(edge => edge.target)].map(id => ({ id })), padding: fitPadding, duration: 0 })
+    else flow.fitView({ padding: fitPadding, duration: 0 })
   }, [measuredCount])
   const busy = Object.values(view.nodes).some(item => item.status === 'running' || item.status === 'waiting')
   useEffect(() => {
@@ -990,7 +1115,7 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
     const handle = edge.targetHandle === textHandle ? typeOf.get(byNode.get(edge.target)?.type)?.inputs.find(port => port.kind === 'text')?.id : edge.targetHandle
     return handle ? [{ ...edge, targetHandle: handle, selectable: false, deletable: false, focusable: false }] : []
   })
-  const edges = [...doc.edges, ...implied].map(edge => ({ ...edge, zIndex: 1, animated: running(edge.target),
+  const edges = [...doc.edges, ...implied].filter(edge => !hidden.has(edge.source) && !hidden.has(edge.target)).map(edge => ({ ...edge, zIndex: 1, animated: running(edge.target),
     className: 'flow-edge kind-' + (portKind(edge.source, edge.sourceHandle, 'source') ?? 'text') + (edge.implicit ? ' implicit' : '') }))
   /** What a frame shows as a poster in the overview: pictures (results before references) and how much is inside. */
   function storyOf(frame) {
@@ -1005,7 +1130,7 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
     }
     return { cover: [...new Set([...made, ...refs])].slice(0, 4), made: made.length, nodes: kids.length }
   }
-  const nodes = doc.nodes.map(node => {
+  const nodes = doc.nodes.filter(node => !hidden.has(node.id)).map(node => {
     const frame = isFrame(node)
     const own = meta[node.id] ?? {}
     return {
@@ -1054,13 +1179,10 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
       let nodes = d.nodes.filter(node => !gone.has(node.id)).map(node => kept.get(node.id) ?? node).concat(fresh)
       const frame = director.parentId && nodes.find(node => node.id === director.parentId)
       if (frame) {
-        const right = Math.max(...made.map(node => node.x)) + 256 + 48 - frame.x
-        const bottom = Math.max(...made.map(node => node.y)) + 408 - frame.y
-        const width = Math.max(Number(frame.params?.width) || 640, Math.ceil(right / 8) * 8)
-        const height = Math.max(Number(frame.params?.height) || 480, Math.ceil(bottom / 8) * 8)
-        nodes = nodes.map(node => (node.id === frame.id ? { ...node, params: { ...node.params, width, height } } : node))
+        nodes = growFrame(nodes, frame.id, Math.max(...made.map(node => node.x)) + 256 + 48 - frame.x, Math.max(...made.map(node => node.y)) + 408 - frame.y, new Set(made.map(node => node.id)))
         // The frame's measured size would otherwise keep it at its old size until the next resize.
-        setMeta(m => ({ ...m, [frame.id]: { ...m[frame.id], width, height } }))
+        const grown = nodes.find(node => node.id === frame.id).params
+        setMeta(m => ({ ...m, [frame.id]: { ...m[frame.id], width: grown.width, height: grown.height } }))
       }
       return { nodes, edges: d.edges.filter(edge => !gone.has(edge.source) && !gone.has(edge.target)) }
     }, true)
@@ -1135,6 +1257,103 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   })
+  /**
+   * The film as the strip shows it: the scenes of the storyboard (all scenes if there is no storyboard frame) in reading
+   * order, each with the video its text feeds, the keyframe before that video and a status; and the first composition.
+   */
+  function filmOf() {
+    const storyFrame = doc.nodes.find(node => isFrame(node) && phaseOf(node) === 'storyboard')
+    const all = new Map(doc.nodes.map(node => [node.id, node]))
+    const scenes = readingOrderOf(doc.nodes.filter(node => node.type === 'scene' && (!storyFrame || node.parentId === storyFrame.id)), all)
+    const runs = node => Boolean(node && typeOf.get(node.type)?.runs)
+    const outputsOf = (node, kind) => (node ? typeOf.get(node.type)?.outputs.filter(port => port.kind === kind).flatMap(port => view.nodes[node.id]?.outputs?.[port.id] ?? []) ?? [] : [])
+    const shots = scenes.map(scene => {
+      const targets = doc.edges.filter(edge => edge.source === scene.id).map(edge => all.get(edge.target)).filter(Boolean)
+      const video = targets.find(node => runs(node) && typeOf.get(node.type).outputs.some(port => port.kind === 'video') && node.type !== 'composition') ?? null
+      const intoStart = video && doc.edges.find(edge => edge.target === video.id && edge.targetHandle === 'start')
+      const keyframe = (intoStart && runs(all.get(intoStart.source)) ? all.get(intoStart.source) : null)
+        ?? targets.find(node => runs(node) && typeOf.get(node.type).outputs.every(port => port.kind === 'image')) ?? null
+      const states = [keyframe, video].filter(Boolean).map(node => view.nodes[node.id] ?? {})
+      const clip = outputsOf(video, 'video')[0], frame = outputsOf(keyframe, 'image')[0], start = scene.params?.assetIds?.[0]
+      const status = states.some(item => item.status === 'running' || item.status === 'waiting') ? 'running'
+        : states.some(item => item.status === 'failed') ? 'failed'
+          : clip ? (view.nodes[video.id]?.stale ? 'stale' : 'video') : frame || start ? 'keyframe' : 'draft'
+      return { scene, video, keyframe, status, thumb: clip ?? frame ?? start ?? null, title: nodeName(scene, typeOf.get('scene')),
+        duration: Number(scene.params?.duration) || 5, prompt: scene.prompt ?? '', mentions: assetNames.map(item => item.name).filter(name => mentions(scene.prompt, name)) }
+    })
+    const composition = doc.nodes.find(node => node.type === 'composition')
+    const cut = composition && view.nodes[composition.id]
+    const film = composition && { node: composition, clips: doc.edges.filter(edge => edge.target === composition.id && edge.targetHandle === 'clips').length,
+      thumb: cut?.outputs?.video?.[0] ?? null, status: cut?.status === 'running' || cut?.status === 'waiting' ? 'running' : cut?.status === 'failed' ? 'failed' : cut?.outputs?.video?.length ? (cut.stale ? 'stale' : 'video') : 'draft' }
+    return { shots, film }
+  }
+  /**
+   * Gives scenes their missing pipeline steps: a Bild node for the keyframe (unless the scene has its own start image)
+   * and a Video node, both fed by the scene text and joined to the composition. They go into the Videos frame, which is
+   * created right of everything when there is none, one row per scene.
+   */
+  function createSteps(sceneIds) {
+    const imageType = typeOf.get('image'), videoType = typeOf.get('video')
+    if (!videoType) return ctx.toast('Der Video Playground ist nicht geladen, daher gibt es keinen Video-Knoten.', true)
+    const all = new Map(state.data.nodes.map(node => [node.id, node]))
+    const nodes = [], edges = []
+    let frame = state.data.nodes.find(node => isFrame(node) && phaseOf(node) === 'shots')
+    if (!frame) {
+      const outer = state.data.nodes.filter(node => !node.parentId)
+      const right = outer.length ? Math.max(...outer.map(node => node.x + (Number(node.params?.width) || 320))) + 160 : 0
+      const top = outer.length ? Math.min(...outer.map(node => node.y)) : 0
+      frame = { id: crypto.randomUUID(), type: 'frame', name: 'Videos', x: right, y: top, prompt: '', params: { width: 2 * 352 + 64, height: 880, phase: 'shots' } }
+      nodes.push(frame)
+    }
+    const inside = state.data.nodes.filter(node => node.parentId === frame.id)
+    let y = frame.y + (inside.length ? Math.max(...inside.map(node => node.y)) + 760 : 72)
+    const modelField = videoType.fields.find(field => field.key === 'modelId')
+    const model = modelField ? fieldDefault(modelField) : undefined
+    const look = assetNames.some(item => item.name === 'Look') ? ' Look aus @Look.' : ''
+    const composition = state.data.nodes.find(node => node.type === 'composition')
+    for (const id of sceneIds) {
+      const scene = all.get(id)
+      if (!scene) continue
+      const name = nodeName(scene, typeOf.get('scene'))
+      const durationField = videoType.fields.find(field => field.key === 'duration' && (!field.model || field.model === model))
+      const seconds = Number(scene.params?.duration) || 5
+      const duration = durationField?.options?.map(optionValue).reduce((best, value) => (Math.abs(Number(value) - seconds) < Math.abs(Number(best) - seconds) ? value : best))
+      const video = { id: crypto.randomUUID(), type: 'video', name: 'Video ' + name, x: frame.x + 32 + 352, y, prompt: '',
+        params: { ...(model && { modelId: model }), ...(duration !== undefined && (durationField.model ? { settings: { [model]: { duration } } } : { duration })) } }
+      nodes.push(video)
+      edges.push({ id: crypto.randomUUID(), source: id, sourceHandle: 'text', target: video.id, targetHandle: 'prompt' })
+      if (scene.params?.assetIds?.length) edges.push({ id: crypto.randomUUID(), source: id, sourceHandle: 'image', target: video.id, targetHandle: 'start' })
+      else if (imageType) {
+        const keyframe = { id: crypto.randomUUID(), type: 'image', name: 'Keyframe ' + name, x: frame.x + 32, y, prompt: 'Startbild dieser Einstellung als Standbild.' + look, params: {} }
+        nodes.push(keyframe)
+        edges.push({ id: crypto.randomUUID(), source: id, sourceHandle: 'text', target: keyframe.id, targetHandle: 'prompt' },
+          { id: crypto.randomUUID(), source: keyframe.id, sourceHandle: 'image', target: video.id, targetHandle: 'start' })
+      }
+      if (composition) edges.push({ id: crypto.randomUUID(), source: video.id, sourceHandle: 'video', target: composition.id, targetHandle: 'clips' })
+      y += 760
+    }
+    change(d => ({ nodes: growFrame([...d.nodes, ...nodes], frame.id, 2 * 352 + 64, y - frame.y + 120, new Set(nodes.map(node => node.id))), edges: [...d.edges, ...edges] }), true)
+    const grown = state.data.nodes.find(node => node.id === frame.id)?.params
+    if (grown) setMeta(m => ({ ...m, [frame.id]: { ...m[frame.id], width: grown.width, height: grown.height } }))
+    ctx.toast(sceneIds.length === 1 ? 'Keyframe und Video angelegt.' : `Schritte für ${sceneIds.length} Einstellungen angelegt.`)
+  }
+  /**
+   * Moves one shot before another. Scenes, keyframes and videos swap their canvas places in the same way, so the reading
+   * order (and with it the order in the composition) follows the strip.
+   */
+  function reorder(movedId, beforeId) {
+    const { shots } = filmOf()
+    const order = shots.map(shot => shot.scene.id)
+    const next = order.filter(id => id !== movedId)
+    next.splice(next.indexOf(beforeId) + (order.indexOf(movedId) < order.indexOf(beforeId) ? 1 : 0), 0, movedId)
+    const all = new Map(state.data.nodes.map(node => [node.id, node]))
+    const placed = new Map()
+    for (const pick of [shot => shot.scene, shot => shot.keyframe, shot => shot.video]) {
+      const slots = shots.map(pick).filter(Boolean).map(node => absolute(node, all))
+      next.map(id => pick(shots.find(shot => shot.scene.id === id))).filter(Boolean).forEach((node, i) => placed.set(node.id, slots[i]))
+    }
+    change(d => ({ nodes: d.nodes.map(node => { if (!placed.has(node.id)) return node; const { parentId, ...rest } = node; return { ...rest, ...placed.get(node.id) } }) }), true)
+  }
   const removeAsset = (nodeId, assetId) => update(nodeId, n => ({ ...n, params: { ...n.params, assetIds: (n.params?.assetIds ?? []).filter(id => id !== assetId) } }))
   const actions = { ctx, focusFrame, assets: view.assets, edges: doc.edges, update, remove, duplicate, run, pick, pickAssets, uploadAssets, mentionNames, portMenu,
     renaming, setRenaming, rename, copyNodes, pasteNodes, focusNode, openViewer: setViewer, removeAsset, toggleAsset, assetNames, spawnScenes, sceneCount }
@@ -1150,7 +1369,7 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
           // React Flow 13: the changeset applies itself to the nodes; the result goes back into the flow and the per-node state.
           const next = changeset.applyTo(nodes)
           const moved = next.filter(item => { const node = byId.get(item.id); return node && (item.position.x !== node.x || item.position.y !== node.y) })
-          const gone = doc.nodes.filter(node => !next.some(item => item.id === node.id)).map(node => node.id)
+          const gone = doc.nodes.filter(node => !hidden.has(node.id) && !next.some(item => item.id === node.id)).map(node => node.id)
           setMeta(Object.fromEntries(next.map(item => [item.id, { selected: item.selected, dragging: item.dragging, measured: item.measured,
             ...(isFrame(byId.get(item.id) ?? {}) && { width: item.width, height: item.height }) }])))
           if (moved.length) change(d => ({ nodes: d.nodes.map(node => { const item = moved.find(m => m.id === node.id); return item ? { ...node, x: Math.round(item.position.x), y: Math.round(item.position.y) } : node }) }))
@@ -1187,9 +1406,12 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
         <ZoomBar overview={overview} setOverview={setOverview}/>
         {/* One opaque floating bar (ElevenLabs layout): project, phases, save state. Nothing translucent over the nodes. */}
         <Panel position="top-left" className="flex max-w-[calc(100%-32px)] flex-wrap items-center gap-1 rounded-full border bg-popover p-1 shadow-[var(--shadow-subtle)]">
-          <select className="text-in h-9 w-auto max-w-60 rounded-full border-0 bg-transparent text-base font-medium" aria-label="Projekt" value={project} onChange={async e => { try { await flush(); location.hash = route(e.target.value) } catch (err) { report(err) } }}>
+          <select className="text-in h-9 w-auto max-w-60 rounded-full border-0 bg-transparent text-base font-medium" aria-label="Projekt" value={project} onChange={async e => { try { await flush(); location.hash = route(e.target.value, page) } catch (err) { report(err) } }}>
             {ctx.projects.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select>
-          {frames.length > 1 && <><span className="mx-1 h-5 w-px bg-border" aria-hidden="true"/><nav className="flex flex-wrap gap-0.5" aria-label="Rahmen anspringen">
+          {step && <><span className="mx-1 h-5 w-px bg-border" aria-hidden="true"/><span className="px-2 text-sm font-medium">{steps[step].title}</span>
+            <Button asChild variant="ghost" size="sm"><a href={route(project)} className="no-underline">Ganzer Flow</a></Button></>}
+          {!step && <Button variant={strip ? 'secondary' : 'ghost'} size="sm" aria-pressed={strip} onClick={() => setStrip(!strip)}><Clapperboard/>Filmstreifen</Button>}
+          {!step && frames.length > 1 && <><span className="mx-1 h-5 w-px bg-border" aria-hidden="true"/><nav className="flex flex-wrap gap-0.5" aria-label="Rahmen anspringen">
             {frames.map(node => <Button key={node.id} variant="ghost" size="sm" onClick={() => focusFrame(node)}>{nodeName(node, typeOf.get(node.type))}</Button>)}
             <Button variant="ghost" size="sm" onClick={() => flow.fitView({ padding: fitPadding, duration: 0 })}>Alles</Button></nav></>}
           {status && <span className="px-2 text-sm text-muted-foreground" role="status">{status}</span>}
@@ -1202,7 +1424,21 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
           <Button variant="outline" aria-haspopup="dialog" onClick={() => setShowTemplates(true)}><LayoutGrid/>Vorlage</Button>
         </Panel>
       </ReactFlow>
-      {!doc.nodes.length && <div className="flow-start">
+      {strip && (!step || step === 'storyboard') && (() => {
+        const { shots, film } = filmOf()
+        return <Filmstrip shots={shots} film={film} onRun={run} onCreate={createSteps} onReorder={reorder} onClose={() => setStrip(false)}
+          onFocus={id => (hidden.has(id) ? ctx.toast('Dieser Schritt liegt in einer anderen Phase. Öffne ihn über „Ganzer Flow“.') : focusNode(id))}/>
+      })()}
+      {step === 'storyboard' && !strip && stepFrame && <Button variant="outline" className="flow-strip-open" onClick={() => setStrip(true)}><Clapperboard/>Filmstreifen</Button>}
+      {step && !stepFrame && <div className="flow-start">
+        <strong>{steps[step].title} fehlt in diesem Projekt</strong>
+        <p>{steps[step].empty} Der Schritt gehört zum Flow des Projekts und lässt sich dort mit den anderen Schritten verbinden.</p>
+        <div className="flex flex-wrap gap-2">
+          {templates.some(item => item.phase === step) && <Button size="lg" variant="brand" disabled={inserting} onClick={() => insertTemplate(templates.find(item => item.phase === step))}>{steps[step].title} anlegen</Button>}
+          <Button asChild size="lg" variant="outline"><a href={route(project)} className="no-underline">Ganzen Flow öffnen</a></Button>
+        </div>
+      </div>}
+      {!step && !doc.nodes.length && <div className="flow-start">
         <strong>Dieses Projekt hat noch keinen Flow</strong>
         <p>Hier liegen Moodboard, Storyboard und alle KI-Schritte auf einer Fläche. Füge Bilder per Einfügen oder Hineinziehen ein, ordne sie in Rahmen und verbinde sie mit Bild- und Videoknoten. Kostenpflichtiges läuft nur, wenn du auf „Ausführen“ klickst.</p>
         {boards > 0
@@ -1225,7 +1461,7 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
   </Actions.Provider>
 }
 
-function Page({ ctx, project }) {
+function Page({ ctx, project, step, page }) {
   const [loaded, setLoaded] = useState(null)
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
@@ -1240,16 +1476,19 @@ function Page({ ctx, project }) {
   }, [attempt])
   if (error) return <p role="alert" className="canvas-note err">{error} <button className="btn sm" onClick={() => setAttempt(attempt + 1)}>Erneut versuchen</button></p>
   if (!loaded) return <div className="flow-shell flow-loading" role="status" aria-label="Flow lädt"><span/><span/><span/></div>
-  return <ReactFlowProvider><Canvas ctx={ctx} project={project} {...loaded}/></ReactFlowProvider>
+  return <ReactFlowProvider><Canvas ctx={ctx} project={project} step={step} page={page} {...loaded}/></ReactFlowProvider>
 }
 
-/** Mounts the editor for the project in the route (or the first project) and unmounts when the container leaves the page. */
-export function mount(container, ctx) {
+/**
+ * Mounts the editor for the project in the route (or the first project) and unmounts when the container leaves the page.
+ * @param {{ step?: keyof typeof steps, page?: string }} [options] a step page (`step`) under its sidebar route (`page`).
+ */
+export function mount(container, ctx, { step = null, page = 'flows' } = {}) {
   const project = ctx.projects.find(item => item.id === ctx.params.get('project')) ?? ctx.projects[0]
-  if (project && !ctx.params.get('project')) history.replaceState(null, '', route(project.id))
+  if (project && !ctx.params.get('project')) history.replaceState(null, '', route(project.id, page))
   const root = createRoot(container)
   const observer = new MutationObserver(() => { if (!container.isConnected) { observer.disconnect(); root.unmount() } })
   observer.observe(document.body, { childList: true, subtree: true })
-  root.render(project ? <Page key={project.id} ctx={ctx} project={project.id}/>
+  root.render(project ? <Page key={project.id} ctx={ctx} project={project.id} step={step} page={page}/>
     : <div className="flow-start static"><strong>Noch kein Projekt</strong><p>Ein Flow gehört zu einem Projekt. Lege über das Plus neben „Projekte“ eines an.</p></div>)
 }

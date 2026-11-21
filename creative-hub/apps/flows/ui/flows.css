@@ -191,3 +191,31 @@
 .flow-poster-cover .flow-media img, .flow-poster-cover .flow-media video { width: 100%; height: 100%; aspect-ratio: auto; object-fit: cover; }
 .flow-poster-empty { flex: 1; display: grid; place-items: center; border: 2px dashed var(--c-line); border-radius: var(--r-tile); }
 .flow-poster-cover .flow-media > * { width: 100%; height: 100%; }
+
+/* Film strip (pipeline view): shot cards in a row above the dock, opaque like every panel over the canvas. */
+.flow-strip { position: absolute; left: var(--s-4); right: var(--s-4); bottom: 72px; z-index: 6; display: grid; gap: var(--s-2); padding: var(--s-3); border: 1px solid var(--c-line); border-radius: var(--r-tile); background: var(--c-panel); box-shadow: var(--shadow-subtle); }
+.flow-strip-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); }
+.flow-strip-head strong { font-size: var(--fs-heading); line-height: var(--lh-heading); font-weight: 500; }
+.flow-strip-empty { margin: 0; padding: var(--s-4); color: var(--c-ink-3); font-size: var(--fs-ui); }
+.flow-strip-cards { display: flex; gap: var(--s-2); margin: 0; padding: 0 0 var(--s-1); overflow-x: auto; list-style: none; }
+.flow-card { display: grid; flex: none; width: 232px; grid-template-rows: auto 1fr; overflow: hidden; border: 1px solid var(--c-line); border-radius: var(--r-ctl); background: var(--c-bg); cursor: grab; }
+.flow-card.chosen { border-color: var(--c-ink-2); box-shadow: 0 0 0 1px var(--c-ink-2); }
+.flow-card.dragging { opacity: .5; }
+.flow-card-media { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: var(--c-fill); }
+.flow-card-media .flow-media, .flow-card-media .flow-media > * { width: 100%; height: 100%; }
+.flow-card-media .flow-media img, .flow-card-media .flow-media video { width: 100%; height: 100%; aspect-ratio: auto; object-fit: cover; }
+.flow-card-blank { display: flex; height: 100%; align-items: center; justify-content: center; color: var(--c-ink-3); }
+.flow-card-pick { position: absolute; top: 0; left: 0; display: flex; width: 44px; height: 44px; align-items: center; justify-content: center; cursor: pointer; }
+.flow-card-pick input { width: 18px; height: 18px; accent-color: var(--c-ink); cursor: pointer; }
+.flow-card-state { position: absolute; right: var(--s-2); bottom: var(--s-2); padding: 0 var(--s-2); border-radius: 9999px; background: var(--c-scrim); color: var(--c-on-scrim); font-size: var(--fs-micro); line-height: 20px; }
+.flow-card-state.is-video { background: var(--c-ink); color: var(--c-bg); }
+.flow-card-state.is-failed { background: var(--c-danger-fill); color: var(--c-danger); }
+.flow-card-state.is-stale { background: var(--c-fill-3); color: var(--c-ink); }
+.flow-card-body { display: grid; align-content: start; gap: var(--s-1); padding: var(--s-2) var(--s-3) var(--s-3); }
+.flow-card-title { display: flex; min-height: 28px; align-items: center; justify-content: space-between; gap: var(--s-2); padding: 0; border: 0; background: none; color: var(--c-ink); font: inherit; font-size: var(--fs-ui); text-align: left; cursor: pointer; }
+.flow-card-title b { overflow: hidden; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.flow-card-title span { flex: none; color: var(--c-ink-3); font-size: var(--fs-meta); }
+.flow-card-text { display: -webkit-box; margin: 0; overflow: hidden; color: var(--c-ink-2); font-size: var(--fs-meta); line-height: var(--lh-meta); -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.flow-card-assets { margin: 0; overflow: hidden; color: var(--c-ink-3); font-size: var(--fs-micro); line-height: var(--lh-micro); text-overflow: ellipsis; white-space: nowrap; }
+.flow-card-film { cursor: default; }
+.flow-strip-open { position: absolute; left: 50%; bottom: 72px; z-index: 6; transform: translateX(-50%); }

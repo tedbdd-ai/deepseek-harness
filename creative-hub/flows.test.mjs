@@ -119,6 +119,23 @@ test('failures stay on their node, stop the nodes after it and never show intern
   store.close()
 })
 
+test('several nodes run as one joined plan, each step once and in line order', async () => {
+  const { store, registry, project, save } = setup()
+  save({ nodes: [
+    { id: 'a', type: 'text', x: 0, y: 0, prompt: 'a' },
+    { id: 'eins', type: 'upper', name: 'Eins', x: 300, y: 0 },
+    { id: 'zwei', type: 'upper', name: 'Zwei', x: 600, y: 0 },
+    { id: 'drei', type: 'upper', name: 'Drei', x: 600, y: 300 },
+  ], edges: [edge('a', 'text', 'eins', 'text'), edge('eins', 'text', 'zwei', 'text'), edge('eins', 'text', 'drei', 'text')] })
+  const engine = createEngine(store, registry)
+  assert.deepEqual(engine.plan(project, ['drei', 'zwei'], 'upstream').map(step => [step.id, step.name]), [['eins', 'Eins'], ['drei', 'Drei'], ['zwei', 'Zwei']])
+  assert.throws(() => engine.plan(project, [], 'node'), /mindestens einen Knoten/)
+  engine.run(project, ['zwei', 'drei'], 'upstream')
+  await until(() => engine.view(project).zwei.status === 'done' && engine.view(project).drei.status === 'done')
+  assert.deepEqual(engine.view(project).drei.outputs.text, ['A'])
+  store.close()
+})
+
 test('a cycle, a running node and source nodes cannot be run', async () => {
   const { store, registry, project, save } = setup()
   const engine = createEngine(store, registry)
@@ -417,6 +434,9 @@ test('every template fits the registered node types, connects or registers as as
   assert.deepEqual(outfits.params.assetIds, [outfit])
   await harness.json('POST', `/creativity-flows/api/projects/${project}/templates`, { templateId: 'kurzfilm', revision: 0 }, 409)
   const second = await harness.json('POST', `/creativity-flows/api/projects/${project}/templates`, { templateId: 'figur-und-set', revision: inserted.record.revision }, 201)
+  assert.deepEqual(inserted.record.data.nodes.filter(node => node.type === 'frame').map(node => node.params.phase), ['moodboard', 'storyboard', 'cast', 'voice', 'shots', 'edit'])
+  const listed = await harness.json('GET', '/creativity-flows/api/templates')
+  assert.deepEqual(listed.filter(item => item.phase).map(item => [item.id, item.phase]), [['moodboard', 'moodboard'], ['storyboard', 'storyboard'], ['figur-und-set', 'cast']])
   const at = doc => { const byId = new Map(doc.nodes.map(node => [node.id, node])); return doc.nodes.map(node => ({ id: node.id, ...absolute(node, byId) })) }
   const right = Math.max(...at(inserted.record.data).map(node => node.x))
   const before = new Set(inserted.record.data.nodes.map(node => node.id))

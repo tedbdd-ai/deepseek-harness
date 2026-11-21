@@ -6,6 +6,16 @@
  * and nodes dropped onto or dragged out of a frame. Membership follows the top-left corner of a node.
  */
 
+/**
+ * Orders nodes the way a person reads the canvas: along the axis on which they are spread wider
+ * (left to right for a row of shots, top to bottom for a column), then along the other.
+ */
+export function readingOrder(nodes) {
+  const spread = axis => Math.max(...nodes.map(node => node[axis])) - Math.min(...nodes.map(node => node[axis]))
+  const [first, second] = nodes.length > 1 && spread('x') > spread('y') ? ['x', 'y'] : ['y', 'x']
+  return [...nodes].sort((a, b) => (a[first] - b[first]) || (a[second] - b[second]))
+}
+
 const size = frame => ({ width: Number(frame.params?.width) || 640, height: Number(frame.params?.height) || 480 })
 
 /**

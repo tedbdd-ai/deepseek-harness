@@ -8,23 +8,14 @@
  */
 import { createHash } from 'node:crypto'
 import { InputError } from '../../../store.mjs'
-import { absolute, adoptIntoFrames } from './frames.mjs'
+import { absolute, adoptIntoFrames, readingOrder } from './frames.mjs'
 import { implicitEdges, mentionPattern, nodeName, textHandle } from './mentions.mjs'
 
-export { nodeName }
+export { nodeName, readingOrder }
 
 const keepHistory = 8
 const kinds = ['text', 'image', 'video', 'audio']
 
-/**
- * Orders nodes the way a person reads the canvas: along the axis on which they are spread wider
- * (left to right for a row of shots, top to bottom for a column), then along the other.
- */
-export function readingOrder(nodes) {
-  const spread = axis => Math.max(...nodes.map(node => node[axis])) - Math.min(...nodes.map(node => node[axis]))
-  const [first, second] = nodes.length > 1 && spread('x') > spread('y') ? ['x', 'y'] : ['y', 'x']
-  return [...nodes].sort((a, b) => (a[first] - b[first]) || (a[second] - b[second]))
-}
 
 /**
  * Replaces `@Name` mentions with what the model understands: the reference marks of the node's files (`@Bild1`,
@@ -204,12 +195,28 @@ export function createEngine(store, registry) {
   }
 
   /**
-   * Lists the run nodes that `run(projectId, nodeId, scope)` would start.
+   * Lists the run nodes that `run(projectId, nodeId, scope)` would start, in an order that respects their lines.
+   * `nodeId` may be a list (the film strip renders several shots at once); the plans are joined.
    * - `node`: only this node.
    * - `upstream`: run nodes before it that have no current result, then this node.
    * - `downstream`: this node and every run node after it; for a source node (Notiz, Datei …) the run nodes it feeds.
+   * @returns {{ id: string, type: string, title: string, name: string, paid: boolean }[]}
    */
   function plan(projectId, nodeId, scope) {
+    if (Array.isArray(nodeId)) {
+      if (!nodeId.length) throw new InputError('Wähle mindestens einen Knoten.')
+      const doc = flow(projectId)
+      const ids = new Set(nodeId.flatMap(id => planOne(projectId, id, scope)).map(step => step.id))
+      return ordered(doc, ids).map(id => step(doc, id))
+    }
+    return planOne(projectId, nodeId, scope)
+  }
+  function step(doc, id) {
+    const item = doc.nodes.find(n => n.id === id)
+    const type = registry.node(item.type)
+    return { id: item.id, type: item.type, title: type.title, name: nodeName(item, type), paid: Boolean(type.paid) }
+  }
+  function planOne(projectId, nodeId, scope) {
     const doc = flow(projectId)
     const state = readState(projectId)
     const node = doc.nodes.find(item => item.id === nodeId)
@@ -238,8 +245,7 @@ export function createEngine(store, registry) {
       }
       walk(nodeId)
     } else if (scope !== 'node') throw new InputError('Unbekannter Umfang für das Ausführen.')
-    const steps = ordered(doc, ids).map(id => doc.nodes.find(n => n.id === id)).filter(item => registry.node(item.type)?.run)
-      .map(item => ({ id: item.id, type: item.type, title: registry.node(item.type).title, paid: Boolean(registry.node(item.type).paid) }))
+    const steps = ordered(doc, ids).filter(id => registry.node(doc.nodes.find(n => n.id === id).type)?.run).map(id => step(doc, id))
     if (source && !steps.length) throw new InputError('Mit diesem Knoten ist noch kein Knoten verbunden, der ausgeführt wird.')
     return steps
   }
@@ -309,7 +315,7 @@ export function createEngine(store, registry) {
       const running = active.get(projectId) ?? new Set()
       active.set(projectId, running)
       const busy = steps.find(step => running.has(step.id))
-      if (busy) throw new InputError(`„${busy.title}“ läuft noch. Warte, bis der Knoten fertig ist.`, 409)
+      if (busy) throw new InputError(`„${busy.name}“ läuft noch. Warte, bis der Knoten fertig ist.`, 409)
       const doc = flow(projectId)
       const { up } = neighbours(doc)
       const promises = new Map()

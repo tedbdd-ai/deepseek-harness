@@ -1,5 +1,9 @@
-/** Browser module of the Flows page: loads the canvas bundle built from `editor.jsx` and mounts it. */
-export async function render(container, ctx) {
+/**
+ * Browser module of the Flows page: loads the canvas bundle built from `editor.jsx` and mounts it. The step pages
+ * (`moodboard.js`, `storyboard.js`, `cast.js`) mount the same editor on one phase with `options`.
+ * @param {{ step?: string, page?: string }} [options]
+ */
+export async function render(container, ctx, options) {
   const href = '/creativity-hub/board-editor/assets/board.css'
   if (!document.querySelector('link[data-storyboard]') && ![...document.styleSheets].some(sheet => sheet.href === location.origin + href)) {
     const link = Object.assign(document.createElement('link'), { rel: 'stylesheet', href })
@@ -11,5 +15,5 @@ export async function render(container, ctx) {
   }
   container.classList.add('flow-page')
   const { mount } = await import('/creativity-hub/board-editor/assets/flows.js')
-  if (container.isConnected) mount(container, ctx)
+  if (container.isConnected) mount(container, ctx, options)
 }
