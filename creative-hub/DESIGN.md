@@ -7,28 +7,27 @@ Dunkles Kreativ-Werkzeug im Stil einer Mac-App: fast schwarzer, neutraler Grund,
 
 ## Farben (`:root` in app.css)
 
-Standard ist warmes Papier (hell). Ein weiches Anthrazit gibt es als Dunkelmodus über den Schalter unten in der Seitenleiste (`data-theme="dark"`, gespeichert im Browser). Die Formensprache folgt Linear (`design/linear.md`), die Farben nicht: fast reines Schwarz mit hellem Punktraster war auf der großen Fläche zu anstrengend.
+Standard ist der ElevenLabs-Stil (hell, `design/elevenlabs.md`): Eggshell-Papier, Taupe-Flächen, Stone-Haarlinien, schwarze Schrift und schwarze Pillen-Buttons. Den Dunkelmodus gibt es über den Schalter unten in der Seitenleiste (`data-theme="dark"`, gespeichert im Browser).
 
 | Token | Hell | Dunkel | Rolle |
 | --- | --- | --- | --- |
-| `--c-bg` | #F5F3EE | #1C1C1E | Grund und Canvas |
-| `--c-side` / `--c-panel` | #EFECE5 / #FBFAF7 | #202022 / #232325 | Seitenleiste, Karten, Knoten |
-| `--c-fill` … `-4` | #FFFFFF … #D6D0C4 | #2A2A2D … #48484C | Bedienelemente: normal, Hover, gedrückt, gewählt |
-| `--c-line` | #E2DED4 | #38383B | Haarlinien statt Schatten |
-| `--c-tint` … `--c-edge-strong` | Braun 5–32 % | Weiß 5–28 % | Hover-Flächen und kräftigere Ränder, statt fest eingebauter Weißtöne |
-| `--c-ink` / `-2` / `-3` | #1F1E1C / #45413A / #6B655B | #EDEBE6 / #C8C5BE / #9A968E | Text (alle ≥ 4,5:1) |
-| `--c-primary` | #B4532F | #E08A66 | Terrakotta, die eine Hauptaktion pro Ansicht; Schrift `--c-on-primary` |
-| `--c-neutral` | #2B2A27 | #EDEBE6 | neutrale Knöpfe wie „Ausführen“; Schrift `--c-on-neutral` |
-| `--c-scrim` | dunkel 72 % | dunkel 78 % | Flächen über Bildern; Schrift immer `--c-on-scrim` (weiß) |
-| `--c-dot` | #DCD7CC | #2E2E31 | Punktraster der Fläche, bewusst leise (1,3:1) |
-| `--c-danger` | #B3261E | #F2857A | Löschen |
+| `--c-bg` / `--c-panel` | #FDFCFC | #111111 / #181818 | Grund, Karten, Knoten |
+| `--c-side` | #F5F3F1 | #161616 | Seitenleiste |
+| `--c-fill` … `-4` | #F5F3F1 … #D3CEC7 | #1E1E1E … #3D3D3D | Bedienelemente: normal, Hover, gedrückt, gewählt |
+| `--c-line` | #EBE8E4 | #2A2A2A | Haarlinien statt Schatten |
+| `--c-ink` / `-2` / `-3` | #000000 / #44403B / #6E6861 | #F5F3F1 / #CBC6C0 / #9A948C | Text (alle ≥ 4,5:1) |
+| `--c-primary` = `--c-neutral` | #000000 | #FDFCFC | Pillen-Buttons; Schrift `--c-on-primary` |
+| `--c-scrim` | Schwarz 66 % | Schwarz 72 % | Flächen über Bildern; Schrift immer `--c-on-scrim` (weiß) |
+| `--c-dot` | #ECE9E5 | #1D1D1D | Punktraster, knapp über dem Grund; unter 40 % Zoom ausgeblendet |
+| `--c-danger` | #C2321F | #F28B7D | Löschen |
+| Radien | Buttons 9999 px, Felder 10 px, Karten 20 px | | |
 
 Projektfarben (Punkte): #FF6B57, #BF5AF2, #0A84FF, #30D158, #FF9F0A, #64D2FF, #FF375F.
 
 Porttypen in Flows (`--c-port-*`, hell/dunkel): Text #6B655B/#A8A49C, Bild #2E7D9A/#7CC4DA, Video #7E4BB5/#B48AE0, Ton #B06A0B/#E0A458. Sie färben nur Ports und Linien, und jeder Port trägt zusätzlich das Symbol seines Typs.
 
 ## Typografie
-Inter Variable (`web/fonts`, OFL) mit `cv01`, `ss03`, `zero`; Gewichte 400, 510, 590, nie fett.
+Inter Variable (`web/fonts`, OFL): 400 für Text, 500 für Buttons, Seitentitel 300 mit −0,02em (ElevenLabs-Flüsterton), nie fett.
 Systemschrift (SF Pro). Titel 28/34 halbfett, Abschnitt 17–20 halbfett, Fließtext 15, Nebentext 12–13. Monospace nur für technische Kennungen hinter „Technische Details“.
 
 ## Maße
@@ -63,7 +62,7 @@ Der Canvas nutzt Standardbausteine statt eigener: React Flow, React Flow UI und 
 
 - **Knoten:** Kopfzeile außerhalb der Karte (Symbol, Typ, rechts das Modell). Die Karte enthält Vorschau oder Leerzustand, Prompt und den Ausführen-Split-Button. Erzeugerknoten sind 320 px breit, Quellknoten 256 px.
 - **Ports:** 24 px Punkt mit Typsymbol, Trefferfläche 44 px, Eingänge links, Ausgänge rechts.
-- **Werkzeugleiste unter jedem Knoten, immer offen** (wie ElevenLabs Flows): Modell-Picker, die wichtigsten Einstellungen als Werte (Format, Auflösung, Dauer, Anzahl, Ton), „Weitere Einstellungen“ hinter dem Regler-Symbol, Download, Löschen und ⋯. Im ⋯-Menü stehen nur seltene Aktionen mit Kürzeln: Ausführen ⌘↩, Download ⌘⇧D, frühere Ergebnisse, Umbenennen, Kopieren ⌘C, Einfügen ⌘V, Duplizieren ⌘D, Knoten fokussieren ⌘., Löschen ⌫.
+- **Werkzeugleiste unter jedem Knoten** (wie ElevenLabs Flows), als Pille im Knoten selbst, damit sie mitzoomt. Ab 60 % Zoom offen, darunter ausgeblendet; unter 35 % zeigt der Knoten nur noch Kopfzeile und Bilder. Inhalt: Modell-Picker, die wichtigsten Einstellungen als Werte (Format, Auflösung, Dauer, Anzahl, Ton), „Weitere Einstellungen“ hinter dem Regler-Symbol, Download, Löschen und ⋯. Im ⋯-Menü stehen nur seltene Aktionen mit Kürzeln: Ausführen ⌘↩, Download ⌘⇧D, frühere Ergebnisse, Umbenennen, Kopieren ⌘C, Einfügen ⌘V, Duplizieren ⌘D, Knoten fokussieren ⌘., Löschen ⌫.
 - **Kopfzeile über der Karte:** Typ-Symbol und Name links, Modell oder Zeichenzahl rechts. Doppelklick benennt um; Erwähnungen (`@Name`) ziehen mit.
 - **Zustände am Knoten:** Wartet, Läuft (mit Sekunden), Fertig (mit Credits, wenn der Anbieter sie meldet), Fehler (Satz in Rot und „Erneut ausführen“), Veraltet (Orange, Ergebnis bleibt sichtbar).
 - **Rahmen:** durchscheinende Fläche mit 2-px-Rand, Kopfzeile oben links, Griffe zum Größenziehen nur bei Auswahl. Nur Kopfzeile, Ports und Griffe nehmen Klicks an. Wer den Rahmen verschiebt, verschiebt seinen Inhalt mit.

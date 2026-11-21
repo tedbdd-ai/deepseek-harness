@@ -9,7 +9,7 @@
  */
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { ReactFlow, ReactFlowProvider, Background, Controls, MiniMap, NodeResizer, NodeToolbar, Panel, Position, useReactFlow } from '@xyflow/react'
+import { ReactFlow, ReactFlowProvider, Background, Controls, MiniMap, NodeResizer, NodeToolbar, Panel, Position, useReactFlow, useViewportStore } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import './ui/flows.css'
 import {
@@ -372,8 +372,21 @@ function NodeMenu({ node, type, view }) {
   </DropdownMenu>
 }
 
+/**
+ * Level of detail by zoom (React Flow's contextual zoom): the toolbar under the node scales with the canvas and goes away
+ * below 60 %; below 35 % the card keeps only its header and pictures.
+ */
+/** Dot grid that only shows while it is readable; zoomed far out the shrinking dots would turn into a grey moiré. */
+function Grid() {
+  const visible = useViewportStore(store => store.transform[2] >= 0.4)
+  return visible ? <Background gap={20} size={1} color="var(--c-dot)"/> : null
+}
+
+const detailOf = zoom => (zoom >= 0.6 ? 'full' : zoom >= 0.35 ? 'card' : 'glance')
+
 function FlowNode({ id, data, selected }) {
   const { update, remove, duplicate, run, edges, mentionNames } = useContext(Actions)
+  const detail = useViewportStore(store => detailOf(store.transform[2]))
   const { node, type, view } = data
   if (!type) {
     return <div className="w-80"><header className="flow-drag flex h-7 items-center px-1 text-xs text-muted-foreground">Unbekannter Knoten</header>
@@ -400,18 +413,19 @@ function FlowNode({ id, data, selected }) {
   const right = modelName || (node.type === 'text' ? `${(node.prompt ?? '').length} Zeichen` : node.name ? type.title : '')
   const runsAfter = !type.runs && edges.some(edge => edge.source === id)
   return <>
-    <div className={cn(type.runs ? 'w-80' : 'w-64')} style={{ minHeight: 28 + tall * 40 }}>
+    <div className={cn('relative', type.runs ? 'w-80' : 'w-64')} style={{ minHeight: 28 + tall * 40 }}>
       <NodeHeader node={node} type={type} right={right}/>
       <NodeStatusIndicator status={status}>
         <BaseNode className={cn('flow-node overflow-hidden rounded-xl', node.type === 'text' && 'bg-[var(--c-fill)]')}>
           {type.runs && type.outputs.some(port => port.kind !== 'text') && <Preview type={type} view={view}/>}
+          {detail === 'glance' ? (node.type === 'library' || node.type === 'scene') && <BaseNodeContent><NodeBody node={node} type={type}/></BaseNodeContent> :
           <BaseNodeContent className={cn(type.runs && type.outputs.some(port => port.kind !== 'text') && 'border-t')}>
             <NodeBody node={node} type={type}/>
             {type.fields.filter(field => field.type === 'longtext').map(field => <label key={field.key} className="nodrag [display:grid] gap-1 text-xs text-muted-foreground"><span>{field.label}</span>
               <textarea className="flow-prompt nowheel" rows={3} placeholder={field.placeholder} value={node.params?.[field.key] ?? ''}
                 onChange={e => update(id, n => ({ ...n, params: { ...n.params, [field.key]: e.target.value } }))}/></label>)}
             {type.prompt && <PromptField node={node} type={type} names={names}/>}
-            <References node={node} view={view}/>
+            {detail === 'full' && <References node={node} view={view}/>}
             {(view?.warnings ?? []).map(text => <p key={text} className="flow-warning" role="status">{text}</p>)}
             {view?.status === 'failed' && view.error && <p className="flow-error" role="alert">{view.error}</p>}
             {view?.status === 'unknown' && <p className="flow-error">{view.error}</p>}
@@ -419,14 +433,23 @@ function FlowNode({ id, data, selected }) {
               <span className={cn('text-xs tabular-nums text-muted-foreground', view?.stale && 'text-[var(--c-port-audio)]')}>{state}{view?.status === 'done' && typeof view.credits === 'number' ? ` · ${view.credits} Credits` : ''}</span>
               {type.runs ? <RunButton node={node} view={view}/> : <Button size="sm" className="nodrag" onClick={() => run(id, 'downstream')}><Play/>Ab hier ausführen</Button>}
             </div>}
-          </BaseNodeContent>
+          </BaseNodeContent>}
         </BaseNode>
       </NodeStatusIndicator>
+      {/* Always open while readable, like ElevenLabs; it lives inside the node so it zooms with it. Rare actions sit in ⋯. */}
+      {detail === 'full' && <div className="nodrag absolute left-1/2 top-full mt-2 flex w-max -translate-x-1/2 items-center gap-0.5 rounded-full border bg-popover p-1 shadow-[var(--shadow-subtle)]" role="toolbar" aria-label={nodeName(node, type) + ': Einstellungen'}>
+        <NodeTools id={id} node={node} type={type} view={view} model={model} modelField={modelField} quick={quick} more={more} firstMedia={firstMedia}/>
+      </div>}
     </div>
     <Ports ports={type.inputs} side="in" connected={inbound} nodeId={id}/>
     <Ports ports={outputs} side="out" connected={outbound} nodeId={id}/>
-    {/* Always open, like ElevenLabs: model, the main settings and the actions; rare actions sit in ⋯. */}
-    <NodeToolbar isVisible position={Position.Bottom} offset={8} className="nodrag flex items-center gap-0.5 rounded-lg border bg-popover p-1 shadow-[var(--shadow-subtle-4,none)]">
+  </>
+}
+
+/** Contents of the node's toolbar: model, the main settings as values, more settings, download, delete and ⋯. */
+function NodeTools({ id, node, type, view, model, modelField, quick, more, firstMedia }) {
+  const { update, remove, duplicate } = useContext(Actions)
+  return <>
       {modelField && <Picker field={modelField} value={String(model)} onChange={value => update(id, n => withField(n, modelField, value))}/>}
       {quick.map(field => <QuickSetting key={(field.model ?? '') + field.key} node={node} field={field}/>)}
       {more.length > 0 && <Popover>
@@ -444,7 +467,6 @@ function FlowNode({ id, data, selected }) {
         : !type.runs && <Button variant="ghost" size="icon-sm" aria-label="Duplizieren" title="Duplizieren" onClick={() => duplicate(id)}><Copy/></Button>}
       <Button variant="ghost" size="icon-sm" aria-label="Knoten löschen" title="Löschen" onClick={() => remove(id)}><Trash2/></Button>
       <NodeMenu node={node} type={type} view={view}/>
-    </NodeToolbar>
   </>
 }
 const nodeTypes = { flow: FlowNode, frame: FrameNode }
@@ -883,7 +905,7 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
           place(flow.screenToFlowPosition({ x: event.clientX, y: event.clientY }), { files: [...event.dataTransfer.files] }).catch(report)
         }}
         onEdgeDoubleClick={(_, edge) => change(d => ({ edges: d.edges.filter(item => item.id !== edge.id) }))}>
-        <Background gap={24} size={1.5} color="var(--c-dot)"/>
+        <Grid/>
         <Controls showInteractive={false} position="bottom-right"/>
         <MiniMap position="bottom-left" pannable zoomable ariaLabel="Übersicht der Fläche" bgColor="var(--c-panel)" maskColor="var(--c-tint-3)"
           nodeColor={item => (isFrame(byId.get(item.id) ?? {}) ? 'var(--c-fill-2)' : 'var(--c-fill-4)')}/>

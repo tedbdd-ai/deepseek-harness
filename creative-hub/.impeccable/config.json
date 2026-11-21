@@ -15,6 +15,15 @@
         "value": "inter",
         "createdAt": "2026-11-20T21:46:48.107Z",
         "reason": "User asked for the Linear theme (Refero), which specifies Inter Variable; see design/linear.md"
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "web/app.css"
+        ],
+        "createdAt": "2026-11-20T22:58:26.717Z",
+        "reason": "Claude: L442 is the 1px playhead marker of the Video Playground timeline (positioned at --position), not a decorative side accent"
       }
     ]
   }
