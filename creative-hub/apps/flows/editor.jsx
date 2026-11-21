@@ -327,6 +327,34 @@ function Picker({ field, value, onChange }) {
 }
 
 /**
+ * Text of a field inside a node. React Flow hands new node data to the node a moment after a change; a field bound
+ * straight to that data is set back to the old text in between and its cursor jumps to the end. The field keeps its
+ * own text instead, and follows the node data when that changes from elsewhere (a rename carrying a mention along).
+ * @returns {[string, (next: string) => void]}
+ */
+function useDraft(value) {
+  const [draft, setDraft] = useState(value)
+  const own = useRef(value)
+  useEffect(() => { if (value !== own.current) { own.current = value; setDraft(value) } }, [value])
+  return [draft, next => { own.current = next; setDraft(next) }]
+}
+
+/** The address of a Link node, typed without losing the cursor. */
+function LinkField({ value, onValue }) {
+  const [text, setText] = useDraft(value)
+  return <input className="text-in" type="url" aria-label="Adresse" placeholder="https://…" value={text} onChange={e => { setText(e.target.value); onValue(e.target.value.trim()) }}/>
+}
+
+/** A long text setting of a node (the Regie's story), typed without losing the cursor. */
+function LongField({ id, node, field }) {
+  const { update } = useContext(Actions)
+  const [text, setText] = useDraft(node.params?.[field.key] ?? '')
+  return <label className="nodrag [display:grid] gap-1 text-xs text-muted-foreground"><span>{field.label}</span>
+    <textarea className="flow-prompt nowheel" rows={field.rows ?? 3} placeholder={field.placeholder} value={text}
+      onChange={e => { const next = e.target.value; setText(next); update(id, n => ({ ...n, params: { ...n.params, [field.key]: next } })) }}/></label>
+}
+
+/**
  * Prompt field with `@` mentions: typing `@` lists what can be mentioned here, and a choice is inserted as `@Bild1` (one
  * connected file, the mark the model reads) or `@Name` (all files of a node; the engine turns it into their marks when
  * the node runs). `names` holds `{ name, hint?, asset? }`.
@@ -336,6 +364,8 @@ function PromptField({ node, type, names }) {
   const field = useRef(null)
   const [query, setQuery] = useState(null)
   const [active, setActive] = useState(0)
+  const [text, setText] = useDraft(node.prompt ?? '')
+  const note = node.type === 'text'
   const matches = query === null ? [] : names.filter(item => item.name.toLocaleLowerCase('de').startsWith(query.toLocaleLowerCase('de'))).slice(0, 8)
   function track(element) {
     const found = /@([\p{L}\p{N} _-]{0,32})$/u.exec(element.value.slice(0, element.selectionStart))
@@ -346,6 +376,7 @@ function PromptField({ node, type, names }) {
     const element = field.current
     const before = element.value.slice(0, element.selectionStart).replace(/@([\p{L}\p{N} _-]{0,32})$/u, '@' + name + ' ')
     const value = before + element.value.slice(element.selectionStart)
+    setText(value)
     update(node.id, n => ({ ...n, prompt: value }))
     setQuery(null)
     requestAnimationFrame(() => { element.focus(); element.setSelectionRange(before.length, before.length) })
@@ -354,9 +385,16 @@ function PromptField({ node, type, names }) {
     : node.type === 'scene' ? 'Was passiert in dieser Einstellung? Mit @ nennst du Figur, Ort oder Look.'
       : names.length ? 'Beschreibe, was entstehen soll. Mit @ sprichst du eine Referenz an.' : 'Beschreibe, was entstehen soll.'
   return <div className="nodrag relative">
-    <textarea ref={field} className="flow-prompt nowheel" rows={node.type === 'text' ? 6 : 3} aria-label={nodeName(node, type) + ': Text'}
-      placeholder={placeholder} value={node.prompt ?? ''}
-      onChange={e => { update(node.id, n => ({ ...n, prompt: e.target.value })); track(e.target) }}
+    <textarea ref={field} className={cn('flow-prompt nowheel', note && 'free')} rows={note ? 6 : 3} aria-label={nodeName(node, type) + ': Text'}
+      placeholder={placeholder} value={text}
+      style={note ? { width: Number(node.params?.w) || undefined, height: Number(node.params?.h) || undefined } : undefined}
+      onPointerUp={e => {
+        // A note's field can be pulled wider and taller; the node grows with it and keeps the size (8-pixel grid).
+        if (!note) return
+        const w = Math.round(e.currentTarget.offsetWidth / 8) * 8, h = Math.round(e.currentTarget.offsetHeight / 8) * 8
+        if (w !== Number(node.params?.w) || h !== Number(node.params?.h)) update(node.id, n => ({ ...n, params: { ...n.params, w, h } }))
+      }}
+      onChange={e => { const next = e.target.value; setText(next); update(node.id, n => ({ ...n, prompt: next })); track(e.target) }}
       onKeyDown={e => {
         if (!matches.length) return
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); setActive((active + (e.key === 'ArrowDown' ? 1 : matches.length - 1)) % matches.length) }
@@ -458,7 +496,7 @@ function NodeBody({ node, type }) {
   if (node.type === 'link') {
     const url = node.params?.url ?? ''
     return <div className="nodrag [display:grid] gap-2">
-      <input className="text-in" type="url" aria-label="Adresse" placeholder="https://…" value={url} onChange={e => set('url', e.target.value.trim())}/>
+      <LinkField value={url} onValue={next => set('url', next)}/>
       {/^https?:\/\//i.test(url) && <a className="text-sm text-muted-foreground hover:text-foreground" href={url} target="_blank" rel="noreferrer">{domainOf(url)} öffnen</a>}
     </div>
   }
@@ -639,7 +677,7 @@ function FlowNode({ id, data, selected }) {
   const right = modelName || (node.type === 'text' ? `${(node.prompt ?? '').length} Zeichen` : node.name ? type.title : '')
   const runsAfter = !type.runs && edges.some(edge => edge.source === id)
   return <>
-    <div className={cn('relative', type.runs ? 'w-80' : 'w-64')} style={{ minHeight: 28 + tall * 40 }}>
+    <div className={cn('relative', type.runs ? 'w-80' : node.type === 'text' ? 'w-fit min-w-64' : 'w-64')} style={{ minHeight: 28 + tall * 40 }}>
       <NodeHeader node={node} type={type} right={right}/>
       <NodeStatusIndicator status={status}>
         <BaseNode className={cn('flow-node overflow-hidden rounded-xl', node.type === 'text' && 'bg-[var(--c-fill)]')}>
@@ -650,9 +688,7 @@ function FlowNode({ id, data, selected }) {
           <BaseNodeContent className={cn(type.runs && type.outputs.some(port => port.kind !== 'text') && 'border-t')}>
             <NodeBody node={node} type={type}/>
             {node.type === 'director' && <IdeaPicker node={node}/>}
-            {type.fields.filter(field => field.type === 'longtext').map(field => <label key={field.key} className="nodrag [display:grid] gap-1 text-xs text-muted-foreground"><span>{field.label}</span>
-              <textarea className="flow-prompt nowheel" rows={field.rows ?? 3} placeholder={field.placeholder} value={node.params?.[field.key] ?? ''}
-                onChange={e => update(id, n => ({ ...n, params: { ...n.params, [field.key]: e.target.value } }))}/></label>)}
+            {type.fields.filter(field => field.type === 'longtext').map(field => <LongField key={field.key} id={id} node={node} field={field}/>)}
             {type.prompt && <PromptField node={node} type={type} names={names}/>}
             {node.type === 'director' && <ShotList node={node} view={view}/>}
             {detail === 'full' && <References node={node} view={view}/>}
@@ -712,16 +748,26 @@ function BoardItem({ node, item, onMove, onChange, onRemove, onOpen }) {
   const zoom = useViewportStore(store => store.transform[2])
   const [shift, setShift] = useState(null)
   const start = useRef(null)
+  const [text, setText] = useDraft(item.text ?? '')
+  const write = next => { setText(next); onChange({ text: next }) }
   const editable = event => event.target.closest('textarea, input, button')
-  const width = item.kind === 'file' ? Number(item.w) || board.file : item.kind === 'note' ? board.note : item.kind === 'color' ? board.color : undefined
+  // A note sizes itself by its text field, which can be pulled wider and taller; the size is kept in the item.
+  const width = item.kind === 'file' ? Number(item.w) || board.file : item.kind === 'color' ? board.color : undefined
   return <div className={cn('flow-board-item', 'is-' + item.kind, shift && 'moving')} style={{ left: (item.x ?? 0) + (shift?.x ?? 0), top: (item.y ?? 0) + (shift?.y ?? 0), width }}
     onPointerDown={event => { if (editable(event) || event.button !== 0) return; event.currentTarget.setPointerCapture(event.pointerId); start.current = { x: event.clientX, y: event.clientY }; setShift({ x: 0, y: 0 }) }}
     onPointerMove={event => { if (start.current) setShift({ x: (event.clientX - start.current.x) / zoom, y: (event.clientY - start.current.y) / zoom }) }}
     onPointerUp={() => { if (!start.current) return; start.current = null; if (shift && (Math.abs(shift.x) > 2 || Math.abs(shift.y) > 2)) onMove(shift); setShift(null) }}
     onDoubleClick={event => { if (item.kind === 'file' && !editable(event)) onOpen() }}>
     {item.kind === 'file' && (assets[item.assetId] ? <Media asset={assets[item.assetId]} ctx={ctx}/> : <span className="flow-board-gone">Datei fehlt in der Library</span>)}
-    {item.kind === 'note' && <textarea className="nowheel" rows={4} aria-label="Notiz" placeholder="Notiz" value={item.text ?? ''} onChange={e => onChange({ text: e.target.value.slice(0, 2000) })}/>}
-    {item.kind === 'word' && <input aria-label="Stichwort" placeholder="Stichwort" size={Math.max(6, (item.text ?? '').length + 1)} maxLength={40} value={item.text ?? ''} onChange={e => onChange({ text: e.target.value })}/>}
+    {item.kind === 'note' && <textarea className="nowheel" aria-label="Notiz" placeholder="Notiz" maxLength={20000} value={text}
+      style={{ width: Number(item.w) || board.note - 24, height: Number(item.h) || 96 }}
+      onChange={e => write(e.target.value)}
+      onPointerUp={e => {
+        // Pulling the corner resizes the field; keep the new size (in canvas pixels, rounded to the 8-pixel grid).
+        const w = Math.round(e.currentTarget.offsetWidth / 8) * 8, h = Math.round(e.currentTarget.offsetHeight / 8) * 8
+        if (w !== (Number(item.w) || board.note - 24) || h !== (Number(item.h) || 96)) onChange({ w, h })
+      }}/>}
+    {item.kind === 'word' && <input aria-label="Stichwort" placeholder="Stichwort" size={Math.max(6, text.length + 1)} maxLength={40} value={text} onChange={e => write(e.target.value)}/>}
     {item.kind === 'color' && <>
       <span className="flow-board-swatch" style={{ backgroundColor: item.color }}/>
       <label className="flow-board-hex"><span className="tabular-nums">{String(item.color).toUpperCase()}</span>

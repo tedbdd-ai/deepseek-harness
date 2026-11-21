@@ -229,7 +229,7 @@
 .flow-board-item.is-file .flow-media .link-card { border-radius: var(--s-2); }
 .flow-board-gone { display: block; padding: var(--s-3); border: 1px dashed var(--c-line); border-radius: var(--s-2); color: var(--c-ink-3); font-size: var(--fs-micro); }
 .flow-board-item.is-note { padding: var(--s-2) var(--s-3); border-radius: var(--s-2); background: var(--c-fill); box-shadow: 0 1px 0 var(--c-hair); }
-.flow-board-item.is-note textarea { display: block; width: 100%; min-height: 72px; padding: 0; border: 0; background: transparent; color: var(--c-ink); font: inherit; font-size: var(--fs-meta); line-height: var(--lh-meta); resize: vertical; outline: none; }
+.flow-board-item.is-note textarea { display: block; min-width: 128px; min-height: 48px; max-width: 880px; padding: 0; border: 0; background: transparent; color: var(--c-ink); font: inherit; font-size: var(--fs-meta); line-height: var(--lh-meta); resize: both; outline: none; }
 .flow-board-item.is-word { padding: 0 var(--s-3); border-radius: 9999px; background: var(--c-fill-2); line-height: 32px; }
 .flow-board-item.is-word input { width: auto; padding: 0; border: 0; background: transparent; color: var(--c-ink); font: inherit; font-size: var(--fs-ui); font-weight: 500; outline: none; }
 .flow-board-swatch { display: block; height: 72px; border-radius: var(--s-2); box-shadow: inset 0 0 0 1px var(--c-hair); }
@@ -303,3 +303,5 @@
 .flow-look-sketches { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-2); }
 .flow-look-sketches button { display: grid; gap: var(--s-1); padding: 0; border: 0; background: none; color: var(--c-ink-2); font: inherit; font-size: var(--fs-meta); text-align: left; cursor: zoom-in; }
 .flow-look-sketches .flow-media img { aspect-ratio: 16 / 9; border-radius: var(--s-2); object-fit: cover; }
+/* A note's text field can be pulled wider and taller; the node follows it. */
+.flow-prompt.free { min-width: 224px; max-width: 880px; resize: both; }
