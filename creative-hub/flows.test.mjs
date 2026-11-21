@@ -17,7 +17,7 @@ import * as schnittPlugin from './apps/schnitt/host.mjs'
 import * as llmPlugin from './nodes/llm/host.mjs'
 import { templates } from './apps/flows/engine/templates.mjs'
 import { absolute, adoptIntoFrames } from './apps/flows/engine/frames.mjs'
-import { directorNode, llmNode, parseJson, styleNode } from './nodes/llm/host.mjs'
+import { directorNode, llmNode, moodboardNode, parseJson, styleNode } from './nodes/llm/host.mjs'
 import { implicitEdges } from './apps/flows/engine/mentions.mjs'
 import { openStore } from './store.mjs'
 import { createHarness } from './test-harness.mjs'
@@ -425,13 +425,16 @@ test('every template fits the registered node types, connects or registers as as
   const outfit = store.createAsset({ library: 'clips', title: 'Mantel', mediaType: 'image/png', media: png.toString('base64'), projectId: project }).id
   store.editTags({ ids: [outfit], add: ['Outfit'] })
   const inserted = await harness.json('POST', `/creativity-flows/api/projects/${project}/templates`, { templateId: 'kurzfilm', revision: 0 }, 201)
-  assert.equal(inserted.added, 28)
+  assert.equal(inserted.added, 23)
   const regie = inserted.record.data.nodes.find(node => node.type === 'director')
   assert.deepEqual(inserted.record.data.nodes.filter(node => node.type === 'scene').map(node => node.params.from), [regie.id, regie.id, regie.id], 'die Beispielszenen gehören zur Regie')
-  assert.deepEqual(inserted.record.data.nodes.filter(node => node.asset).map(node => node.name).sort(), ['Figur', 'Figuren', 'Look', 'Orte', 'Outfits', 'Set'])
+  assert.deepEqual(inserted.record.data.nodes.filter(node => node.asset).map(node => node.name).sort(), ['Figur', 'Look', 'Orte', 'Outfits', 'Set'])
   assert.deepEqual(inserted.skipped, [])
-  const outfits = inserted.record.data.nodes.find(node => node.name === 'Outfits')
-  assert.deepEqual(outfits.params.assetIds, [outfit])
+  const board = inserted.record.data.nodes.find(node => node.type === 'moodboard')
+  assert.deepEqual(board.params.items.filter(item => item.kind === 'file').map(item => item.assetId), [outfit], 'das Moodboard bekommt passende Bilder als freie Elemente')
+  assert.deepEqual(board.params.items.filter(item => item.kind !== 'file').map(item => item.kind), ['note', 'word', 'word', 'word', 'word', 'word', 'color', 'color'])
+  assert.ok(board.params.items.every(item => typeof item.id === 'string'))
+  assert.equal(inserted.record.data.nodes.filter(node => node.parentId === board.parentId).length, 1, 'im Moodboard-Rahmen liegt nur die Pinnwand')
   await harness.json('POST', `/creativity-flows/api/projects/${project}/templates`, { templateId: 'kurzfilm', revision: 0 }, 409)
   const second = await harness.json('POST', `/creativity-flows/api/projects/${project}/templates`, { templateId: 'figur-und-set', revision: inserted.record.revision }, 201)
   assert.deepEqual(inserted.record.data.nodes.filter(node => node.type === 'frame').map(node => node.params.phase), ['moodboard', 'storyboard', 'cast', 'voice', 'shots', 'edit'])
@@ -543,5 +546,57 @@ test('Style-DNA condenses a moodboard into a look text and key images; Regie ret
   assert.equal(plan.outputs.text[0], '1. Erwachen (15 s, Totale): @Figur wacht auf. Bewegung: Kamera steht.\n2. Einstellung 2 (5 s): @Figur geht.')
   answers.push('{"shots": []}')
   await assert.rejects(director.run({ inputs: { prompt: ['Story'], images: [] }, params: {}, prompt: '' }), /keine lesbare Shotliste/)
+  store.close()
+})
+
+test('the moodboard pins items without lines, gives its pictures at once and its structured look after a click', async () => {
+  const { store, registry, project, save } = setup()
+  const answers = []
+  const calls = []
+  const providers = {
+    list: async () => [{ id: 'litellm', title: 'LiteLLM', capabilities: ['chat'], chatImages: true, chatFiles: false, secrets: [{ configured: true }] }],
+    call: async (id, action, input) => { calls.push(input); return { text: answers.shift() } },
+  }
+  registry.register(moodboardNode(providers, store))
+  const seen = []
+  registry.register({ type: 'probe', title: 'Probe', group: 'image', icon: 'image', prompt: true, paid: true,
+    inputs: [{ id: 'refs', kind: 'image', label: 'Referenzen', multiple: true, mark: 'Bild' }], outputs: [{ id: 'image', kind: 'image', label: 'Bild' }],
+    run: async ({ inputs, prompt }) => { seen.push({ refs: inputs.refs, prompt }); return { outputs: { image: [] } } } })
+  const pictures = ['A', 'B', 'C'].map(title => store.createAsset({ library: 'clips', title, mediaType: 'image/png', media: png.toString('base64') }).id)
+  const clip = store.createAsset({ library: 'clips', title: 'Clip', mediaType: 'video/mp4', media: Buffer.from('000000186674797069736f6d0000020069736f6d69736f32', 'hex').toString('base64') }).id
+  save({ nodes: [
+    { id: 'look', type: 'moodboard', name: 'Look', asset: true, x: 0, y: 0, params: { items: [
+      { id: '1', kind: 'file', assetId: pictures[1], x: 200, y: 0 }, { id: '2', kind: 'file', assetId: pictures[0], x: 0, y: 0 },
+      { id: '3', kind: 'file', assetId: clip, x: 0, y: 300 }, { id: '4', kind: 'file', assetId: 'weg', x: 0, y: 400 },
+      { id: '5', kind: 'word', text: 'Latex', x: 400, y: 0 }, { id: '6', kind: 'word', text: 'Neon', x: 500, y: 0 },
+      { id: '7', kind: 'color', color: '#b3122e', x: 400, y: 100 }, { id: '8', kind: 'note', text: 'Korn', x: 400, y: 200 },
+      { id: '9', kind: 'bogus' }, { id: '10', kind: 'file', assetId: pictures[2], x: 400, y: 50 },
+    ] } },
+    { id: 'p', type: 'probe', x: 900, y: 0, prompt: 'Im Stil @Look.' },
+  ], edges: [] })
+  const engine = createEngine(store, registry)
+  const before = engine.view(project).look.outputs
+  assert.deepEqual(before.images, [pictures[0], pictures[1], pictures[2]], 'Bilder in Leserichtung, ohne Lauf')
+  assert.deepEqual(before.videos, [clip])
+  assert.deepEqual(before.notes, ['Korn', 'Stichworte: Latex, Neon', 'Farbe #B3122E'])
+  assert.deepEqual(engine.plan(project, 'p', 'node').map(step => step.id), ['p'])
+  engine.run(project, 'p')
+  await until(() => engine.view(project).p.status === 'failed')
+  assert.match(engine.view(project).p.error, /Führe zuerst „Look“ aus/, '@Look braucht den erzeugten Look')
+  answers.push('{"look": "Kalt und glänzend.", "light": "hart", "camera": "", "palette": "Rot #B3122E", "materials": "Latex", "keyImages": [3]}')
+  engine.run(project, 'p', 'upstream')
+  await until(() => engine.view(project).p.status === 'done')
+  assert.match(calls[0].prompt, /Stichworte: Latex, Neon/)
+  assert.equal(calls[0].images.length, 3, 'nur Bilder gehen an das Modell')
+  const look = engine.view(project).look
+  assert.deepEqual(look.data, { look: 'Kalt und glänzend.', light: 'hart', camera: '', palette: 'Rot #B3122E', materials: 'Latex' })
+  assert.deepEqual(look.outputs.keys, [pictures[2]])
+  assert.deepEqual(look.outputs.images, [pictures[0], pictures[1], pictures[2]], 'die Bilder bleiben neben dem Ergebnis')
+  assert.deepEqual(seen[0].refs, [pictures[2]], '@Look bringt nur die Leitbilder, nicht das ganze Board')
+  assert.equal(seen[0].prompt, 'Im Stil Kalt und glänzend.\nLicht: hart\nPalette: Rot #B3122E\nMaterial: Latex (@Bild1).')
+  save({ ...store.appData(project, 'flow').data, nodes: store.appData(project, 'flow').data.nodes.map(node => node.id === 'look' ? { ...node, params: { items: [] } } : node) })
+  assert.equal(engine.view(project).look.stale, true, 'ein geändertes Board macht den Look veraltet')
+  const empty = moodboardNode(providers, store)
+  await assert.rejects(empty.run({ params: { items: [] } }), /Leg zuerst Bilder/)
   store.close()
 })

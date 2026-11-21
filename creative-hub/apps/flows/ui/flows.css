@@ -219,3 +219,35 @@
 .flow-card-assets { margin: 0; overflow: hidden; color: var(--c-ink-3); font-size: var(--fs-micro); line-height: var(--lh-micro); text-overflow: ellipsis; white-space: nowrap; }
 .flow-card-film { cursor: default; }
 .flow-strip-open { position: absolute; left: 50%; bottom: 72px; z-index: 6; transform: translateX(-50%); }
+
+/* Moodboard node: a free pinboard. Items lie where they are put, without node chrome or lines. */
+.flow-board { position: relative; overflow: hidden; background: var(--c-bg); background-image: radial-gradient(var(--c-dot) 1px, transparent 1px); background-size: 24px 24px; }
+.flow-board-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; margin: 0; padding: var(--s-6); color: var(--c-ink-3); font-size: var(--fs-ui); line-height: var(--lh-ui); text-align: center; }
+.flow-board-item { position: absolute; cursor: grab; touch-action: none; user-select: none; }
+.flow-board-item.moving { z-index: 2; cursor: grabbing; box-shadow: var(--shadow-subtle); }
+.flow-board-item.is-file .flow-media img, .flow-board-item.is-file .flow-media video { width: 100%; height: auto; max-height: 232px; aspect-ratio: auto; border-radius: var(--s-2); object-fit: cover; pointer-events: none; }
+.flow-board-item.is-file .flow-media .link-card { border-radius: var(--s-2); }
+.flow-board-gone { display: block; padding: var(--s-3); border: 1px dashed var(--c-line); border-radius: var(--s-2); color: var(--c-ink-3); font-size: var(--fs-micro); }
+.flow-board-item.is-note { padding: var(--s-2) var(--s-3); border-radius: var(--s-2); background: var(--c-fill); box-shadow: 0 1px 0 var(--c-hair); }
+.flow-board-item.is-note textarea { display: block; width: 100%; min-height: 72px; padding: 0; border: 0; background: transparent; color: var(--c-ink); font: inherit; font-size: var(--fs-meta); line-height: var(--lh-meta); resize: vertical; outline: none; }
+.flow-board-item.is-word { padding: 0 var(--s-3); border-radius: 9999px; background: var(--c-fill-2); line-height: 32px; }
+.flow-board-item.is-word input { width: auto; padding: 0; border: 0; background: transparent; color: var(--c-ink); font: inherit; font-size: var(--fs-ui); font-weight: 500; outline: none; }
+.flow-board-swatch { display: block; height: 72px; border-radius: var(--s-2); box-shadow: inset 0 0 0 1px var(--c-hair); }
+.flow-board-hex { position: relative; display: flex; align-items: center; justify-content: space-between; gap: var(--s-1); padding-top: var(--s-1); color: var(--c-ink-2); font-size: var(--fs-micro); cursor: pointer; }
+.flow-board-hex input { width: 20px; height: 20px; padding: 0; border: 0; background: none; cursor: pointer; }
+.flow-board-remove { position: absolute; top: -8px; right: -8px; opacity: 0; transition: opacity .12s; }
+.flow-board-item:hover .flow-board-remove, .flow-board-item:focus-within .flow-board-remove { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .flow-board-remove { transition: none; } }
+
+/* The structured look under a moodboard. */
+.flow-look { display: grid; gap: var(--s-3); }
+.flow-look.stale { opacity: .6; }
+.flow-look-lead { margin: 0; color: var(--c-ink); font-size: var(--fs-body); line-height: var(--lh-body); }
+.flow-look dl { display: grid; grid-template-columns: 80px 1fr; gap: var(--s-1) var(--s-3); margin: 0; font-size: var(--fs-meta); line-height: var(--lh-meta); }
+.flow-look dt { color: var(--c-ink-3); }
+.flow-look dd { margin: 0; color: var(--c-ink-2); }
+.flow-look-chips { display: inline-flex; gap: var(--s-1); margin-left: var(--s-2); vertical-align: middle; }
+.flow-look-chips span { width: 16px; height: 16px; border-radius: 4px; box-shadow: inset 0 0 0 1px var(--c-hair); }
+.flow-look-keys { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-2); }
+.flow-look-keys button { padding: 0; overflow: hidden; border: 0; border-radius: var(--s-2); background: none; cursor: zoom-in; }
+.flow-look-keys .flow-media img { aspect-ratio: 1; object-fit: cover; }

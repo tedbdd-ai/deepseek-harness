@@ -4,7 +4,11 @@
  *
  * - „LLM“ writes or transforms text. It reads connected text, images, videos and sound (`@Bild1`, `@Video1`, `@Audio1`
  *   in the prompt) and gives one text on: expand a prompt, transcribe a voice clip to centiseconds for Seedance.
- * - „Style-DNA“ condenses a moodboard (its pictures, colours and notes) into one look text and two or three key images.
+ * - „Moodboard“ is a free pinboard (pictures, colours, notes and keywords in `params.items`, placed by hand, no lines)
+ *   whose pictures and notes go out without running. Its run condenses the board into a structured look (look, light,
+ *   camera, palette, materials, `data`) and two or three key images, like Scrabble does for keywords. As project asset
+ *   (@Look) it gives the look text and the key images.
+ * - „Style-DNA“ does the same for whatever is wired into it.
  * - „Regie“ turns story, look and moodboard into a shot list with the needed figures and places. Its result `data`
  *   holds `{ shots: [{ title, duration, shot, prompt, motion }], assets: [{ name, kind, description }] }`; the editor
  *   creates Szene nodes from the shots.
@@ -108,7 +112,78 @@ const dnaSystem = [
   'Write in the language of the notes; German if there are none.',
 ].join('\n')
 
-/** „Style-DNA“: one look text and the key images of a moodboard. */
+/**
+ * Asks the model for the look of `images` and `notes` and returns it as text, structured data and key images.
+ * @returns {Promise<{ text: string, data: object, keys: string[] }>}
+ */
+async function condense(chat, params, notes, images) {
+  const answer = await chat(params, { system: dnaSystem, prompt: notes.length ? 'Notizen, Stichworte und Farben:\n' + notes.join('\n') : 'Es gibt nur Bilder.', images: images.slice(0, 16) })
+  const dna = parseJson(answer.text)
+  if (!dna || typeof dna.look !== 'string' || !dna.look.trim()) throw new InputError('Das Modell hat keinen lesbaren Look geliefert. Führe den Knoten noch einmal aus oder wähle ein anderes Modell.')
+  const field = value => (typeof value === 'string' ? value.trim().slice(0, 400) : '')
+  const data = { look: field(dna.look), light: field(dna.light), camera: field(dna.camera), palette: field(dna.palette), materials: field(dna.materials) }
+  const lines = [data.look, ['Licht', data.light], ['Kamera', data.camera], ['Palette', data.palette], ['Material', data.materials]]
+    .map(line => (Array.isArray(line) ? (line[1] ? `${line[0]}: ${line[1]}` : '') : line)).filter(Boolean)
+  const picked = (Array.isArray(dna.keyImages) ? dna.keyImages : []).map(Number).filter(n => Number.isInteger(n) && n >= 1 && n <= Math.min(images.length, 16))
+  const keys = [...new Set(picked)].slice(0, 3).map(n => images[n - 1])
+  return { text: lines.join('\n'), data, keys: keys.length ? keys : images.slice(0, 3) }
+}
+
+const itemKinds = ['file', 'note', 'word', 'color']
+/** The valid items of a moodboard, in reading order (top to bottom, left to right). */
+export function boardItems(params) {
+  const items = (Array.isArray(params.items) ? params.items : []).filter(item => item && itemKinds.includes(item.kind) && typeof item.id === 'string')
+  return items.sort((a, b) => ((Number(a.y) || 0) - (Number(b.y) || 0)) || ((Number(a.x) || 0) - (Number(b.x) || 0)))
+}
+/**
+ * Pictures, clips and the text of a moodboard (notes, keywords as one line, colours as „Farbe #…“).
+ * @param {(assetId: string) => string | null} kindOf media kind of a Library file (`image`, `video`), null if it is gone.
+ */
+export function boardValues(params, kindOf) {
+  const items = boardItems(params)
+  const of = kind => items.filter(item => item.kind === kind)
+  const files = of('file').filter(item => typeof item.assetId === 'string').map(item => [kindOf(item.assetId), item.assetId])
+  const words = of('word').map(item => String(item.text ?? '').trim()).filter(Boolean)
+  return {
+    images: files.filter(([kind]) => kind === 'image').map(([, id]) => id),
+    videos: files.filter(([kind]) => kind === 'video').map(([, id]) => id),
+    notes: [...of('note').map(item => String(item.text ?? '').trim()).filter(Boolean), ...(words.length ? ['Stichworte: ' + words.join(', ')] : []),
+      ...of('color').map(item => item.color).filter(color => /^#[0-9a-f]{6}$/i.test(color ?? '')).map(color => 'Farbe ' + color.toUpperCase())],
+  }
+}
+
+/** „Moodboard“: a pinboard without lines inside; its run makes the structured look. */
+export function moodboardNode(providers, store) {
+  const { fields, chat } = chatTools(providers, store)
+  const kindOf = id => {
+    try { return store.asset(id).media_type?.split('/')[0] ?? null } catch (error) { if (error instanceof InputError) return null; throw error }
+  }
+  return {
+    type: 'moodboard', title: 'Moodboard', group: 'board', icon: 'board', paid: true,
+    description: 'Freie Pinnwand für Bilder, Farben, Notizen und Stichworte, ohne Linien. „Look erzeugen“ macht daraus Licht, Kamera, Palette, Material und Leitbilder. Als Projekt-Asset reicht @Look.',
+    inputs: [],
+    outputs: [
+      { id: 'look', kind: 'text', label: 'Look' },
+      { id: 'keys', kind: 'image', label: 'Leitbilder' },
+      { id: 'images', kind: 'image', label: 'Alle Bilder', mention: false },
+      { id: 'videos', kind: 'video', label: 'Clips', mention: false },
+      { id: 'notes', kind: 'text', label: 'Notizen und Farben', mention: false },
+    ],
+    fields,
+    passthrough({ params }) {
+      const { images, videos, notes } = boardValues(params, kindOf)
+      return { images, videos, notes }
+    },
+    async run({ params }) {
+      const { images, notes } = boardValues(params, kindOf)
+      if (!images.length && !notes.length) throw new InputError('Leg zuerst Bilder, Farben, Notizen oder Stichworte auf das Moodboard.')
+      const { text, data, keys } = await condense(chat, params, notes, images)
+      return { outputs: { look: [text], keys }, data, credits: null }
+    },
+  }
+}
+
+/** „Style-DNA“: one look text and the key images of whatever is wired into it. */
 export function styleNode(providers, store) {
   const { fields, chat } = chatTools(providers, store)
   return {
@@ -123,14 +198,8 @@ export function styleNode(providers, store) {
     async run({ inputs, params, prompt }) {
       if (!inputs.images.length && !inputs.text.length) throw new InputError('Verbinde ein Moodboard mit Bildern oder Notizen.')
       const notes = [...inputs.text, prompt].map(part => String(part).trim()).filter(Boolean)
-      const answer = await chat(params, { system: dnaSystem, prompt: notes.length ? 'Notizen und Farben:\n' + notes.join('\n') : 'Es gibt nur Bilder.', images: inputs.images.slice(0, 16) })
-      const dna = parseJson(answer.text)
-      if (!dna || typeof dna.look !== 'string') throw new InputError('Das Modell hat keinen lesbaren Look geliefert. Führe den Knoten noch einmal aus oder wähle ein anderes Modell.')
-      const lines = [dna.look, ['Licht', dna.light], ['Kamera', dna.camera], ['Palette', dna.palette], ['Material', dna.materials]]
-        .map(line => (Array.isArray(line) ? (typeof line[1] === 'string' && line[1].trim() ? `${line[0]}: ${line[1].trim()}` : '') : line.trim())).filter(Boolean)
-      const picked = (Array.isArray(dna.keyImages) ? dna.keyImages : []).map(Number).filter(n => Number.isInteger(n) && n >= 1 && n <= inputs.images.length)
-      const keys = [...new Set(picked)].slice(0, 3).map(n => inputs.images[n - 1])
-      return { outputs: { text: [lines.join('\n')], image: keys.length ? keys : inputs.images.slice(0, 3) }, credits: null }
+      const { text, data, keys } = await condense(chat, params, notes, inputs.images)
+      return { outputs: { text: [text], image: keys }, data, credits: null }
     },
   }
 }
@@ -149,15 +218,18 @@ export function directorNode(providers, store) {
   const { fields, chat } = chatTools(providers, store)
   return {
     type: 'director', title: 'Regie', group: 'text', icon: 'shot', paid: true, prompt: true,
-    description: 'Macht aus Story, Look und Moodboard eine Shotliste mit Dauer, Ausschnitt und Bewegung. „Szenen anlegen“ legt daraus Szene-Knoten an.',
+    description: 'Macht aus der Story (oben im Knoten oder verbunden) und dem Look eine Shotliste mit Dauer, Ausschnitt und Bewegung. „Szenen anlegen“ legt daraus Szene-Knoten an.',
     inputs: [
       { id: 'prompt', kind: 'text', label: 'Story und Look', multiple: true },
       { id: 'images', kind: 'image', label: 'Moodboard', multiple: true, mark: 'Bild' },
     ],
     outputs: [{ id: 'text', kind: 'text', label: 'Shotliste' }],
-    fields,
+    async fields() {
+      return [...await fields(), { key: 'story', label: 'Story', type: 'longtext', rows: 5, placeholder: 'Worum geht es? Wer tut was, wo, und wie endet es?' }]
+    },
     async run({ inputs, params, prompt, assets = [] }) {
-      const text = [...inputs.prompt, prompt].map(part => String(part).trim()).filter(Boolean).join('\n\n')
+      const story = typeof params.story === 'string' && params.story.trim() ? ['Story: ' + params.story.trim()] : []
+      const text = [...story, ...inputs.prompt, prompt].map(part => String(part).trim()).filter(Boolean).join('\n\n')
       if (!text) throw new InputError('Verbinde eine Story oder schreib, worum es im Film geht.')
       const known = assets.length ? '\n\nProjekt-Assets: ' + assets.map(name => '@' + name).join(', ') : ''
       const answer = await chat(params, { system: shotSystem, prompt: text + known, images: inputs.images.slice(0, 12) })
@@ -180,5 +252,5 @@ export function directorNode(providers, store) {
 }
 
 export function apply(ctx) {
-  for (const make of [llmNode, styleNode, directorNode]) ctx.effect(() => ctx.creativeNodes.register(make(ctx.creativeProviders, ctx.creativeStore)))
+  for (const make of [llmNode, moodboardNode, styleNode, directorNode]) ctx.effect(() => ctx.creativeNodes.register(make(ctx.creativeProviders, ctx.creativeStore)))
 }

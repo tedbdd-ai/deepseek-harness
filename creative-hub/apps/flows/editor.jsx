@@ -225,7 +225,7 @@ function ShotList({ node, view }) {
   const needed = view?.data?.assets ?? []
   const made = sceneCount(node.id)
   useEffect(() => setSure(false), [view?.history?.[0]?.at, made])
-  if (!shots.length) return <TextResult view={view}/>
+  if (!shots.length) return view?.outputs?.text?.length || view?.status === 'running' || view?.status === 'waiting' ? <TextResult view={view}/> : null
   return <div className="[display:grid] gap-2">
     <ol className="flow-shots nodrag nowheel" aria-label="Shotliste">{shots.map((shot, i) => <li key={i}>
       <span className="flow-shot-head"><b>{i + 1} · {shot.title}</b><span className="tabular-nums">{shot.duration} s{shot.shot ? ' · ' + shot.shot : ''}</span></span>
@@ -239,11 +239,11 @@ function ShotList({ node, view }) {
   </div>
 }
 
-function RunButton({ node, view }) {
+function RunButton({ node, view, first = 'Ausführen', again = 'Neu ausführen' }) {
   const { run } = useContext(Actions)
   const [open, setOpen] = useState(false)
   const busy = view?.status === 'running' || view?.status === 'waiting'
-  const label = view?.status === 'failed' ? 'Erneut ausführen' : view?.status === 'done' ? 'Neu ausführen' : 'Ausführen'
+  const label = view?.status === 'failed' ? 'Erneut ausführen' : view?.status === 'done' ? again : first
   return <div className="nodrag flex">
     <Button size="sm" className="rounded-r-none" disabled={busy} onClick={() => run(node.id, 'node')}><Play/>{busy ? statusNames[view.status] : label}</Button>
     <Popover open={open} onOpenChange={setOpen}>
@@ -618,15 +618,16 @@ function FlowNode({ id, data, selected }) {
       <NodeStatusIndicator status={status}>
         <BaseNode className={cn('flow-node overflow-hidden rounded-xl', node.type === 'text' && 'bg-[var(--c-fill)]')}>
           {type.runs && type.outputs.some(port => port.kind !== 'text') && <Preview type={type} view={view}/>}
-          {type.runs && detail !== 'glance' && (type.outputs.every(port => port.kind === 'text') || view?.outputs?.text?.length > 0) &&
-            <div className="p-3 pb-0">{node.type === 'director' ? <ShotList node={node} view={view}/> : <TextResult view={view}/>}</div>}
+          {type.runs && detail !== 'glance' && node.type !== 'director' && node.type !== 'moodboard' && (type.outputs.every(port => port.kind === 'text') || view?.outputs?.text?.length > 0) &&
+            <div className="p-3 pb-0"><TextResult view={view}/></div>}
           {detail === 'glance' ? (node.type === 'library' || node.type === 'scene') && <BaseNodeContent><NodeBody node={node} type={type}/></BaseNodeContent> :
           <BaseNodeContent className={cn(type.runs && type.outputs.some(port => port.kind !== 'text') && 'border-t')}>
             <NodeBody node={node} type={type}/>
             {type.fields.filter(field => field.type === 'longtext').map(field => <label key={field.key} className="nodrag [display:grid] gap-1 text-xs text-muted-foreground"><span>{field.label}</span>
-              <textarea className="flow-prompt nowheel" rows={3} placeholder={field.placeholder} value={node.params?.[field.key] ?? ''}
+              <textarea className="flow-prompt nowheel" rows={field.rows ?? 3} placeholder={field.placeholder} value={node.params?.[field.key] ?? ''}
                 onChange={e => update(id, n => ({ ...n, params: { ...n.params, [field.key]: e.target.value } }))}/></label>)}
             {type.prompt && <PromptField node={node} type={type} names={names}/>}
+            {node.type === 'director' && <ShotList node={node} view={view}/>}
             {detail === 'full' && <References node={node} view={view}/>}
             {(view?.warnings ?? []).map(text => <p key={text} className="flow-warning" role="status">{text}</p>)}
             {view?.status === 'failed' && view.error && <p className="flow-error" role="alert">{view.error}</p>}
@@ -671,7 +672,118 @@ function NodeTools({ id, node, type, view, model, modelField, quick, more, first
       <NodeMenu node={node} type={type} view={view}/>
   </>
 }
-const nodeTypes = { flow: FlowNode, frame: FrameNode }
+/** Room and default sizes of a moodboard and its items, in canvas pixels. */
+const board = { width: 720, height: 480, file: 176, note: 192, color: 96 }
+const boardSize = node => ({ width: Number(node.params?.width) || board.width, height: Number(node.params?.height) || board.height })
+
+/**
+ * One item on a moodboard: a Library file, a note, a keyword or a colour. It moves with the pointer (screen distance
+ * divided by the zoom) and is saved when let go; the last moved item lies on top.
+ */
+function BoardItem({ node, item, onMove, onChange, onRemove, onOpen }) {
+  const { ctx, assets } = useContext(Actions)
+  const zoom = useViewportStore(store => store.transform[2])
+  const [shift, setShift] = useState(null)
+  const start = useRef(null)
+  const editable = event => event.target.closest('textarea, input, button')
+  const width = item.kind === 'file' ? Number(item.w) || board.file : item.kind === 'note' ? board.note : item.kind === 'color' ? board.color : undefined
+  return <div className={cn('flow-board-item', 'is-' + item.kind, shift && 'moving')} style={{ left: (item.x ?? 0) + (shift?.x ?? 0), top: (item.y ?? 0) + (shift?.y ?? 0), width }}
+    onPointerDown={event => { if (editable(event) || event.button !== 0) return; event.currentTarget.setPointerCapture(event.pointerId); start.current = { x: event.clientX, y: event.clientY }; setShift({ x: 0, y: 0 }) }}
+    onPointerMove={event => { if (start.current) setShift({ x: (event.clientX - start.current.x) / zoom, y: (event.clientY - start.current.y) / zoom }) }}
+    onPointerUp={() => { if (!start.current) return; start.current = null; if (shift && (Math.abs(shift.x) > 2 || Math.abs(shift.y) > 2)) onMove(shift); setShift(null) }}
+    onDoubleClick={event => { if (item.kind === 'file' && !editable(event)) onOpen() }}>
+    {item.kind === 'file' && (assets[item.assetId] ? <Media asset={assets[item.assetId]} ctx={ctx}/> : <span className="flow-board-gone">Datei fehlt in der Library</span>)}
+    {item.kind === 'note' && <textarea className="nowheel" rows={4} aria-label="Notiz" placeholder="Notiz" value={item.text ?? ''} onChange={e => onChange({ text: e.target.value.slice(0, 2000) })}/>}
+    {item.kind === 'word' && <input aria-label="Stichwort" placeholder="Stichwort" size={Math.max(6, (item.text ?? '').length + 1)} maxLength={40} value={item.text ?? ''} onChange={e => onChange({ text: e.target.value })}/>}
+    {item.kind === 'color' && <>
+      <span className="flow-board-swatch" style={{ backgroundColor: item.color }}/>
+      <label className="flow-board-hex"><span className="tabular-nums">{String(item.color).toUpperCase()}</span>
+        <input type="color" aria-label="Farbton ändern" value={item.color} onChange={e => onChange({ color: e.target.value })}/></label>
+    </>}
+    <Button variant="secondary" size="icon-xs" className="flow-board-remove" aria-label="Vom Moodboard nehmen" title="Vom Moodboard nehmen" onClick={onRemove}><X/></Button>
+  </div>
+}
+
+/** The structured look of a moodboard after „Look erzeugen“: overall look, light, camera, palette, materials, key images. */
+function LookCard({ view }) {
+  const { ctx, assets, openViewer } = useContext(Actions)
+  const dna = view?.data
+  if (!dna?.look) return null
+  const keys = (view.outputs?.keys ?? []).filter(id => assets[id])
+  const rows = [['Licht', dna.light], ['Kamera', dna.camera], ['Palette', dna.palette], ['Material', dna.materials]].filter(([, value]) => value)
+  const hexes = String(dna.palette ?? '').match(/#[0-9a-f]{6}/gi) ?? []
+  return <div className={cn('flow-look', view.stale && 'stale')}>
+    <p className="flow-look-lead">{dna.look}</p>
+    <dl>{rows.map(([label, value]) => <React.Fragment key={label}><dt>{label}</dt><dd>{value}
+      {label === 'Palette' && hexes.length > 0 && <span className="flow-look-chips">{hexes.map(hex => <span key={hex} style={{ backgroundColor: hex }} title={hex}/>)}</span>}</dd></React.Fragment>)}</dl>
+    {keys.length > 0 && <div className="flow-look-keys" aria-label="Leitbilder">{keys.map((id, i) => <button key={id} type="button" className="nodrag" aria-label={`Leitbild ${i + 1} ansehen`} onClick={() => openViewer({ ids: keys, index: i })}><Media asset={assets[id]} ctx={ctx}/></button>)}</div>}
+  </div>
+}
+
+/**
+ * The moodboard node: a free pinboard without lines inside (Milanote, PureRef). Pictures, notes, keywords and colours
+ * lie where they are put; dropping or pasting files adds them where they land. Below it the bar adds items, and
+ * „Look erzeugen“ condenses the board into the structured look shown under it.
+ */
+function BoardNode({ id, data, selected }) {
+  const { update, edges, pickAssets, uploadAssets, openViewer } = useContext(Actions)
+  const { node, type, view } = data
+  const { width, height } = boardSize(node)
+  const items = node.params?.items ?? []
+  const setItems = fn => update(id, n => ({ ...n, params: { ...n.params, items: fn(n.params?.items ?? []) } }))
+  // New notes, keywords and colours land in the top left corner, a little apart from each other, on top of the rest.
+  const free = () => { const n = items.filter(item => item.kind !== 'file').length % 6; return { x: 24 + n * 24, y: 24 + n * 24 } }
+  const add = fields => setItems(list => [...list, { id: crypto.randomUUID(), ...free(), ...fields }])
+  const files = items.filter(item => item.kind === 'file').map(item => item.assetId)
+  const model = modelOf(node, type)
+  const modelField = type.fields.find(field => field.key === 'modelId')
+  const outbound = new Set(edges.filter(edge => edge.source === id).map(edge => edge.sourceHandle))
+  const status = view?.status === 'running' || view?.status === 'waiting' ? 'loading' : view?.status === 'failed' ? 'error' : 'initial'
+  const facts = [items.length === 1 ? '1 Element' : `${items.length} Elemente`, view?.stale ? 'Look veraltet' : view?.status === 'done' ? 'Look fertig' : ''].filter(Boolean).join(' · ')
+  return <>
+    <div className="relative" style={{ width }}>
+      <NodeResizer isVisible={selected} minWidth={400} minHeight={280} lineClassName="flow-resize-line" handleClassName="flow-resize-handle"
+        onResizeEnd={(_, size) => update(id, n => ({ ...n, params: { ...n.params, width: Math.round(size.width / 8) * 8, height: Math.max(280, Math.round((size.height - 200) / 8) * 8) } }))}/>
+      <NodeHeader node={node} type={type} right={facts}/>
+      <NodeStatusIndicator status={status}>
+        <BaseNode className="flow-node overflow-hidden rounded-xl">
+          <div className="flow-board nodrag nowheel" style={{ height }} aria-label="Moodboard-Fläche"
+            data-board={id}>
+            {!items.length && <p className="flow-board-empty">Zieh Bilder vom Mac hierher, füge sie mit ⌘V ein oder nutze die Leiste unten. Alles darf frei liegen, ohne Linien.</p>}
+            {items.map(item => <BoardItem key={item.id} node={node} item={item}
+              onMove={delta => setItems(list => [...list.filter(other => other.id !== item.id), { ...item, x: Math.round(Math.max(0, Math.min(width - 48, (item.x ?? 0) + delta.x))), y: Math.round(Math.max(0, Math.min(height - 32, (item.y ?? 0) + delta.y))) }])}
+              onChange={fields => setItems(list => list.map(other => (other.id === item.id ? { ...other, ...fields } : other)))}
+              onRemove={() => setItems(list => list.filter(other => other.id !== item.id))}
+              onOpen={() => openViewer({ ids: files, index: files.indexOf(item.assetId) })}/>)}
+          </div>
+          <div className="nodrag flex flex-wrap items-center gap-1 border-t px-3 py-2" role="toolbar" aria-label="Zum Moodboard hinzufügen">
+            <Button variant="ghost" size="sm" onClick={() => pickAssets(node)}><Archive/>Aus der Library</Button>
+            <Button variant="ghost" size="sm" onClick={() => uploadAssets(node)}><Upload/>Hochladen</Button>
+            <Button variant="ghost" size="sm" onClick={() => add({ kind: 'note', text: '' })}><Type/>Notiz</Button>
+            <Button variant="ghost" size="sm" onClick={() => add({ kind: 'word', text: '' })}><AtSign/>Stichwort</Button>
+            <Button variant="ghost" size="sm" onClick={() => add({ kind: 'color', color: '#8A6A4F' })}><Palette/>Farbe</Button>
+          </div>
+          <BaseNodeContent className="border-t">
+            <LookCard view={view}/>
+            {!view?.data?.look && view?.status !== 'running' && <p className="text-sm text-muted-foreground">„Look erzeugen“ liest alles auf dem Board und macht daraus einen Look mit Licht, Kamera, Palette, Material und zwei bis drei Leitbildern. Als Projekt-Asset wirkt er mit @{nodeName(node, type)} in jedem Prompt.</p>}
+            {(view?.warnings ?? []).map(text => <p key={text} className="flow-warning" role="status">{text}</p>)}
+            {view?.status === 'failed' && view.error && <p className="flow-error" role="alert">{view.error}</p>}
+            <div className="flex items-center justify-between gap-2">
+              <span className={cn('text-xs tabular-nums text-muted-foreground', view?.stale && 'text-[var(--c-port-audio)]')}>{view?.stale ? 'Board geändert, Look veraltet' : statusNames[view?.status] ?? ''}</span>
+              <RunButton node={node} view={view} first="Look erzeugen" again="Look neu erzeugen"/>
+            </div>
+          </BaseNodeContent>
+        </BaseNode>
+      </NodeStatusIndicator>
+      <div className="nodrag absolute left-1/2 top-full mt-2 flex w-max -translate-x-1/2 items-center gap-0.5 rounded-full border bg-popover p-1 shadow-[var(--shadow-subtle)]" role="toolbar" aria-label={nodeName(node, type) + ': Einstellungen'}>
+        <NodeTools id={id} node={node} type={type} view={view} model={model} modelField={modelField} quick={[]} more={[]} firstMedia={null}/>
+      </div>
+    </div>
+    <Ports ports={type.outputs} side="out" connected={outbound} nodeId={id}/>
+  </>
+}
+
+const nodeTypes = { flow: FlowNode, frame: FrameNode, board: BoardNode }
 
 /** Node menu: shadcn Command (search and keyboard) with the node types that fit, grouped; optional file actions first. */
 function AddMenu({ types, at, filter, onPick, onClose, onUpload, onLibrary }) {
@@ -882,6 +994,7 @@ function Canvas({ ctx, project, record, types, boards, templates, step = null, p
   }, [])
   // React Flow's own per-node state (measured size, selection, dragging, live resize), kept by its changesets.
   const [meta, setMeta] = useState({})
+  const latestMeta = useRef(meta)
   const glance = useViewportStore(store => store.transform[2] < 0.35)
   const measuredCount = Object.values(meta).filter(item => item.measured).length
   const state = useRef({ data: initial.doc, saved: initial.changed ? null : initial.doc, revision: record.revision, timer: null, saving: null }).current
@@ -992,7 +1105,24 @@ function Canvas({ ctx, project, record, types, boards, templates, step = null, p
   async function pick(nodeId, index) {
     try { setView(await flowsApi('/projects/' + project + '/nodes/' + nodeId + '/pick', 'POST', { index })) } catch (e) { setError(e.message) }
   }
-  function pickAssets(node, single = false) { setPicker({ id: node.id, single }) }
+  function pickAssets(node, single = false) { setPicker({ id: node.id, single, board: node.type === 'moodboard' }) }
+  /**
+   * Pins Library files on a moodboard: from `at` (board pixels) in a cascade, otherwise in the next free grid places.
+   * The board grows when they would fall below it.
+   */
+  function addToBoard(nodeId, assetIds, at = null) {
+    update(nodeId, n => {
+      const items = n.params?.items ?? []
+      const fresh = assetIds.filter(assetId => !items.some(item => item.kind === 'file' && item.assetId === assetId)).map((assetId, i) => {
+        const k = items.length + i
+        const place = at ? { x: Math.max(0, Math.round(at.x + i * 24)), y: Math.max(0, Math.round(at.y + i * 24)) } : { x: 16 + (k % 4) * 184, y: 16 + Math.floor(k / 4) * 256 }
+        return { id: crypto.randomUUID(), kind: 'file', assetId, ...place }
+      })
+      const { height } = boardSize(n)
+      const bottom = Math.max(0, ...fresh.map(item => item.y + 248))
+      return { ...n, params: { ...n.params, items: [...items, ...fresh], ...(bottom > height && { height: Math.ceil(bottom / 8) * 8 }) } }
+    })
+  }
   /** Stores files in the project: images and videos through the hub, sound through the Video Playground's upload route. */
   async function storeFiles(files) {
     const list = [...files]
@@ -1013,7 +1143,9 @@ function Canvas({ ctx, project, record, types, boards, templates, step = null, p
     const input = Object.assign(document.createElement('input'), { type: 'file', multiple: true, accept: 'image/*,video/*,audio/mpeg,audio/wav' })
     input.onchange = async () => {
       const created = await storeFiles(input.files)
-      if (created.length) update(node.id, n => ({ ...n, params: { ...n.params, assetIds: [...(n.params?.assetIds ?? []), ...created.map(item => item.id)].slice(0, 24) } }))
+      if (!created.length) return
+      if (node.type === 'moodboard') addToBoard(node.id, created.map(item => item.id))
+      else update(node.id, n => ({ ...n, params: { ...n.params, assetIds: [...(n.params?.assetIds ?? []), ...created.map(item => item.id)].slice(0, 24) } }))
     }
     input.click()
   }
@@ -1028,7 +1160,8 @@ function Canvas({ ctx, project, record, types, boards, templates, step = null, p
       setStatus('Lädt hoch …')
       const created = await storeFiles(files)
       const ids = created.map(asset => asset.id)
-      if (ids.length && into) update(into, n => ({ ...n, params: { ...n.params, assetIds: [...new Set([...(n.params?.assetIds ?? []), ...ids])].slice(0, 24) } }))
+      if (ids.length && into?.board) addToBoard(into.id, ids, into.at)
+      else if (ids.length && into) update(into, n => ({ ...n, params: { ...n.params, assetIds: [...new Set([...(n.params?.assetIds ?? []), ...ids])].slice(0, 24) } }))
       else if (ids.length) nodes.push({ id: crypto.randomUUID(), type: 'library', ...at(0), prompt: '', params: { assetIds: ids.slice(0, 24) } })
       if (!created.length) setStatus('')
     }
@@ -1048,7 +1181,10 @@ function Canvas({ ctx, project, record, types, boards, templates, step = null, p
       if (!files.length && !text.trim()) return
       event.preventDefault()
       const box = shell.current.getBoundingClientRect()
-      place(flow.screenToFlowPosition(pointer.current ?? { x: box.left + box.width / 2, y: box.top + box.height / 2 }), { files, text }).catch(report)
+      // With one moodboard selected, pasted pictures are pinned on it.
+      const chosen = selectedIds()
+      const boardId = chosen.length === 1 && state.data.nodes.find(node => node.id === chosen[0])?.type === 'moodboard' ? chosen[0] : null
+      place(flow.screenToFlowPosition(pointer.current ?? { x: box.left + box.width / 2, y: box.top + box.height / 2 }), { files, text: boardId ? '' : text, into: boardId && files.length ? { id: boardId, board: true } : null }).catch(report)
     }
     document.addEventListener('paste', onPaste)
     return () => document.removeEventListener('paste', onPaste)
@@ -1134,7 +1270,7 @@ function Canvas({ ctx, project, record, types, boards, templates, step = null, p
     const frame = isFrame(node)
     const own = meta[node.id] ?? {}
     return {
-      id: node.id, type: frame ? 'frame' : 'flow', position: { x: node.x, y: node.y }, ...(node.parentId && { parentId: node.parentId }),
+      id: node.id, type: frame ? 'frame' : node.type === 'moodboard' ? 'board' : 'flow', position: { x: node.x, y: node.y }, ...(node.parentId && { parentId: node.parentId }),
       // In the storyboard overview the frames show posters; what lies inside (and its lines) steps aside.
       ...(glance && node.parentId && { hidden: true }),
       dragHandle: frame ? '.flow-frame-head' : '.flow-drag', zIndex: 2, selected: own.selected, dragging: own.dragging, measured: own.measured,
@@ -1237,7 +1373,9 @@ function Canvas({ ctx, project, record, types, boards, templates, step = null, p
     })) }))
   }
   const focusNode = id => flow.fitView({ nodes: [{ id }], padding: 0.4, maxZoom: 1.2, duration: 0 })
-  const selectedIds = () => Object.entries(meta).filter(([, value]) => value.selected).map(([id]) => id)
+  // Read through a ref: the paste and key listeners are set up once and must see the current selection.
+  latestMeta.current = meta
+  const selectedIds = () => Object.entries(latestMeta.current).filter(([, value]) => value.selected).map(([id]) => id)
   useEffect(() => {
     // Shortcuts as in ElevenLabs Flows; inside text fields the keys keep their normal meaning.
     const onKey = event => {
@@ -1396,7 +1534,11 @@ function Canvas({ ctx, project, record, types, boards, templates, step = null, p
           event.preventDefault()
           if (!event.dataTransfer.files.length || ctx.draggingInside?.()) return
           const target = event.target.closest?.('.react-flow__node')?.getAttribute('data-id')
-          const into = state.data.nodes.find(node => node.id === target && node.type === 'library')?.id ?? null
+          const surface = event.target.closest?.('[data-board]')?.getBoundingClientRect()
+          const zoom = flow.getViewport().zoom
+          // Dropped on a moodboard, files are pinned where they land; on a Datei node they join its files.
+          const into = surface && target ? { id: target, board: true, at: { x: (event.clientX - surface.left) / zoom - 64, y: (event.clientY - surface.top) / zoom - 64 } }
+            : state.data.nodes.find(node => node.id === target && node.type === 'library')?.id ?? null
           place(flow.screenToFlowPosition({ x: event.clientX, y: event.clientY }), { files: [...event.dataTransfer.files], into }).catch(report)
         }}
         onEdgeDoubleClick={(_, edge) => change(d => ({ edges: d.edges.filter(item => item.id !== edge.id) }))}>
@@ -1451,8 +1593,8 @@ function Canvas({ ctx, project, record, types, boards, templates, step = null, p
           onUpload: () => uploadAssets(addNode(typeOf.get('library'), menu.position, menu.filter)),
           onLibrary: () => pickAssets(addNode(typeOf.get('library'), menu.position, menu.filter)),
         })}/>}
-      {picker && <AssetPicker ctx={ctx} single={picker.single} initial={state.data.nodes.find(n => n.id === picker.id)?.params?.assetIds ?? []} onClose={() => setPicker(null)}
-        onDone={ids => { update(picker.id, n => ({ ...n, params: { ...n.params, assetIds: ids } })); setPicker(null) }}/>}
+      {picker && <AssetPicker ctx={ctx} single={picker.single} initial={picker.board ? [] : state.data.nodes.find(n => n.id === picker.id)?.params?.assetIds ?? []} onClose={() => setPicker(null)}
+        onDone={ids => { if (picker.board) addToBoard(picker.id, ids); else update(picker.id, n => ({ ...n, params: { ...n.params, assetIds: ids } })); setPicker(null) }}/>}
       {viewer && <Viewer {...viewer} ids={viewer.nodeId ? (state.data.nodes.find(n => n.id === viewer.nodeId)?.params?.assetIds ?? []) : viewer.ids}
         onIndex={index => setViewer({ ...viewer, index })} onClose={() => setViewer(null)}/>}
       {showTemplates && <Templates list={templates} busy={inserting} onClose={() => setShowTemplates(false)} onPick={insertTemplate}/>}

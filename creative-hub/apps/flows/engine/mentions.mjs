@@ -4,7 +4,8 @@
  * A node with `asset: true` is a project asset: its name can be mentioned with `@Name` in any prompt of the flow without
  * a line. The mention becomes an implicit edge from the asset to the mentioning node, so the engine orders, plans and
  * marks results stale as for a drawn line. Files go to the first input of their kind that numbers references
- * (`@Bild1` …); text goes to the virtual handle `textHandle` and is put into the prompt in place of the mention.
+ * (`@Bild1` …); text goes to the virtual handle `textHandle` and is put into the prompt in place of the mention. Output
+ * ports with `mention: false` (all pictures of a moodboard, say) travel only on drawn lines.
  * A run node reads mentions in its own prompt and in the prompts of source nodes (Notiz, Szene) wired straight into it.
  */
 
@@ -51,6 +52,7 @@ export function implicitEdges(doc, typeOf) {
       const name = nodeName(asset, typeOf(asset.type))
       if (!texts.some(text => mentions(text, name))) continue
       for (const out of typeOf(asset.type).outputs) {
+        if (out.mention === false) continue
         const port = out.kind === 'text' ? { id: textHandle }
           : type.inputs.find(item => item.kind === out.kind && item.mark && item.multiple) ?? type.inputs.find(item => item.kind === out.kind && item.mark)
         if (!port) continue

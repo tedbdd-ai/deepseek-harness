@@ -43,6 +43,12 @@ Stand: 2026-11-21. Grundlage ist das Konzept „AI-Film-Workflow im React-Flowbo
 - Wachsende Rahmen schieben die Rahmen rechts von ihnen mit.
 - Offen: das Moodboard als schreibgeschützte Style-Bible und ein eigener Pipeline-Schalter. Mit den Schritt-Seiten ist er bisher nicht nötig.
 
+### Nachtrag: Moodboard als Pinnwand (umgesetzt)
+
+- Das Moodboard ist jetzt ein einziger Knoten „Moodboard“ (`nodes/llm`) statt Rahmen mit Datei-, Notiz- und Farbknoten. Die Elemente (`params.items`: Datei, Notiz, Stichwort, Farbe) liegen frei.
+- „Look erzeugen“ ersetzt die getrennte Style-DNA in den Vorlagen: Das Ergebnis ist strukturiert (`data`: Look, Licht, Kamera, Palette, Material) und hat Leitbilder. Seine Bilder, Clips und Notizen gibt der Knoten ohne Lauf weiter (`passthrough`). Bei `@Look` gehen nur Look und Leitbilder mit (`mention: false` an den übrigen Ports).
+- Die Regie trägt die Story als Feld, der eigene Story-Knoten entfällt. Outfits und Orte liegen in „Figur und Set“ neben Charakterblatt und Set.
+
 ### Phase 3: ComfyUI über Rancher und Rezepte
 
 - Provider-Plugin `providers/comfyui`: Es nimmt einen exportierten API-Workflow (JSON) und macht die markierten Eingänge (`prompt`, `ref_image`, `seed`, `denoise`) zu Ports. Aufträge gehen an eine Queue vor dem Rancher-Cluster, und Fortschritt und Ergebnis kommen zurück in den Knoten. Adresse und Zugang sind Plugin-Einstellungen.

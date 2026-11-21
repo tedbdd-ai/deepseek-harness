@@ -101,14 +101,22 @@ export function createEngine(store, registry) {
     return members
   }
 
-  /** Outputs of one node: computed for source nodes, the last result for run nodes. */
+  /**
+   * Outputs of one node: computed for source nodes, the last result for run nodes. A run node may also give some ports
+   * without running (`passthrough`, e.g. the pictures pinned on a moodboard); they are there before the first run and
+   * the result adds the rest.
+   */
   function outputsOf(projectId, doc, state, node) {
     const type = registry.node(node.type)
     if (!type) return null
     if (type.resolve) return type.resolve({ params: node.params ?? {}, prompt: node.prompt ?? '', projectId,
       ...(type.contains && { members: membersOf(projectId, doc, state, node) }) })
-    const entry = live(projectId, state, node.id)
-    return entry?.outputs ?? null
+    return liveOutputs(type, node, live(projectId, state, node.id))
+  }
+  function liveOutputs(type, node, entry) {
+    const own = type.passthrough?.({ params: node.params ?? {}, prompt: node.prompt ?? '' })
+    if (!own) return entry?.outputs ?? null
+    return { ...entry?.outputs, ...own }
   }
 
   /**
@@ -152,6 +160,8 @@ export function createEngine(store, registry) {
       if (!outputs) { missing.push(edge.source); continue }
       const said = (outputs[edge.sourceHandle] ?? []).join('\n').trim()
       if (said) texts[nodeName(source, registry.node(source.type))] = said
+      // A run node that gives pictures before running (a moodboard) has its text only after the run.
+      else if (registry.node(source.type)?.run) missing.push(edge.source)
     }
     if (Object.keys(texts).length) inputs._texts = Object.entries(texts).map(([name, said]) => name + ': ' + said)
     return { inputs, missing, refs, texts }
@@ -273,7 +283,7 @@ export function createEngine(store, registry) {
       const state = readState(projectId)
       const { inputs, missing, refs, texts } = inputsOf(projectId, doc, state, node)
       if (missing.length) {
-        const names = missing.map(id => registry.node(doc.nodes.find(n => n.id === id)?.type)?.title ?? 'Knoten')
+        const names = missing.map(id => { const item = doc.nodes.find(n => n.id === id); return item ? nodeName(item, registry.node(item.type)) : 'Knoten' })
         throw new InputError(`Führe zuerst ${[...new Set(names)].map(name => '„' + name + '“').join(', ')} aus.`)
       }
       for (const port of type.inputs) if (port.required && !inputs[port.id].length) throw new InputError(`Verbinde den Eingang „${port.label}“.`)
@@ -348,7 +358,7 @@ export function createEngine(store, registry) {
           const { inputs, refs } = inputsOf(projectId, doc, state, node)
           const stale = entry.status === 'done' && entry.key !== keyOf(node, inputs)
           const warnings = type.check ? type.check({ inputs, params: node.params ?? {} }) : []
-          nodes[node.id] = { status: entry.status, outputs: entry.outputs ?? null, data: entry.data, stale, refs, warnings, error: entry.error, credits: entry.credits, ms: entry.ms, startedAt: entry.startedAt, history: entry.history ?? [] }
+          nodes[node.id] = { status: entry.status, outputs: liveOutputs(type, node, entry), data: entry.data, stale, refs, warnings, error: entry.error, credits: entry.credits, ms: entry.ms, startedAt: entry.startedAt, history: entry.history ?? [] }
         } catch (error) {
           nodes[node.id] = { status: 'failed', outputs: null, stale: false, error: failureText(error) }
         }
