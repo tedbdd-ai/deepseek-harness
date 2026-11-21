@@ -197,7 +197,7 @@ export function createHandler(store, registry, engine) {
         if (body.dryRun) return json({ steps: engine.plan(run[1], body.nodeId, body.scope ?? 'node') })
         return json({ steps: engine.run(run[1], body.nodeId, body.scope ?? 'node') }, 202)
       }
-      if (req.method === 'GET' && path === '/templates') return json(templates.map(({ id, title, description, phases, phase }) => ({ id, title, description, phases, phase })))
+      if (req.method === 'GET' && path === '/templates') return json(templates.map(({ id, title, description, phases, steps, phase, listed = true }) => ({ id, title, description, phases, steps, phase, listed })))
       const template = new RegExp(`^/projects/(${uuid})/templates$`).exec(path)
       if (req.method === 'POST' && template) {
         const { templateId, revision } = await readBody(req)

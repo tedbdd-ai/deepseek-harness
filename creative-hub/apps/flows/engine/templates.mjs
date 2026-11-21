@@ -12,7 +12,6 @@ import { adoptIntoFrames } from './frames.mjs'
 const W = 352 // column width of a node plus gap
 /** A phase frame; `phase` (moodboard, storyboard, cast, voice, shots, edit) lets the step pages find it whatever its name. */
 const frame = (key, name, x, y, width, height, phase) => ({ key, type: 'frame', name, x, y, params: { width, height, ...(phase && { phase }) } })
-const note = (key, name, x, y, prompt) => ({ key, type: 'text', name, x, y, prompt })
 const files = (key, name, x, y, find, count = 4) => ({ key, type: 'library', name, x, y, find, count })
 const scene = (key, name, x, y, prompt, duration) => ({ key, type: 'scene', name, x, y, prompt, params: { duration: String(duration) } })
 const link = (source, sourceHandle, target, targetHandle) => ({ source, sourceHandle, target, targetHandle })
@@ -53,7 +52,7 @@ const moodWidth = boardWidth + 64
 function storyboard(x, y, mood = true) {
   return {
     nodes: [
-      frame('story', '2 · Storyboard', x, y, 384 + 3 * 304 + 64, 880, 'storyboard'),
+      frame('story', '2 · Storyboard', x, y, storyWidth, 880, 'storyboard'),
       { key: 'regie', type: 'director', name: 'Regie', x: x + 32, y: y + 72,
         // Regie gets the names of all project assets (@Figur, @Set …) with its request; mentioning them here would make it
         // wait for the rendered sheet and set.
@@ -87,85 +86,64 @@ function cast(x, y, mood = true) {
   }
 }
 
-/** Voice phase (audio first): the voice clip, its black video for Seedance and a shifted centisecond transcript. */
-function voice(x, y) {
-  return {
-    nodes: [
-      frame('stimme', '4 · Stimme', x, y, 3 * W + 64, 880, 'voice'),
-      files('ton', 'Stimme', x + 32, y + 72, null, 0),
-      note('skript', 'Sprechtext', x + 32, y + 432, '[ruhig, heiser] Ich war schon einmal hier. [Pause] Und diesmal gehe ich nicht allein.'),
-      { key: 'schwarz', type: 'black-video', name: 'Schwarzes Video', x: x + 32 + W, y: y + 72 },
-      { key: 'transkript', type: 'llm', name: 'Transkript', x: x + 32 + 2 * W, y: y + 72,
-        prompt: 'Transkribiere den Ton aus @Stimme mit Zeitstempeln auf Hundertstelsekunden. Addiere 3 Sekunden zu jedem Zeitstempel, damit die Figur erst nach ihrer Bewegung spricht. Gib nur die Zeilen „mm:ss.cc Text“ aus.' },
-    ],
-    edges: [link('ton', 'audio', 'schwarz', 'audio'), link('ton', 'audio', 'transkript', 'audio')],
-  }
+/**
+ * Shot phase: per scene one row with a keyframe (Bild) and a clip (Video). The scene text feeds both; it names @Figur
+ * and @Set, which arrive as references, and the keyframe adds @Look. The keyframe is the clip's start image, so figure,
+ * outfit and place stay the same from shot to shot.
+ */
+function shots(x, y, scenes) {
+  const nodes = [frame('dreh', '4 · Keyframes und Videos', x, y, 2 * W + 64, 72 + scenes.length * 760, 'shots')]
+  const edges = []
+  scenes.forEach(([sceneKey, name, seconds], i) => {
+    const row = y + 72 + i * 760
+    nodes.push(
+      { key: 'k' + i, type: 'image', name: 'Keyframe ' + name, x: x + 32, y: row,
+        prompt: 'Standbild dieser Einstellung im Format 16:9. Gleiche Figur, gleiches Outfit, gleicher Ort wie in den Referenzen. Look aus @Look.' },
+      { key: 'v' + i, type: 'video', name: 'Video ' + name, x: x + 32 + W, y: row,
+        prompt: 'Die Figur und der Ort bleiben genau wie im Startbild.',
+        params: { modelId: 'seedance', settings: { seedance: { duration: String(seconds), resolution: '720p', aspect: '16:9', audio: true } } } },
+    )
+    edges.push(link(sceneKey, 'text', 'k' + i, 'prompt'), link(sceneKey, 'text', 'v' + i, 'prompt'), link('k' + i, 'image', 'v' + i, 'start'))
+  })
+  return { nodes, edges }
 }
 
-/** Shot phase: one video per scene; the scene text names @Figur and @Set, which arrive as image references. The third one speaks. */
-function shots(x, y, { story = true, speaking = true } = {}) {
-  const video = (key, name, dy, prompt, sceneKey, seconds) => ({ key, type: 'video', name, x: x + 32, y: y + dy, prompt,
-    params: { modelId: 'seedance', settings: { seedance: { duration: String(seconds), resolution: '720p', aspect: '16:9', audio: true } } }, sceneKey })
-  const list = [
-    video('v1', 'Video Erwachen', 72, story ? '' : '@Figur liegt in @Set auf einer Metallliege und richtet sich langsam auf.', 's1', 6),
-    video('v2', 'Video Flur', 72 + 760, story ? '' : '@Figur geht durch @Set, die Kamera fährt vor ihr rückwärts.', 's2', 8),
-    video('v3', 'Video Ansprache', 72 + 1520, speaking ? '@Figur kommt in @Set zum Stehen, sieht in die Kamera und spricht den Text aus @Schwarzes Video. Die Zeitstempel oben geben vor, wann sie welches Wort sagt; vorher bewegt sie sich nur.' : '@Figur bleibt in @Set stehen und sieht in die Kamera.', 's3', speaking ? 15 : 10),
-  ]
+/** Edit phase: the clips in reading order become the film. */
+function edit(x, y, clips) {
   return {
-    nodes: [frame('dreh', '5 · Videos', x, y, W + 64, 2360, 'shots'), ...list],
-    edges: [
-      // Figur, Set and Look arrive through their @mentions; the line carries only the scene text.
-      ...(story ? list.map(item => link(item.sceneKey, 'text', item.key, 'prompt')) : []),
-      ...(speaking ? [link('schwarz', 'video', 'v3', 'videos'), link('transkript', 'text', 'v3', 'prompt')] : []),
-    ],
-  }
-}
-
-/** Edit phase: the clips in order and the voice under the film. */
-function edit(x, y) {
-  return {
-    nodes: [frame('schnitt', '6 · Schnitt', x, y, W + 64, 880, 'edit'), { key: 'film', type: 'composition', name: 'Film', x: x + 32, y: y + 72 }],
-    edges: [link('v1', 'video', 'film', 'clips'), link('v2', 'video', 'film', 'clips'), link('v3', 'video', 'film', 'clips')],
+    nodes: [frame('schnitt', '5 · Schnitt', x, y, W + 64, 880, 'edit'), { key: 'film', type: 'composition', name: 'Film', x: x + 32, y: y + 72 }],
+    edges: clips.map(key => link(key, 'video', 'film', 'clips')),
   }
 }
 
 const merge = (...parts) => ({ nodes: parts.flatMap(part => part.nodes), edges: parts.flatMap(part => part.edges) })
+const storyWidth = 384 + 3 * 304 + 64
+const exampleScenes = [['s1', 'Erwachen', 6], ['s2', 'Flur', 8], ['s3', 'Ansprache', 10]]
 
-/** All templates: id, title, description and a builder returning nodes and edges at the origin. */
+/**
+ * All templates: id, title, description and a builder returning nodes and edges at the origin. `phase` marks the
+ * template a step page offers when its phase is missing; `listed: false` keeps a template out of the template dialog.
+ */
 export const templates = [
-  { id: 'kurzfilm', title: 'Kurzfilm mit sprechender Figur', phases: 6,
-    description: 'Der ganze Ablauf: ein freies Moodboard, das per Klick zu @Look wird, Regie mit Story und Shotliste, Figur und Set als @Assets, Stimme mit Transkript, drei Videos und der Schnitt. Rahmen 1 bis 6 von links nach rechts.',
+  { id: 'moodboard', title: 'Moodboard', phases: 1, steps: ['Moodboard'], phase: 'moodboard',
+    description: 'Eine freie Pinnwand für Bilder, Farben, Notizen und Stichworte, ohne Kästen und Linien. „Look erzeugen“ macht daraus @Look mit Licht, Kamera, Palette und Leitbildern.',
+    build: () => moodboard(0, 0) },
+  { id: 'storyboard', title: 'Storyboard', phases: 1, steps: ['Storyboard'], phase: 'storyboard',
+    description: 'Die Regie mit deiner Story schreibt die Shotliste, „Szenen anlegen“ macht daraus die Szenen. Der Filmstreifen zeigt sie mit Dauer und Status.',
+    build: () => storyboard(0, 0, false) },
+  { id: 'moodboard-und-storyboard', title: 'Moodboard und Storyboard', phases: 2, steps: ['Moodboard', 'Storyboard'],
+    description: 'Beides zusammen: Der Look aus dem Moodboard (@Look) geht in die Regie, die daraus und aus der Story die Szenen schreibt. Ohne Linie zwischen den Rahmen.',
+    build: () => merge(moodboard(0, 0), storyboard(moodWidth + 160, 0)) },
+  { id: 'konsistenter-film', title: 'Konsistenter Film', phases: 5, steps: ['Moodboard', 'Storyboard', 'Figur und Set', 'Keyframes und Videos', 'Schnitt'],
+    description: 'Der ganze Weg zum Video: Moodboard (@Look), Storyboard mit Regie, Figur und Set als @Assets, pro Szene ein Keyframe als Startbild und ein Video, am Ende der Schnitt. Figur, Outfit und Ort bleiben in jeder Einstellung gleich.',
     build: () => {
       const at = [0, moodWidth + 160]
-      for (const width of [384 + 3 * 304 + 64, 4 * W + 64, 3 * W + 64, W + 64]) at.push(at.at(-1) + width + 160)
-      return merge(moodboard(at[0], 0), storyboard(at[1], 0), cast(at[2], 0), voice(at[3], 0), shots(at[4], 0), edit(at[5], 0))
+      for (const width of [storyWidth, 4 * W + 64, 2 * W + 64]) at.push(at.at(-1) + width + 160)
+      return merge(moodboard(at[0], 0), storyboard(at[1], 0), cast(at[2], 0), shots(at[3], 0, exampleScenes), edit(at[4], 0, exampleScenes.map((_, i) => 'v' + i)))
     } },
-  { id: 'look-und-story', title: 'Moodboard und Storyboard', phases: 2,
-    description: 'Freies Moodboard, das per Klick zu @Look wird, daneben die Regie mit Story, Shotliste und den Szenen daraus.',
-    build: () => merge(moodboard(0, 0), storyboard(moodWidth + 160, 0)) },
-  { id: 'moodboard', title: 'Moodboard', phases: 1, phase: 'moodboard',
-    description: 'Eine freie Pinnwand für Bilder, Farben, Notizen und Stichworte. „Look erzeugen“ macht daraus @Look mit Licht, Kamera, Palette und Leitbildern.',
-    build: () => moodboard(0, 0) },
-  { id: 'storyboard', title: 'Storyboard', phases: 1, phase: 'storyboard',
-    description: 'Regie mit Story und Shotliste, daneben drei Beispielszenen, die „Szenen anlegen“ ersetzt. Der Filmstreifen zeigt sie mit Status.',
-    build: () => storyboard(0, 0, false) },
-  { id: 'figur-und-set', title: 'Figur und Set', phases: 1, phase: 'cast',
+  { id: 'figur-und-set', title: 'Figur und Set', phases: 1, steps: ['Figur und Set'], phase: 'cast', listed: false,
     description: 'Outfits und Orte als Referenzen, daraus Charakterblatt und Set ohne Personen. Alle vier sind @Assets für gleichbleibende Figuren und Orte.',
     build: () => cast(0, 0, false) },
-  { id: 'sprechende-figur', title: 'Sprechende Figur', phases: 3,
-    description: 'Figur und Set, Stimme als schwarzes Video mit Transkript und ein Seedance-Video, in dem die Figur genau diesen Text spricht.',
-    build: () => {
-      const one = shots(3 * W + 64 + 160 + 3 * W + 64 + 160, 0, { story: false })
-      one.nodes = one.nodes.filter(node => node.key === 'dreh' || node.key === 'v3')
-      one.nodes[0].params.height = 880
-      one.nodes[1].y = 72
-      one.edges = one.edges.filter(edge => edge.target === 'v3')
-      return merge(cast(0, 0, false), voice(2 * W + 64 + 160, 0), one)
-    } },
-  { id: 'bild-zu-video', title: 'Bild zu Video', phases: 0,
-    description: 'Der kürzeste Weg: Notiz als Prompt, ein Bild, daraus ein Clip.',
-    build: () => ({ nodes: [note('t', 'Prompt', 0, 160, ''), { key: 'b', type: 'image', x: 400, y: 80 }, { key: 'v', type: 'video', x: 880, y: 80 }],
-      edges: [link('t', 'text', 'b', 'prompt'), link('b', 'image', 'v', 'start')] }) },
 ]
 
 /**

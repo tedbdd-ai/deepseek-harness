@@ -49,6 +49,12 @@ Stand: 2026-11-21. Grundlage ist das Konzept „AI-Film-Workflow im React-Flowbo
 - „Look erzeugen“ ersetzt die getrennte Style-DNA in den Vorlagen: Das Ergebnis ist strukturiert (`data`: Look, Licht, Kamera, Palette, Material) und hat Leitbilder. Seine Bilder, Clips und Notizen gibt der Knoten ohne Lauf weiter (`passthrough`). Bei `@Look` gehen nur Look und Leitbilder mit (`mention: false` an den übrigen Ports).
 - Die Regie trägt die Story als Feld, der eigene Story-Knoten entfällt. Outfits und Orte liegen in „Figur und Set“ neben Charakterblatt und Set.
 
+### Nachtrag: Vorlagen aufgeräumt (umgesetzt)
+
+- Es bleiben vier Vorlagen: Moodboard, Storyboard, Moodboard und Storyboard, Konsistenter Film. Die alten Vorlagen (Kurzfilm mit Stimme, Sprechende Figur, Bild zu Video) sind entfallen.
+- Konsistenter Film: Pro Szene gibt es einen Keyframe (Bild) als Startbild des Videos. Die Szene speist beide, und `@Figur`, `@Set` und `@Look` halten Figur, Outfit und Ort gleich.
+- Die Auswahldialoge haben große Hochformat-Kacheln. Der Flows-Dialog hat dazu Filter, nummerierte Auswahl und eine Großansicht.
+
 ### Phase 3: ComfyUI über Rancher und Rezepte
 
 - Provider-Plugin `providers/comfyui`: Es nimmt einen exportierten API-Workflow (JSON) und macht die markierten Eingänge (`prompt`, `ref_image`, `seed`, `denoise`) zu Ports. Aufträge gehen an eine Queue vor dem Rancher-Cluster, und Fortschritt und Ergebnis kommen zurück in den Knoten. Adresse und Zugang sind Plugin-Einstellungen.

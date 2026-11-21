@@ -44,7 +44,7 @@ export async function render(container, { el, api, media, withFullscreen, isFash
         el('span', { class: 'pick' }, media(item)), el('span', { class: 'meta' }, item.title)))) : [el('p', { class: 'meta' }, q ? 'Keine Treffer.' : empty)]))
     }
     search.oninput = fill
-    const dialog = el('dialog', { class: 'pg-editor styler-picker', 'aria-label': title, style: 'width:min(880px, calc(100vw - 32px))' },
+    const dialog = el('dialog', { class: 'pg-editor styler-picker', 'aria-label': title },
       el('form', { method: 'dialog' }, el('div', { style: 'display:flex;align-items:center;gap:12px' }, el('h2', { style: 'margin-right:auto' }, title),
         uploadButton?.({ label: 'Vom Mac hochladen', onDone: created => { const image = created.find(a => a.media_type?.startsWith('image/')); if (!image) return; images.unshift(image); dialog.close(); onSelect(image); draw() } })),
         search, grid, el('div', { class: 'row' }, el('button', { class: 'btn ghost' }, 'Abbrechen'))))

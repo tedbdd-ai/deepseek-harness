@@ -424,8 +424,8 @@ test('every template fits the registered node types, connects or registers as as
   const project = store.createProject({ title: 'Kurzfilm' }).id
   const outfit = store.createAsset({ library: 'clips', title: 'Mantel', mediaType: 'image/png', media: png.toString('base64'), projectId: project }).id
   store.editTags({ ids: [outfit], add: ['Outfit'] })
-  const inserted = await harness.json('POST', `/creativity-flows/api/projects/${project}/templates`, { templateId: 'kurzfilm', revision: 0 }, 201)
-  assert.equal(inserted.added, 23)
+  const inserted = await harness.json('POST', `/creativity-flows/api/projects/${project}/templates`, { templateId: 'konsistenter-film', revision: 0 }, 201)
+  assert.equal(inserted.added, 21)
   const regie = inserted.record.data.nodes.find(node => node.type === 'director')
   assert.deepEqual(inserted.record.data.nodes.filter(node => node.type === 'scene').map(node => node.params.from), [regie.id, regie.id, regie.id], 'die Beispielszenen gehören zur Regie')
   assert.deepEqual(inserted.record.data.nodes.filter(node => node.asset).map(node => node.name).sort(), ['Figur', 'Look', 'Orte', 'Outfits', 'Set'])
@@ -435,10 +435,16 @@ test('every template fits the registered node types, connects or registers as as
   assert.deepEqual(board.params.items.filter(item => item.kind !== 'file').map(item => item.kind), ['note', 'word', 'word', 'word', 'word', 'word', 'color', 'color'])
   assert.ok(board.params.items.every(item => typeof item.id === 'string'))
   assert.equal(inserted.record.data.nodes.filter(node => node.parentId === board.parentId).length, 1, 'im Moodboard-Rahmen liegt nur die Pinnwand')
-  await harness.json('POST', `/creativity-flows/api/projects/${project}/templates`, { templateId: 'kurzfilm', revision: 0 }, 409)
+  await harness.json('POST', `/creativity-flows/api/projects/${project}/templates`, { templateId: 'konsistenter-film', revision: 0 }, 409)
   const second = await harness.json('POST', `/creativity-flows/api/projects/${project}/templates`, { templateId: 'figur-und-set', revision: inserted.record.revision }, 201)
-  assert.deepEqual(inserted.record.data.nodes.filter(node => node.type === 'frame').map(node => node.params.phase), ['moodboard', 'storyboard', 'cast', 'voice', 'shots', 'edit'])
+  assert.deepEqual(inserted.record.data.nodes.filter(node => node.type === 'frame').map(node => node.params.phase), ['moodboard', 'storyboard', 'cast', 'shots', 'edit'])
   const listed = await harness.json('GET', '/creativity-flows/api/templates')
+  assert.deepEqual(listed.filter(item => item.listed).map(item => item.id), ['moodboard', 'storyboard', 'moodboard-und-storyboard', 'konsistenter-film'])
+  const film = inserted.record.data
+  const of = type => film.nodes.filter(node => node.type === type).map(node => node.id)
+  assert.equal(film.edges.filter(edge => of('image').includes(edge.source) && edge.targetHandle === 'start').length, 3, 'jedes Keyframe ist Startbild seines Videos')
+  assert.equal(film.edges.filter(edge => of('composition').includes(edge.target)).length, 3)
+  assert.ok(!film.edges.some(edge => edge.source === film.nodes.find(node => node.name === 'Figur').id), 'die Figur kommt über @Figur, ohne Linie')
   assert.deepEqual(listed.filter(item => item.phase).map(item => [item.id, item.phase]), [['moodboard', 'moodboard'], ['storyboard', 'storyboard'], ['figur-und-set', 'cast']])
   const at = doc => { const byId = new Map(doc.nodes.map(node => [node.id, node])); return doc.nodes.map(node => ({ id: node.id, ...absolute(node, byId) })) }
   const right = Math.max(...at(inserted.record.data).map(node => node.x))

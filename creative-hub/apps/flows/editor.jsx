@@ -812,46 +812,78 @@ function AddMenu({ types, at, filter, onPick, onClose, onUpload, onLibrary }) {
   </div>
 }
 
-function AssetPicker({ ctx, initial, single, onDone, onClose }) {
+/**
+ * Picks Library files for a Datei node, a scene's start image or a moodboard. Large portrait tiles (about 184 px) so
+ * pictures can be told apart; „Nur dieses Projekt“ and the file kind narrow the list; chosen files carry their number;
+ * the magnifier shows a file large without choosing it.
+ */
+function AssetPicker({ ctx, project, initial, single, onDone, onClose }) {
   const [query, setQuery] = useState('')
   const [items, setItems] = useState(null)
   const [error, setError] = useState('')
   const [chosen, setChosen] = useState(initial)
   const [attempt, setAttempt] = useState(0)
+  const [own, setOwn] = useState(false)
+  const [kind, setKind] = useState(single ? 'image' : 'all')
+  const [large, setLarge] = useState(null)
   useEffect(() => {
     let active = true
-    const timer = setTimeout(() => ctx.api('/search?' + new URLSearchParams({ q: query, limit: 60 }))
+    const timer = setTimeout(() => ctx.api('/search?' + new URLSearchParams({ q: query, limit: 120, ...(own && { project }) }))
       .then(result => { if (active) { setItems(result.items.filter(item => /^(image|video|audio)\//.test(item.media_type ?? '') || item.preview)); setError('') } })
       .catch(e => { if (active) setError(e.message) }), 250)
     return () => { active = false; clearTimeout(timer) }
-  }, [query, attempt])
+  }, [query, attempt, own])
+  const kindOf = item => (item.media_type ?? 'image/').split('/')[0]
+  const shown = (items ?? []).filter(item => kind === 'all' || kindOf(item) === kind)
   const toggle = id => setChosen(chosen.includes(id) ? chosen.filter(x => x !== id) : single ? [id] : [...chosen, id].slice(0, 24))
   const title = single ? 'Startbild wählen' : 'Dateien wählen'
-  return <Dialog open onOpenChange={open => { if (!open) onClose() }}>
-    <DialogContent className="flow-dialog max-w-[720px]">
-      <DialogHeader><DialogTitle>{title}</DialogTitle><DialogDescription>Aus Sammlung und Library, zuerst die passendsten Treffer.</DialogDescription></DialogHeader>
-      <input className="text-in" autoFocus placeholder="In Sammlung und Library suchen" value={query} onChange={e => setQuery(e.target.value)}/>
+  const kinds = [['all', 'Alle'], ['image', 'Bilder'], ['video', 'Videos'], ['audio', 'Ton']]
+  return <Dialog open onOpenChange={open => { if (!open) { if (large) setLarge(null); else onClose() } }}>
+    <DialogContent className="flow-dialog flow-picker">
+      <DialogHeader><DialogTitle>{title}</DialogTitle><DialogDescription>Aus Sammlung und Library, die passendsten Treffer zuerst. Die Lupe zeigt eine Datei groß.</DialogDescription></DialogHeader>
+      <div className="flex flex-wrap items-center gap-2">
+        <input className="text-in min-w-60 flex-1" autoFocus placeholder="Suchen, etwa Latex, Klinik, Porträt" value={query} onChange={e => setQuery(e.target.value)} aria-label="In Sammlung und Library suchen"/>
+        <Button variant={own ? 'secondary' : 'outline'} size="sm" aria-pressed={own} onClick={() => setOwn(!own)}>Nur dieses Projekt</Button>
+        {!single && <div className="flex gap-1" role="group" aria-label="Art der Datei">{kinds.map(([value, label]) =>
+          <Button key={value} variant={kind === value ? 'secondary' : 'ghost'} size="sm" aria-pressed={kind === value} onClick={() => setKind(value)}>{label}</Button>)}</div>}
+      </div>
       {error ? <p className="flow-error" role="alert">{error} <Button variant="outline" size="sm" onClick={() => setAttempt(attempt + 1)}>Erneut versuchen</Button></p>
-        : !items ? <div className="[display:grid] grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-2" aria-label="Lädt">{Array.from({ length: 8 }, (_, i) => <span key={i} className="h-36 rounded-md bg-card"/>)}</div>
-          : !items.length ? <p className="text-sm text-muted-foreground">{query.trim() ? 'Nichts gefunden. Versuch ein anderes Wort.' : 'Die Library ist noch leer. Lade Dateien über „Hochladen“ hoch.'}</p>
-            : <div className="[display:grid] max-h-[50vh] grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-2 overflow-auto">{items.map(item =>
-              <button key={item.id} className={cn('flow-pick [display:grid] gap-1 overflow-hidden rounded-md border-2 border-transparent bg-card text-left text-xs text-secondary-foreground active:scale-[.98]', chosen.includes(item.id) && 'border-[var(--c-focus)]')}
-                aria-pressed={chosen.includes(item.id)} onClick={() => toggle(item.id)}><Media asset={item} ctx={ctx}/><span className="truncate px-2 pb-2">{item.title}</span></button>)}</div>}
-      <DialogFooter className="items-center"><span className="mr-auto text-sm text-muted-foreground">{chosen.length} gewählt</span>
+        : !items ? <div className="flow-pick-grid" aria-label="Lädt">{Array.from({ length: 10 }, (_, i) => <span key={i} className="flow-pick-skeleton"/>)}</div>
+          : !shown.length ? <p className="text-sm text-muted-foreground">{query.trim() || own || kind !== 'all' ? 'Nichts gefunden. Ändere Suche oder Filter.' : 'Die Library ist noch leer. Lade Dateien über „Hochladen“ hoch.'}</p>
+            : <div className="flow-pick-grid">{shown.map(item => {
+              const at = chosen.indexOf(item.id)
+              return <div key={item.id} className={cn('flow-pick', at >= 0 && 'on')}>
+                <button type="button" className="flow-pick-face" aria-pressed={at >= 0} aria-label={`${item.title}${at >= 0 ? ', gewählt' : ''}`} onClick={() => toggle(item.id)}>
+                  <Media asset={item} ctx={ctx}/>{at >= 0 && <span className="flow-pick-mark tabular-nums">{single ? '✓' : at + 1}</span>}</button>
+                <span className="flow-pick-meta"><span className="truncate">{item.title || 'Ohne Titel'}</span>
+                  <Button variant="ghost" size="icon-sm" aria-label={`${item.title} groß ansehen`} title="Groß ansehen" onClick={() => setLarge(item)}><Maximize2/></Button></span>
+              </div>
+            })}</div>}
+      <DialogFooter className="items-center"><span className="mr-auto text-sm text-muted-foreground tabular-nums">{chosen.length === 1 ? '1 gewählt' : `${chosen.length} gewählt`}</span>
+        {chosen.length > 0 && !single && <Button variant="ghost" onClick={() => setChosen([])}>Auswahl leeren</Button>}
         <Button variant="outline" onClick={onClose}>Abbrechen</Button><Button onClick={() => onDone(chosen)}>Übernehmen</Button></DialogFooter>
+      {large && <div className="flow-pick-large" role="dialog" aria-label={large.title}>
+        <div className="flow-viewer-stage"><Media asset={large} ctx={ctx} full/></div>
+        <div className="flex items-center justify-between gap-2"><b className="truncate font-medium">{large.title}</b>
+          <span className="flex gap-2"><Button variant="outline" onClick={() => setLarge(null)}>Zurück</Button>
+            <Button onClick={() => { if (!chosen.includes(large.id)) toggle(large.id); setLarge(null) }}>{chosen.includes(large.id) ? 'Gewählt' : 'Wählen'}</Button></span></div>
+      </div>}
     </DialogContent>
   </Dialog>
 }
 
+/** The template dialog: each template with its steps in order, so the difference between them shows at a glance. */
 function Templates({ list, onPick, onClose, busy }) {
   return <Dialog open onOpenChange={open => { if (!open) onClose() }}>
-    <DialogContent className="flow-dialog max-w-[720px]">
+    <DialogContent className="flow-dialog sm:max-w-[880px]">
       <DialogHeader><DialogTitle>Vorlage einfügen</DialogTitle>
-        <DialogDescription>Die Vorlage kommt rechts neben das, was schon auf der Fläche liegt. Datei-Knoten füllt sie mit passenden Bildern aus deiner Sammlung, zuerst aus diesem Projekt. Ausgeführt wird nichts.</DialogDescription></DialogHeader>
-      <div className="[display:grid] grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-2">{list.map((item, i) =>
+        <DialogDescription>Die Vorlage kommt rechts neben das, was schon auf der Fläche liegt, und füllt Moodboard und Referenzen mit passenden Bildern aus deiner Sammlung. Ausgeführt wird nichts.</DialogDescription></DialogHeader>
+      <div className="[display:grid] grid-cols-[repeat(auto-fill,minmax(360px,1fr))] gap-3">{list.filter(item => item.listed !== false).map((item, i) =>
         <button key={item.id} autoFocus={i === 0} disabled={busy} onClick={() => onPick(item)}
-          className="[display:grid] content-start gap-1 rounded-md border bg-card p-3 text-left text-sm text-secondary-foreground hover:bg-secondary active:bg-accent disabled:opacity-50">
-          <b className="text-lg text-foreground">{item.title}</b><span>{item.description}</span>{item.phases > 0 && <small className="text-muted-foreground">{item.phases === 1 ? '1 Rahmen' : `${item.phases} Rahmen`}</small>}</button>)}</div>
+          className="[display:grid] content-start gap-2 rounded-lg border bg-card p-4 text-left text-sm text-secondary-foreground hover:bg-secondary active:bg-accent disabled:opacity-50">
+          <b className="text-lg font-medium text-foreground">{item.title}</b>
+          {item.steps?.length > 0 && <ol className="flow-template-steps" aria-label="Schritte">{item.steps.map(step => <li key={step}>{step}</li>)}</ol>}
+          <span>{item.description}</span></button>)}</div>
       <DialogFooter><Button variant="outline" onClick={onClose}>Abbrechen</Button></DialogFooter>
     </DialogContent>
   </Dialog>
@@ -1262,7 +1294,8 @@ function Canvas({ ctx, project, record, types, boards, templates, step = null, p
       const outputs = view.nodes[kid.id]?.outputs
       if (!kind || !outputs) continue
       const media = kind.outputs.filter(port => port.kind === 'image' || port.kind === 'video').flatMap(port => outputs[port.id] ?? []).filter(item => view.assets[item])
-      ;(kind.runs ? made : refs).push(...media)
+      // A moodboard's pictures are references, even though the board itself runs („Look erzeugen“).
+      ;(kind.runs && kid.type !== 'moodboard' ? made : refs).push(...media)
     }
     return { cover: [...new Set([...made, ...refs])].slice(0, 4), made: made.length, nodes: kids.length }
   }
@@ -1593,7 +1626,7 @@ function Canvas({ ctx, project, record, types, boards, templates, step = null, p
           onUpload: () => uploadAssets(addNode(typeOf.get('library'), menu.position, menu.filter)),
           onLibrary: () => pickAssets(addNode(typeOf.get('library'), menu.position, menu.filter)),
         })}/>}
-      {picker && <AssetPicker ctx={ctx} single={picker.single} initial={picker.board ? [] : state.data.nodes.find(n => n.id === picker.id)?.params?.assetIds ?? []} onClose={() => setPicker(null)}
+      {picker && <AssetPicker ctx={ctx} project={project} single={picker.single} initial={picker.board ? [] : state.data.nodes.find(n => n.id === picker.id)?.params?.assetIds ?? []} onClose={() => setPicker(null)}
         onDone={ids => { if (picker.board) addToBoard(picker.id, ids); else update(picker.id, n => ({ ...n, params: { ...n.params, assetIds: ids } })); setPicker(null) }}/>}
       {viewer && <Viewer {...viewer} ids={viewer.nodeId ? (state.data.nodes.find(n => n.id === viewer.nodeId)?.params?.assetIds ?? []) : viewer.ids}
         onIndex={index => setViewer({ ...viewer, index })} onClose={() => setViewer(null)}/>}

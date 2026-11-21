@@ -242,8 +242,10 @@ dialog .row { display: flex; gap: var(--s-2); justify-content: flex-end; }
 .pill svg:not(.chev) { width: 16px; height: 16px; }
 .pg-models { display: flex; flex-direction: column; gap: var(--s-1); max-height: 50vh; overflow: auto; }
 .pg-model { display: flex; align-items: center; gap: var(--s-2); padding: 0 var(--s-1); border-bottom: 1px solid var(--c-hair); }
-.pick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: var(--s-2); max-height: 60vh; overflow: auto; padding: 4px; }
-.pick { aspect-ratio: 1; padding: 0; border: 0; border-radius: var(--r-ctl); overflow: hidden; background: var(--c-fill-2); cursor: pointer; }
+/* Pickers: tiles large enough to tell pictures apart (portrait 4:5, about 184 px wide), dialogs wide enough for five columns. */
+dialog:has(.pick-grid), dialog:has(.similar-grid) { width: min(1120px, calc(100vw - 64px)); }
+.pick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(184px, 1fr)); gap: var(--s-3); max-height: 64vh; overflow: auto; padding: 4px; }
+.pick { aspect-ratio: 4 / 5; padding: 0; border: 0; border-radius: var(--r-ctl); overflow: hidden; background: var(--c-fill-2); cursor: pointer; }
 .pick img, .pick video { width: 100%; height: 100%; object-fit: cover; display: block; }
 .pick.on { outline: 2px solid var(--c-ink); outline-offset: 2px; }
 @media (max-width: 900px) { .pg-run { grid-template-columns: 1fr; } }
@@ -628,9 +630,9 @@ span.photo-run-image { display: grid; place-items: center; color: var(--c-ink-3)
 .tri .mixed { width: 8px; height: 2px; background: var(--c-ink-2); }
 .bulk-list { display: flex; flex-direction: column; gap: var(--s-3); max-height: 50vh; overflow-y: auto; }
 dialog.wide { width: min(720px, calc(100vw - 32px)); }
-.similar-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: var(--s-2); max-height: 60vh; overflow-y: auto; }
+.similar-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(184px, 1fr)); gap: var(--s-3); max-height: 64vh; overflow-y: auto; }
 .similar-item { display: flex; flex-direction: column; gap: var(--s-1); padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer; text-align: left; }
-.similar-item img, .similar-item video { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: var(--r-ctl); background: var(--c-fill-2); }
+.similar-item img, .similar-item video { width: 100%; aspect-ratio: 4 / 5; object-fit: cover; border-radius: var(--r-ctl); background: var(--c-fill-2); }
 .tile .badge { position: absolute; left: var(--s-2); bottom: var(--s-2); display: inline-flex; align-items: center; gap: var(--s-1); height: var(--s-5); padding: 0 var(--s-2); border-radius: var(--r-ctl); background: var(--c-scrim); color: var(--c-on-scrim); font-size: var(--fs-micro); font-variant-numeric: tabular-nums; }
 .tile .badge.stack { left: auto; right: var(--s-2); }
 .tile .badge svg { width: 12px; height: 12px; }

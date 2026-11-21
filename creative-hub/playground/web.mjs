@@ -669,7 +669,7 @@ async function pickReferences() {
     chosen.has(item.id) ? chosen.delete(item.id) : chosen.add(item.id)
     e.currentTarget.classList.toggle('on'); e.currentTarget.setAttribute('aria-pressed', String(chosen.has(item.id)))
   } }, media(item)))))
-  const dialog = el('dialog', { style: 'width:min(880px, calc(100vw - 32px))' }, el('form', { method: 'dialog' },
+  const dialog = el('dialog', { 'aria-label': 'Referenzen wählen' }, el('form', { method: 'dialog' },
     el('div', { style: 'display:flex;align-items:center;gap:12px' }, el('h2', { style: 'margin-right:auto' }, 'Referenzen wählen'),
       // Files from the Mac land in the Sammlung and are attached at once.
       uploadButton({ label: 'Vom Mac hochladen', onDone: created => { dialog.close(); updateReferences([...new Set([...pg.refs, ...created.filter(a => a.media_type?.startsWith('image/')).map(a => a.id)])].slice(0, 16)) } })),
