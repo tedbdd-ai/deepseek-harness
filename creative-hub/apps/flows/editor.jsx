@@ -14,7 +14,7 @@ import '@xyflow/react/dist/style.css'
 import './ui/flows.css'
 import {
   Archive, AudioLines, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Copy, Download, Hand, History, Image, LayoutGrid,
-  Link, Map as MapIcon, Maximize, Minus, MoreHorizontal, MousePointer2, Palette, Play, Plus, Scissors, SlidersHorizontal, Sparkles, Trash2, Type, Upload, User, Video, Volume2, VolumeX,
+  Link, Map as MapIcon, Maximize, Maximize2, Minus, MoreHorizontal, MousePointer2, Palette, Play, Plus, Scissors, SlidersHorizontal, Sparkles, Trash2, Type, Upload, User, Video, Volume2, VolumeX, X,
 } from 'lucide-react'
 import { BaseNode, BaseNodeContent, BaseNodeFooter, BaseNodeHeader, BaseNodeHeaderTitle } from '@/components/base-node'
 import { BaseHandle } from '@/components/base-handle'
@@ -69,11 +69,56 @@ function withField(node, field, value) {
 const contains = (value, search) => (value.toLocaleLowerCase('de').includes(search.trim().toLocaleLowerCase('de')) ? 1 : 0)
 const domainOf = url => { try { return new URL(url).hostname.replace(/^www\./, '') } catch { return '' } }
 
-/** A Library file drawn with the hub's own media element (image, video with controls, audio, link card). */
-function Media({ asset, ctx, full = false }) {
+/**
+ * A Library file drawn with the hub's own media element (image, video with controls, audio, link card). Pictures are not
+ * draggable: a native image drag would carry a file and land as a copy on the canvas.
+ */
+function Media({ asset, ctx, full = false, className }) {
   const host = useRef(null)
-  useEffect(() => { if (asset) host.current.replaceChildren(full ? ctx.withFullscreen(asset, ctx.media(asset, { full: true })) : ctx.media(asset)) }, [asset, ctx, full])
-  return <div ref={host} className="flow-media"/>
+  useEffect(() => {
+    if (!asset) return
+    host.current.replaceChildren(full ? ctx.media(asset, { full: true }) : ctx.media(asset))
+    host.current.querySelectorAll('img, video').forEach(item => { item.draggable = false })
+  }, [asset, ctx, full])
+  return <div ref={host} className={cn('flow-media', className)}/>
+}
+
+/**
+ * Fullscreen view of the files of one node: arrow keys or the buttons page through, Esc closes. On a Datei node the
+ * shown file can be taken out of the node (it stays in the Library).
+ */
+function Viewer({ ids, index, nodeId, onIndex, onClose }) {
+  const { ctx, assets, removeAsset } = useContext(Actions)
+  const list = ids.filter(id => assets[id])
+  const at = Math.min(index, list.length - 1)
+  const asset = assets[list[at]]
+  if (!asset) return null
+  const step = delta => onIndex((at + delta + list.length) % list.length)
+  const kind = asset.media_type?.split('/')[0]
+  return <Dialog open onOpenChange={open => { if (!open) onClose() }}>
+    <DialogContent className="flow-viewer" onKeyDown={event => {
+      if (list.length > 1 && (event.key === 'ArrowRight' || event.key === 'ArrowLeft')) { event.preventDefault(); step(event.key === 'ArrowRight' ? 1 : -1) }
+    }}>
+      <DialogHeader className="min-w-0 pr-12">
+        <DialogTitle className="truncate">{asset.title || 'Ohne Titel'}</DialogTitle>
+        <DialogDescription>{[kindNames[kind], list.length > 1 && `${at + 1} von ${list.length}`].filter(Boolean).join(' · ')}</DialogDescription>
+      </DialogHeader>
+      <div className="flow-viewer-stage"><Media key={asset.id} asset={asset} ctx={ctx} full/></div>
+      <DialogFooter className="items-center sm:justify-between">
+        <div className="flex gap-2">{list.length > 1 && <>
+          <Button variant="outline" size="icon" aria-label="Vorherige Datei" title="Vorherige (←)" onClick={() => step(-1)}><ChevronLeft/></Button>
+          <Button variant="outline" size="icon" aria-label="Nächste Datei" title="Nächste (→)" onClick={() => step(1)}><ChevronRight/></Button>
+        </>}</div>
+        <div className="flex flex-wrap gap-2">
+          {nodeId && <Button variant="outline" className="text-destructive" onClick={() => {
+            removeAsset(nodeId, asset.id)
+            if (list.length === 1) onClose(); else onIndex(Math.min(at, list.length - 2))
+          }}><X/>Aus dem Knoten entfernen</Button>}
+          <Button asChild variant="outline"><a href={mediaUrl(asset.id)} download className="no-underline"><Download/>Download</a></Button>
+        </div>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
 }
 
 function Seconds({ since }) {
@@ -83,7 +128,7 @@ function Seconds({ since }) {
 }
 
 function Preview({ type, view }) {
-  const { ctx, assets } = useContext(Actions)
+  const { ctx, assets, openViewer } = useContext(Actions)
   const [page, setPage] = useState(0)
   const media = type.outputs.filter(port => port.kind !== 'text').flatMap(port => view?.outputs?.[port.id] ?? []).filter(id => assets[id])
   const busy = view?.status === 'running' || view?.status === 'waiting'
@@ -95,7 +140,9 @@ function Preview({ type, view }) {
     </div>
   }
   const shown = media[Math.min(page, media.length - 1)]
-  return <div className="relative overflow-hidden rounded-md bg-background">
+  return <div className="group/preview relative overflow-hidden rounded-md bg-background" onDoubleClick={() => openViewer({ ids: media, index: media.indexOf(shown) })}>
+    <Button variant="secondary" size="icon-sm" className="nodrag absolute right-2 top-2 z-10 opacity-0 transition-opacity group-hover/preview:opacity-100 focus-visible:opacity-100"
+      aria-label="Im Vollbild ansehen" title="Vollbild (Doppelklick)" onClick={() => openViewer({ ids: media, index: media.indexOf(shown) })}><Maximize2/></Button>
     <Media asset={assets[shown]} ctx={ctx} full/>
     {busy && <span className="absolute left-2 top-2 rounded-sm bg-[var(--c-scrim)] text-[var(--c-on-scrim)] px-2 py-0.5 text-xs">{statusNames[view.status]} <Seconds since={view.startedAt}/></span>}
     {media.length > 1 && <div className="nodrag absolute bottom-2 right-2 flex items-center gap-1 rounded-md bg-[var(--c-scrim)] text-[var(--c-on-scrim)] p-0.5 text-xs tabular-nums">
@@ -172,15 +219,16 @@ function Picker({ field, value, onChange }) {
 }
 
 /**
- * Prompt field with `@` mentions: typing `@` lists the names that can be mentioned here, and a chosen name is inserted
- * as `@Name`. The engine turns the name into the reference mark of the connected input when the node runs.
+ * Prompt field with `@` mentions: typing `@` lists what can be mentioned here, and a choice is inserted as `@Bild1` (one
+ * connected file, the mark the model reads) or `@Name` (all files of a node; the engine turns it into their marks when
+ * the node runs). `names` holds `{ name, hint?, asset? }`.
  */
 function PromptField({ node, type, names }) {
-  const { update } = useContext(Actions)
+  const { update, ctx, assets } = useContext(Actions)
   const field = useRef(null)
   const [query, setQuery] = useState(null)
   const [active, setActive] = useState(0)
-  const matches = query === null ? [] : names.filter(name => name.toLocaleLowerCase('de').startsWith(query.toLocaleLowerCase('de'))).slice(0, 6)
+  const matches = query === null ? [] : names.filter(item => item.name.toLocaleLowerCase('de').startsWith(query.toLocaleLowerCase('de'))).slice(0, 8)
   function track(element) {
     const found = /@([\p{L}\p{N} _-]{0,32})$/u.exec(element.value.slice(0, element.selectionStart))
     setQuery(found && names.length ? found[1] : null)
@@ -204,46 +252,70 @@ function PromptField({ node, type, names }) {
       onKeyDown={e => {
         if (!matches.length) return
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); setActive((active + (e.key === 'ArrowDown' ? 1 : matches.length - 1)) % matches.length) }
-        else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); insert(matches[active]) }
+        else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); insert(matches[active].name) }
         else if (e.key === 'Escape') setQuery(null)
       }}
       onBlur={() => setTimeout(() => setQuery(null), 150)}/>
     {matches.length > 0 && <div role="listbox" aria-label="Referenz einfügen" className="absolute left-0 top-full z-10 mt-1 [display:grid] min-w-48 rounded-md border bg-popover p-1 text-popover-foreground">
-      {matches.map((name, i) => <button key={name} role="option" aria-selected={i === active}
-        className={cn('flex min-h-9 items-center rounded-sm px-3 text-left text-sm', i === active ? 'bg-accent' : 'hover:bg-accent')}
-        onMouseDown={e => { e.preventDefault(); insert(name) }}>@{name}</button>)}
+      {matches.map((item, i) => <button key={item.name} role="option" aria-selected={i === active}
+        className={cn('flow-ref flex min-h-9 items-center gap-2 rounded-sm px-2 text-left text-sm', i === active ? 'bg-accent' : 'hover:bg-accent')}
+        onMouseDown={e => { e.preventDefault(); insert(item.name) }}>
+        {item.asset && assets[item.asset] && <Media asset={assets[item.asset]} ctx={ctx}/>}
+        <span className="font-medium">@{item.name}</span>{item.hint && <span className="max-w-40 truncate text-xs text-muted-foreground">{item.hint}</span>}</button>)}
     </div>}
   </div>
 }
 
-/** Reference chips of a run node: mark, name and thumbnail of each connected file; a click mentions the node in the prompt. */
+/** Reference chips of a run node: mark, thumbnail and title of each connected file; a click puts its mark (`@Bild1`) into the prompt. */
 function References({ node, view }) {
-  const { ctx, assets, update } = useContext(Actions)
+  const { ctx, assets, update, openViewer } = useContext(Actions)
   const [all, setAll] = useState(false)
   const refs = view?.refs ?? []
   if (!refs.length) return null
   const shown = all || refs.length <= 5 ? refs : refs.slice(0, 4)
   const chip = 'flow-ref h-8 gap-1 px-2 pl-0.5 text-xs font-normal'
   return <div className="nodrag flex flex-wrap gap-1" aria-label="Referenzen">
-    {shown.map(ref => <Button key={ref.mark} variant="outline" size="sm" className={chip} title={`${ref.mark} ist „${ref.name}“. Klicken fügt @${ref.name} in den Prompt ein.`}
-      onClick={() => update(node.id, n => ({ ...n, prompt: ((n.prompt ?? '').replace(/\s*$/, '') + ' @' + ref.name + ' ').trimStart() }))}>
-      {assets[ref.value] && <Media asset={assets[ref.value]} ctx={ctx}/>}<span className="truncate"><b className="font-medium text-foreground">{ref.mark}</b> {ref.name}</span></Button>)}
+    {shown.map(ref => {
+      const title = assets[ref.value]?.title || ref.name
+      return <Button key={ref.mark} variant="outline" size="sm" className={chip + ' max-w-full'} title={`${ref.mark} ist „${title}“ aus „${ref.name}“. Klicken fügt ${ref.mark} in den Prompt ein, Doppelklick zeigt die Datei groß.`}
+        onClick={() => update(node.id, n => ({ ...n, prompt: ((n.prompt ?? '').replace(/\s*$/, '') + ' ' + ref.mark + ' ').trimStart() }))}
+        onDoubleClick={() => assets[ref.value] && openViewer({ ids: refs.map(item => item.value), index: refs.indexOf(ref) })}>
+        {assets[ref.value] && <Media asset={assets[ref.value]} ctx={ctx}/>}<span className="truncate"><b className="font-medium text-foreground">{ref.mark}</b> {title}</span></Button>
+    })}
     {refs.length > shown.length && <Button variant="outline" size="sm" className={chip + ' pl-2'} onClick={() => setAll(true)}>+{refs.length - shown.length} weitere</Button>}
     {all && refs.length > 5 && <Button variant="outline" size="sm" className={chip + ' pl-2'} onClick={() => setAll(false)}>Weniger</Button>}
   </div>
 }
 
+/**
+ * The files of a Datei or Szene node. Each file shows Vollbild and Entfernen on hover or focus; a double-click opens the
+ * fullscreen view, where the arrow keys page through all files of the node.
+ */
 function AssetStrip({ node, single }) {
-  const { ctx, pickAssets, uploadAssets, assets } = useContext(Actions)
+  const { ctx, pickAssets, uploadAssets, assets, openViewer, removeAsset } = useContext(Actions)
   const ids = node.params?.assetIds ?? []
   const shown = ids.filter(id => assets[id])
+  const limit = shown.length > 8 ? 7 : 8
+  const open = index => openViewer({ ids: shown, index, nodeId: node.id })
+  const label = id => { const title = assets[id].title || 'Datei'; return title.length > 48 ? title.slice(0, 47) + '…' : title }
+  const tile = (id, index, big) => <div key={id} className={cn('flow-file group/file relative overflow-hidden', big ? 'rounded-md bg-background' : 'rounded-[6px]')} onDoubleClick={() => open(index)}>
+    <Media asset={assets[id]} ctx={ctx} full={big}/>
+    <div className="nodrag absolute right-1 top-1 flex gap-1 opacity-0 transition-opacity group-hover/file:opacity-100 group-focus-within/file:opacity-100">
+      {big && <Button variant="secondary" size="icon-sm" aria-label={`${label(id)} im Vollbild ansehen`} title="Vollbild (Doppelklick)" onClick={() => open(index)}><Maximize2/></Button>}
+      <Button variant="secondary" size={big ? 'icon-sm' : 'icon-xs'} aria-label={`${label(id)} aus dem Knoten entfernen`} title="Aus dem Knoten entfernen" onClick={() => removeAsset(node.id, id)}><X/></Button>
+    </div>
+  </div>
   return <>
-    {shown.length === 1 ? <div className="overflow-hidden rounded-md bg-background"><Media asset={assets[shown[0]]} ctx={ctx} full/></div>
-      : shown.length > 1 && <div className="flow-thumbs [display:grid] grid-cols-4 gap-1">{shown.slice(0, 8).map(id => <Media key={id} asset={assets[id]} ctx={ctx}/>)}</div>}
+    {shown.length === 1 ? tile(shown[0], 0, true)
+      : shown.length > 1 && <div className="flow-thumbs [display:grid] grid-cols-4 gap-1">
+        {shown.slice(0, limit).map((id, index) => tile(id, index, false))}
+        {shown.length > limit && <Button variant="outline" className="nodrag aspect-square h-auto rounded-[6px] p-0 text-sm tabular-nums" aria-label={`Alle ${shown.length} Dateien ansehen`} onClick={() => open(limit)}>+{shown.length - limit}</Button>}
+      </div>}
     {ids.length > shown.length && <p className="text-xs text-muted-foreground">{ids.length - shown.length === 1 ? 'Eine Datei gibt es nicht mehr in der Library.' : `${ids.length - shown.length} Dateien gibt es nicht mehr in der Library.`}</p>}
     <div className="nodrag flex flex-wrap gap-2">
       <Button variant="outline" size="sm" onClick={() => pickAssets(node, single)}>{single ? (ids.length ? 'Startbild ändern' : 'Startbild wählen') : ids.length ? `${ids.length} gewählt · Ändern` : 'Aus der Library wählen'}</Button>
       {!single && <Button variant="outline" size="sm" onClick={() => uploadAssets(node)}><Upload/>Hochladen</Button>}
+      {shown.length > 1 && <Button variant="outline" size="sm" onClick={() => open(0)}><Maximize2/>Ansehen</Button>}
     </div>
   </>
 }
@@ -415,7 +487,7 @@ function Grid() {
 const detailOf = zoom => (zoom >= 0.6 ? 'full' : zoom >= 0.35 ? 'card' : 'glance')
 
 function FlowNode({ id, data, selected }) {
-  const { update, remove, duplicate, run, edges, mentionNames } = useContext(Actions)
+  const { update, remove, duplicate, run, edges, mentionNames, assets } = useContext(Actions)
   const detail = useViewportStore(store => detailOf(store.transform[2]))
   const { node, type, view } = data
   if (!type) {
@@ -438,7 +510,11 @@ function FlowNode({ id, data, selected }) {
   const tall = Math.max(type.inputs.length, outputs.length)
   const state = view?.stale ? 'Veraltet' : statusNames[view?.status] ?? ''
   // Run nodes can mention what is connected to them; notes can mention every file node, resolved where the text arrives.
-  const names = type.inputs.some(port => port.mark) ? [...new Set((view?.refs ?? []).map(ref => ref.name))] : node.type === 'text' ? mentionNames : []
+  const refs = view?.refs ?? []
+  const names = type.inputs.some(port => port.mark)
+    ? [...refs.map(ref => ({ name: ref.mark.slice(1), hint: assets[ref.value]?.title, asset: ref.value })),
+      ...[...new Set(refs.map(ref => ref.name))].map(name => ({ name, hint: refs.filter(ref => ref.name === name).length === 1 ? 'Knoten' : 'alle Dateien des Knotens' }))]
+    : node.type === 'text' ? mentionNames.map(name => ({ name })) : []
   const status = view?.status === 'running' || view?.status === 'waiting' ? 'loading' : view?.status === 'failed' ? 'error' : 'initial'
   const right = modelName || (node.type === 'text' ? `${(node.prompt ?? '').length} Zeichen` : node.name ? type.title : '')
   const runsAfter = !type.runs && edges.some(edge => edge.source === id)
@@ -613,6 +689,7 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
   const [error, setError] = useState('')
   const [menu, setMenu] = useState(null)
   const [picker, setPicker] = useState(null)
+  const [viewer, setViewer] = useState(null)
   const [confirm, setConfirm] = useState(null)
   const [showTemplates, setShowTemplates] = useState(false)
   const [inserting, setInserting] = useState(false)
@@ -763,14 +840,19 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
     }
     input.click()
   }
-  /** Places pasted or dropped files, text and links as nodes at a canvas position, side by side. */
-  async function place(position, { files = [], text = '' }) {
+  /**
+   * Places pasted or dropped files, text and links at a canvas position. All files of one drop go into one Datei node;
+   * dropped onto an existing Datei node, they are added to it.
+   */
+  async function place(position, { files = [], text = '', into = null }) {
     const nodes = []
     const at = i => ({ x: Math.round(position.x + i * 304), y: Math.round(position.y) })
     if (files.length) {
       setStatus('Lädt hoch …')
       const created = await storeFiles(files)
-      created.forEach(asset => nodes.push({ id: crypto.randomUUID(), type: 'library', ...at(nodes.length), prompt: '', params: { assetIds: [asset.id] } }))
+      const ids = created.map(asset => asset.id)
+      if (ids.length && into) update(into, n => ({ ...n, params: { ...n.params, assetIds: [...new Set([...(n.params?.assetIds ?? []), ...ids])].slice(0, 24) } }))
+      else if (ids.length) nodes.push({ id: crypto.randomUUID(), type: 'library', ...at(0), prompt: '', params: { assetIds: ids.slice(0, 24) } })
       if (!created.length) setStatus('')
     }
     const value = text.trim()
@@ -935,14 +1017,15 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   })
+  const removeAsset = (nodeId, assetId) => update(nodeId, n => ({ ...n, params: { ...n.params, assetIds: (n.params?.assetIds ?? []).filter(id => id !== assetId) } }))
   const actions = { ctx, focusFrame, assets: view.assets, edges: doc.edges, update, remove, duplicate, run, pick, pickAssets, uploadAssets, mentionNames, portMenu,
-    renaming, setRenaming, rename, copyNodes, pasteNodes, focusNode }
+    renaming, setRenaming, rename, copyNodes, pasteNodes, focusNode, openViewer: setViewer, removeAsset }
 
   return <Actions.Provider value={actions}>
-    <div className="flow-shell" ref={shell}>
+    <div className="flow-shell" ref={shell} data-drop-hint="Loslassen legt einen Datei-Knoten an">
       <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView fitViewOptions={{ padding: 0.2, maxZoom: 1 }} minZoom={0.1} maxZoom={2}
         panOnDrag={hand ? true : [1, 2]} selectionOnDrag={!hand} panOnScroll proOptions={{ hideAttribution: true }} colorMode={colorMode}
-        deleteKeyCode={['Backspace', 'Delete']} isValidConnection={valid} connectOnClick={false}
+        deleteKeyCode={viewer || picker ? null : ['Backspace', 'Delete']} isValidConnection={valid} connectOnClick={false}
         // Fixed layers: frames 0, lines 1, nodes 2, so lines never cover a node, also inside frames.
         zIndexMode="manual" elevateEdgesOnSelect={false}
         onNodesChange={changeset => {
@@ -970,11 +1053,14 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
         }}
         onPaneContextMenu={event => { event.preventDefault(); openMenu(pointOf(event), null) }} onPaneClick={() => setMenu(null)}
         onPointerMove={event => { pointer.current = { x: event.clientX, y: event.clientY } }}
-        onDragOver={event => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy' } }}
+        onDragOver={event => { if (event.dataTransfer.types.includes('Files') && !ctx.draggingInside?.()) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy' } }}
         onDrop={event => {
-          if (!event.dataTransfer.files.length) return
+          // Only files from outside the page (Finder, another app) become nodes; dragging inside the canvas moves, never copies.
           event.preventDefault()
-          place(flow.screenToFlowPosition({ x: event.clientX, y: event.clientY }), { files: [...event.dataTransfer.files] }).catch(report)
+          if (!event.dataTransfer.files.length || ctx.draggingInside?.()) return
+          const target = event.target.closest?.('.react-flow__node')?.getAttribute('data-id')
+          const into = state.data.nodes.find(node => node.id === target && node.type === 'library')?.id ?? null
+          place(flow.screenToFlowPosition({ x: event.clientX, y: event.clientY }), { files: [...event.dataTransfer.files], into }).catch(report)
         }}
         onEdgeDoubleClick={(_, edge) => change(d => ({ edges: d.edges.filter(item => item.id !== edge.id) }))}>
         <Grid/>
@@ -1013,6 +1099,8 @@ function Canvas({ ctx, project, record, types, boards, templates }) {
         })}/>}
       {picker && <AssetPicker ctx={ctx} single={picker.single} initial={state.data.nodes.find(n => n.id === picker.id)?.params?.assetIds ?? []} onClose={() => setPicker(null)}
         onDone={ids => { update(picker.id, n => ({ ...n, params: { ...n.params, assetIds: ids } })); setPicker(null) }}/>}
+      {viewer && <Viewer {...viewer} ids={viewer.nodeId ? (state.data.nodes.find(n => n.id === viewer.nodeId)?.params?.assetIds ?? []) : viewer.ids}
+        onIndex={index => setViewer({ ...viewer, index })} onClose={() => setViewer(null)}/>}
       {showTemplates && <Templates list={templates} busy={inserting} onClose={() => setShowTemplates(false)} onPick={insertTemplate}/>}
       {confirm && <Confirm steps={confirm.steps} onNo={() => setConfirm(null)} onYes={() => confirm.start().catch(e => setError(e.message))}/>}
     </div>

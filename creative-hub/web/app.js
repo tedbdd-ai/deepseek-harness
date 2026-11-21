@@ -522,15 +522,28 @@ function addLinkDialog() {
   dialog.showModal()
 }
 
-/* Dateien hineinziehen */
+/* Dateien hineinziehen. Nur Dateien von außen zählen: ein Bild, das innerhalb der Seite gezogen wird, trägt im Browser
+   ebenfalls eine Datei und würde sonst als Kopie hochgeladen. Eine Seite kann mit `data-drop-hint` eigenen Text zeigen
+   und das Ablegen selbst übernehmen (dann ruft sie `preventDefault()`). */
 let dragDepth = 0
-const dropHint = el('div', { class: 'drop', hidden: true }, el('span', {}, 'Loslassen, um in die Sammlung zu legen'))
+let dragInside = false
+const draggingInside = () => dragInside
+addEventListener('dragstart', () => { dragInside = true })
+addEventListener('dragend', () => { dragInside = false })
+const dropText = el('span', {}, 'Loslassen, um in die Sammlung zu legen')
+const dropHint = el('div', { class: 'drop', hidden: true }, dropText)
 document.body.append(dropHint)
-const hasFiles = event => [...(event.dataTransfer?.types ?? [])].includes('Files')
-addEventListener('dragenter', e => { if (hasFiles(e)) { dragDepth++; dropHint.hidden = false } })
+const hasFiles = event => !dragInside && [...(event.dataTransfer?.types ?? [])].includes('Files')
+addEventListener('dragenter', e => {
+  if (!hasFiles(e)) return
+  dragDepth++
+  dropText.textContent = (e.target instanceof Element && e.target.closest('[data-drop-hint]')?.getAttribute('data-drop-hint')) || 'Loslassen, um in die Sammlung zu legen'
+  dropHint.hidden = false
+})
 addEventListener('dragleave', e => { if (hasFiles(e) && --dragDepth <= 0) { dragDepth = 0; dropHint.hidden = true } })
 addEventListener('dragover', e => { if (hasFiles(e)) e.preventDefault() })
 addEventListener('drop', async e => {
+  if (dragInside) { dragInside = false; e.preventDefault(); return }
   if (!hasFiles(e)) return
   dragDepth = 0; dropHint.hidden = true
   if (e.defaultPrevented) return
@@ -760,7 +773,7 @@ function route() {
     const body = el('div', { class: 'scroll' }, loading())
     if (page.view) return import(page.module).then(module => { activeLeave = module.leave; return module.renderView(shared) }).catch(error => { view.replaceChildren(...header(page.title), errorState(error, route)) })
     view.replaceChildren(...header(page.title), body)
-    return import(page.module).then(module => module.render(body, { el, api, icon, media, withFullscreen, isFashionReference, toast, refreshCounts, uploadFiles, uploadButton, projects: state.projects, params: new URLSearchParams(location.hash.split('?')[1]) })).catch(error => body.replaceChildren(errorState(error, route)))
+    return import(page.module).then(module => module.render(body, { el, api, icon, media, withFullscreen, draggingInside, isFashionReference, toast, refreshCounts, uploadFiles, uploadButton, projects: state.projects, params: new URLSearchParams(location.hash.split('?')[1]) })).catch(error => body.replaceChildren(errorState(error, route)))
   }
   if (name === 'library') return renderLibrary()
   if (name === 'tags') return tags.renderTagManager()
