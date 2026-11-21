@@ -1,23 +1,29 @@
 /**
- * Plugin "Flows": a canvas per project on which generation steps are nodes joined by lines.
+ * Plugin "Flows": canvases on which generation steps are nodes joined by lines, organised as documents of a project.
  *
- * The canvas replaces the former Moodboard and Storyboard. Node types come from `creativeNodes`: this plugin registers
- * the free board nodes (Notiz, Datei, Szene, Farbe, Link, Rahmen); the image, video and composition nodes come from the
- * Foto Playground, the Video Playground and the Schnitt plugin. The flow itself is `app_data(flow)` of the project,
- * written by the editor through the hub API.
+ * A project holds documents of four kinds: Moodboards, Storyboards, Figuren und Sets and free Flows, each its own
+ * canvas (`engine/documents.mjs`). The pages „Flows“ (all documents of a project) and „Moodboards“, „Storyboards“,
+ * „Figuren und Sets“ (one kind) list them; opening one shows only that document. Node types come from `creativeNodes`:
+ * this plugin registers the board nodes (Notiz, Datei, Szene, Farbe, Link, Rahmen); image, video, composition and the
+ * language-model nodes come from other plugins.
  *
  * Routes (same-origin JSON, Harness session required), under `/creativity-flows/api`:
  * - `GET  /nodes` → node types with ports and settings fields
- * - `GET  /projects/<id>/state` → `{ nodes: { [nodeId]: { status, outputs, stale, refs, warnings, error, credits, ms, history } }, assets: { [id]: asset } }`
- * - `POST /projects/<id>/run { nodeId, scope: 'node'|'upstream'|'downstream', dryRun? }` → `{ steps }`; without `dryRun`
- *   the steps start at once. `nodeId` may be a list of up to 64 ids (film strip), whose plans are joined. Paid nodes run
- *   only through this route, which the editor calls on a click.
- * - `GET  /templates` → `{ id, title, description, phases }[]`, ready canvases from `engine/templates.mjs`
- * - `POST /projects/<id>/templates { templateId, revision }` → `{ record, added, skipped }`: places the template right of the
- *   existing nodes and fills its Datei nodes from the Library; nothing runs
- * - `GET  /projects/<id>/import-boards` → `{ nodes }`, the number of nodes the former Moodboard and Storyboard would give
- * - `POST /projects/<id>/import-boards` → the new flow record; only into an empty flow, the old boards stay as they are
- * - `POST /projects/<id>/nodes/<nodeId>/pick { index }` → the state, after an earlier result became current again
+ * - `GET  /templates` → `{ id, title, description, steps, kind, listed }[]` from `engine/templates.mjs`
+ * - `GET  /projects/<id>/documents` → `{ docs: [{ id, kind, title, createdAt, updatedAt, nodes, cover }], assets }`, the cover
+ *   pictures' Library entries in `assets`
+ * - `POST /projects/<id>/documents { templateId } | { kind, title? }` → `{ docs, skipped }`: new documents, the first one
+ *   is the one to open; nothing runs
+ * - `PATCH /projects/<id>/documents/<doc> { title }`, `DELETE /projects/<id>/documents/<doc>`,
+ *   `POST /projects/<id>/documents/<doc>/duplicate`, `POST /projects/<id>/documents/<doc>/split` (frames become documents)
+ * - `GET  /projects/<id>/documents/<doc>/state` → `{ nodes: { [nodeId]: { status, outputs, stale, refs, … } }, assets, projectAssets }`
+ * - `POST /projects/<id>/documents/<doc>/run { nodeId, scope: 'node'|'upstream'|'downstream', dryRun? }` → `{ steps }`;
+ *   without `dryRun` the steps start at once. `nodeId` may be a list of up to 64 ids (film strip). Paid nodes run only
+ *   through this route, which the editor calls on a click.
+ * - `POST /projects/<id>/documents/<doc>/nodes/<nodeId>/pick { index }` → the state, after an earlier result became current
+ * - `GET  /projects/<id>/import-boards` → `{ nodes }`; `POST` makes a new document from the former Moodboard and Storyboard
+ * The state, run and pick routes also answer without `/documents/<doc>` for the document `flow`, the former single canvas.
+ * The canvas of a document is read and written through the hub API (`/projects/<id>/apps/flow-<doc>`).
  */
 import { randomUUID } from 'node:crypto'
 import { readBody, responder } from '../../http.mjs'
@@ -25,10 +31,11 @@ import { InputError, idPattern } from '../../store.mjs'
 import { defineApp } from '../define-app.mjs'
 import { createEngine } from './engine/engine.mjs'
 import { adoptIntoFrames } from './engine/frames.mjs'
-import { insertTemplate, templates } from './engine/templates.mjs'
+import { checkDocId, createDoc, deleteDoc, docKey, duplicateDoc, getDoc, kinds, listDocs, renameDoc, splitDoc } from './engine/documents.mjs'
+import { createFromTemplate, templates } from './engine/templates.mjs'
 
 const app = defineApp({
-  id: 'flows', title: 'Flows', page: true,
+  id: 'flows', title: 'Flows', page: true, project: '/creativity-apps/flows/project.js',
   description: 'Bild-, Video- und Schnittschritte als Knoten verbinden und ausführen',
   icon: 'M5 3a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM19 17a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM7 5h5a3 3 0 0 1 3 3v8a3 3 0 0 0 3 3',
 }, import.meta.url)
@@ -37,15 +44,15 @@ export const name = app.name
 export const inject = [...app.inject, 'creativeStore', 'creativeNodes']
 
 /**
- * Step pages: Moodboard, Storyboard and Figur und Set as sidebar entries of their own. Each shows one phase of the same
- * flow (browser modules beside this file), so a step can be worked on alone and still be joined in the flow.
+ * Document lists per kind as sidebar entries of their own: the Moodboards, Storyboards or Figuren und Sets of the chosen
+ * project, each opening as its own document (browser modules beside this file). „Flows“ lists all documents.
  */
 export const stepPages = [
-  { id: 'moodboard', title: 'Moodboard', module: '/creativity-apps/flows/moodboard.js', description: 'Bilder, Farben und Notizen frei sammeln; die Style-DNA macht daraus @Look',
+  { id: 'moodboard', title: 'Moodboards', module: '/creativity-apps/flows/moodboard.js', description: 'Die Moodboards des Projekts, jedes eine freie Pinnwand mit @Look',
     icon: 'M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z' },
-  { id: 'storyboard', title: 'Storyboard', module: '/creativity-apps/flows/storyboard.js', description: 'Story, Regie und Shotliste, darunter der Filmstreifen mit Keyframes und Videos',
+  { id: 'storyboard', title: 'Storyboards', module: '/creativity-apps/flows/storyboard.js', description: 'Die Storyboards des Projekts: Regie, Szenen und Filmstreifen',
     icon: 'M4 5h16v14H4zM4 9h16M4 15h16M8 5v4M12 5v4M16 5v4M8 15v4M12 15v4M16 15v4' },
-  { id: 'figur-und-set', title: 'Figur und Set', module: '/creativity-apps/flows/cast.js', description: 'Charakterblatt und Set als Projekt-Assets für @Figur und @Set',
+  { id: 'figur-und-set', title: 'Figuren und Sets', module: '/creativity-apps/flows/cast.js', description: 'Charakterblätter und Sets des Projekts als @Assets',
     icon: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 20a8 8 0 0 1 16 0' },
 ]
 
@@ -180,47 +187,81 @@ function withAssets(store, nodes) {
 }
 
 /** HTTP handler for the routes listed in the module comment. */
+/** A document's entry with the number of nodes and up to four pictures for its card. */
+function summary(store, projectId, doc, state) {
+  const nodes = store.appData(projectId, docKey(doc.id)).data.nodes ?? []
+  const ids = []
+  for (const node of nodes) {
+    ids.push(...(node.params?.items ?? []).filter(item => item.kind === 'file').map(item => item.assetId), ...(node.params?.assetIds ?? []))
+    for (const [port, values] of Object.entries(state[node.id]?.outputs ?? {})) if (port !== 'text' && Array.isArray(values)) ids.push(...values)
+  }
+  const cover = []
+  for (const id of new Set(ids)) {
+    if (cover.length >= 4) break
+    try { if (/^image\//.test(store.asset(id).media_type ?? '')) cover.push(id) } catch (error) { if (!(error instanceof InputError)) throw error }
+  }
+  return { ...doc, nodes: nodes.filter(node => node.type !== 'frame').length, cover }
+}
+
+/** HTTP handler for the routes listed in the module comment. */
 export function createHandler(store, registry, engine) {
+  const known = type => Boolean(registry.node(type))
   return async (req, res) => {
-    const { json } = responder(req, res)
+    const { json, send } = responder(req, res)
     try {
       const path = new URL(req.url, 'http://localhost').pathname.slice(base.length)
-      if (req.method === 'POST' && req.headers['sec-fetch-site'] && req.headers['sec-fetch-site'] !== 'same-origin') throw new InputError('Schreibzugriff aus dieser Quelle ist gesperrt.', 403)
-      if (req.method === 'GET' && path === '/nodes') return json(await describe(registry))
-      const state = new RegExp(`^/projects/(${uuid})/state$`).exec(path)
-      if (req.method === 'GET' && state) return json(withAssets(store, engine.view(state[1])))
-      const run = new RegExp(`^/projects/(${uuid})/run$`).exec(path)
-      if (req.method === 'POST' && run) {
-        const body = await readBody(req)
-        const valid = id => typeof id === 'string' && idPattern.test(id)
-        if (!(valid(body.nodeId) || (Array.isArray(body.nodeId) && body.nodeId.length <= 64 && body.nodeId.every(valid)))) throw new InputError('Wähle einen Knoten.')
-        if (body.dryRun) return json({ steps: engine.plan(run[1], body.nodeId, body.scope ?? 'node') })
-        return json({ steps: engine.run(run[1], body.nodeId, body.scope ?? 'node') }, 202)
+      const method = req.method
+      if (['POST', 'PATCH', 'DELETE'].includes(method) && req.headers['sec-fetch-site'] && req.headers['sec-fetch-site'] !== 'same-origin') throw new InputError('Schreibzugriff aus dieser Quelle ist gesperrt.', 403)
+      if (method === 'GET' && path === '/nodes') return json(await describe(registry))
+      if (method === 'GET' && path === '/templates') return json(templates.map(({ id, title, description, steps, kind, listed = true }) => ({ id, title, description, steps, kind, listed })))
+      const list = new RegExp(`^/projects/(${uuid})/documents$`).exec(path)
+      if (list && method === 'GET') {
+        const state = store.settings('flows:state:' + list[1])
+        const docs = listDocs(store, list[1]).map(doc => summary(store, list[1], doc, state))
+        return json({ docs, assets: Object.fromEntries([...new Set(docs.flatMap(doc => doc.cover))].map(id => [id, store.asset(id)])) })
       }
-      if (req.method === 'GET' && path === '/templates') return json(templates.map(({ id, title, description, phases, steps, phase, listed = true }) => ({ id, title, description, phases, steps, phase, listed })))
-      const template = new RegExp(`^/projects/(${uuid})/templates$`).exec(path)
-      if (req.method === 'POST' && template) {
-        const { templateId, revision } = await readBody(req)
-        if (typeof templateId !== 'string' || !Number.isInteger(revision)) throw new InputError('Wähle eine Vorlage.')
-        return json(insertTemplate(store, template[1], templateId, revision, type => Boolean(registry.node(type))), 201)
+      if (list && method === 'POST') {
+        const body = await readBody(req)
+        if (body.templateId !== undefined && typeof body.templateId !== 'string') throw new InputError('Wähle eine Vorlage.')
+        if (body.templateId === undefined && !kinds[body.kind]) throw new InputError('Wähle, was du anlegen willst.')
+        return json(createFromTemplate(store, list[1], body, known), 201)
+      }
+      const one = new RegExp(`^/projects/(${uuid})/documents/([a-z0-9]+)(/duplicate|/split)?$`).exec(path)
+      if (one) {
+        const [, projectId, docId, action] = one
+        checkDocId(docId)
+        if (method === 'PATCH' && !action) return json(renameDoc(store, projectId, docId, (await readBody(req)).title))
+        if (method === 'DELETE' && !action) { deleteDoc(store, projectId, docId); return send(204, 'text/plain', '') }
+        if (method === 'POST' && action === '/duplicate') { await readBody(req); return json(duplicateDoc(store, projectId, docId), 201) }
+        if (method === 'POST' && action === '/split') { await readBody(req); return json({ docs: splitDoc(store, projectId, docId, node => Boolean(registry.node(node.type)?.contains)) }, 201) }
+      }
+      // State, run and pick of one document; without `/documents/<doc>` they address the former single canvas.
+      const scoped = new RegExp(`^/projects/(${uuid})(?:/documents/([a-z0-9]+))?(/state|/run|/nodes/([a-z0-9-]+)/pick)$`).exec(path)
+      if (scoped) {
+        const [, projectId, docId = 'flow', action, nodeId] = scoped
+        if (docId !== 'flow') getDoc(store, projectId, docId)
+        if (method === 'GET' && action === '/state') return json({ ...withAssets(store, engine.view(projectId, docId)), projectAssets: engine.foreignAssets(projectId, docId) })
+        if (method === 'POST' && action === '/run') {
+          const body = await readBody(req)
+          const valid = id => typeof id === 'string' && idPattern.test(id)
+          if (!(valid(body.nodeId) || (Array.isArray(body.nodeId) && body.nodeId.length <= 64 && body.nodeId.every(valid)))) throw new InputError('Wähle einen Knoten.')
+          if (body.dryRun) return json({ steps: engine.plan(projectId, body.nodeId, body.scope ?? 'node', docId) })
+          return json({ steps: engine.run(projectId, body.nodeId, body.scope ?? 'node', docId) }, 202)
+        }
+        if (method === 'POST' && nodeId) {
+          const { index } = await readBody(req)
+          if (!Number.isInteger(index)) throw new InputError('Wähle ein Ergebnis aus dem Verlauf.')
+          engine.pick(projectId, nodeId, index, docId)
+          return json({ ...withAssets(store, engine.view(projectId, docId)), projectAssets: engine.foreignAssets(projectId, docId) })
+        }
       }
       const boards = new RegExp(`^/projects/(${uuid})/import-boards$`).exec(path)
-      if (req.method === 'GET' && boards) {
-        const flow = boardsToFlow(store, boards[1])
-        return json({ nodes: flow.nodes.length })
-      }
-      if (req.method === 'POST' && boards) {
+      if (method === 'GET' && boards) return json({ nodes: boardsToFlow(store, boards[1]).nodes.length })
+      if (method === 'POST' && boards) {
         await readBody(req)
-        const current = store.appData(boards[1], 'flow')
-        if (current.data.nodes?.length) throw new InputError('Der Flow ist nicht mehr leer. Übernimm Moodboard und Storyboard nur in einen leeren Flow.', 409)
-        return json(store.setAppData(boards[1], 'flow', { revision: current.revision, data: boardsToFlow(store, boards[1]) }), 201)
-      }
-      const pick = new RegExp(`^/projects/(${uuid})/nodes/([a-z0-9-]+)/pick$`).exec(path)
-      if (req.method === 'POST' && pick) {
-        const { index } = await readBody(req)
-        if (!Number.isInteger(index)) throw new InputError('Wähle ein Ergebnis aus dem Verlauf.')
-        engine.pick(pick[1], pick[2], index)
-        return json(withAssets(store, engine.view(pick[1])))
+        const canvas = boardsToFlow(store, boards[1])
+        if (!canvas.nodes.length) throw new InputError('Es gibt kein altes Moodboard oder Storyboard zum Übernehmen.', 409)
+        return json({ docs: [createDoc(store, boards[1], { kind: 'flow', title: 'Übernommene Boards', canvas })], skipped: [] }, 201)
       }
       throw new InputError('Seite nicht gefunden.', 404)
     } catch (error) {

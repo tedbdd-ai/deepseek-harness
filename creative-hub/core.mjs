@@ -18,7 +18,8 @@ export const name = 'creativity-core'
  * Creates the app registry.
  * @param {typeof defaultSnapshots} snapshots templates for new ideas.
  * @returns {{
- *   register(app: { id: string, title: string, icon: string, module: string, description?: string, page?: boolean, view?: boolean }): () => void,
+ *   register(app: { id: string, title: string, icon: string, module: string, description?: string, page?: boolean, view?: boolean, project?: string }): () => void,
+ *   `project` is a browser module whose `renderProject(container, context)` draws a section on each project's page.
  *   `page` lists the app in the sidebar; with `view` its module exports `renderView(shared)` and draws the whole view,
  *   otherwise `render(container, context)` below the page title.
  *   apps(): object[], snapshots(): object[], snapshot(id: string): object | undefined
@@ -36,7 +37,8 @@ export function createAppRegistry(snapshots) {
       if (!idPattern.test(app.id)) throw new Error(`Ungültige App-ID "${app.id}".`)
       if (!app.module.startsWith('/')) throw new Error(`App "${app.id}" braucht ein Modul unter einem lokalen Pfad.`)
       if (apps.has(app.id)) throw new Error(`App "${app.id}" ist bereits registriert.`)
-      const entry = { id: app.id, title: app.title, icon: app.icon, module: app.module, description: app.description ?? '', ...(app.page && { page: true }), ...(app.view && { view: true }) }
+      if (app.project !== undefined && !String(app.project).startsWith('/')) throw new Error(`App "${app.id}" braucht ihr Projektmodul unter einem lokalen Pfad.`)
+      const entry = { id: app.id, title: app.title, icon: app.icon, module: app.module, description: app.description ?? '', ...(app.page && { page: true }), ...(app.view && { view: true }), ...(app.project && { project: app.project }) }
       apps.set(app.id, entry)
       return () => { if (apps.get(app.id) === entry) apps.delete(app.id) }
     },

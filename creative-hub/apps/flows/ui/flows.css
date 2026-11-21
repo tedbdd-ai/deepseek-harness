@@ -267,3 +267,35 @@
 .flow-template-steps { display: flex; flex-wrap: wrap; gap: var(--s-1); margin: 0; padding: 0; list-style: none; counter-reset: step; }
 .flow-template-steps li { counter-increment: step; padding: 0 var(--s-2); border-radius: 9999px; background: var(--c-fill-2); color: var(--c-ink); font-size: var(--fs-micro); line-height: 24px; }
 .flow-template-steps li::before { content: counter(step) " · "; color: var(--c-ink-3); }
+
+/* Document lists: the project's documents as cards, grouped by kind (Moodboards, Storyboards, Figuren und Sets, Flows). */
+.flow-docs { display: grid; height: 100%; align-content: start; gap: var(--s-6); overflow: auto; padding: var(--s-6) var(--s-6) 64px; }
+.flow-docs.embedded { height: auto; overflow: visible; padding: 0 0 var(--s-6); }
+.flow-docs-head { display: flex; flex-wrap: wrap; align-items: end; gap: var(--s-3) var(--s-5); }
+.flow-docs-head h1 { flex-basis: 100%; order: -1; margin: 0; font-size: var(--fs-display); line-height: var(--lh-display); font-weight: 300; letter-spacing: -.02em; }
+.flow-docs-project { display: grid; gap: var(--s-1); color: var(--c-ink-3); font-size: var(--fs-meta); }
+.flow-docs-project select { min-width: 240px; }
+.flow-doc-group { display: grid; gap: var(--s-3); }
+.flow-doc-group h2 { display: flex; align-items: baseline; gap: var(--s-2); margin: 0; font-size: var(--fs-heading); line-height: var(--lh-heading); font-weight: 500; }
+.flow-doc-group h2 span { color: var(--c-ink-3); font-weight: 400; }
+.flow-doc-hint { margin: 0; color: var(--c-ink-3); font-size: var(--fs-ui); line-height: var(--lh-ui); }
+.flow-doc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: var(--s-4); }
+.flow-doc-grid.templates { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+.flow-doc-skeleton { aspect-ratio: 4 / 3; border-radius: var(--r-tile); background: var(--c-fill); }
+.flow-doc { display: grid; gap: var(--s-2); }
+.flow-doc-cover { display: grid; aspect-ratio: 4 / 3; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: 1fr; gap: 2px; overflow: hidden; padding: 0; border: 1px solid var(--c-line); border-radius: var(--r-tile); background: var(--c-fill); cursor: pointer; }
+.flow-doc-cover:hover { border-color: var(--c-ink-3); }
+.flow-doc-cover.n0, .flow-doc-cover.n1 { grid-template-columns: 1fr; }
+.flow-doc-cover.n2 { grid-template-rows: 1fr; }
+.flow-doc-cover.n3 > :first-child { grid-row: 1 / 3; }
+.flow-doc-cover .flow-media, .flow-doc-cover .flow-media > * { width: 100%; height: 100%; }
+.flow-doc-cover .flow-media img { width: 100%; height: 100%; aspect-ratio: auto; object-fit: cover; }
+.flow-doc-icon { display: flex; align-items: center; justify-content: center; color: var(--c-ink-3); }
+.flow-doc-meta { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: var(--s-1); }
+.flow-doc-title { overflow: hidden; padding: 0; border: 0; background: none; color: var(--c-ink); font: inherit; font-size: var(--fs-ui); font-weight: 500; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.flow-doc-facts { grid-column: 1 / -1; color: var(--c-ink-3); font-size: var(--fs-meta); }
+.flow-doc-empty { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3) var(--s-4); padding: var(--s-4); border: 1px dashed var(--c-line); border-radius: var(--r-tile); }
+.flow-doc-empty p { flex: 1 1 320px; margin: 0; color: var(--c-ink-2); font-size: var(--fs-ui); line-height: var(--lh-ui); }
+.flow-template { display: grid; align-content: start; gap: var(--s-2); padding: var(--s-4); border: 1px solid var(--c-line); border-radius: var(--r-tile); background: var(--c-panel); color: var(--c-ink-2); font: inherit; font-size: var(--fs-ui); line-height: var(--lh-ui); text-align: left; cursor: pointer; }
+.flow-template:hover { border-color: var(--c-ink-3); }
+.flow-template b { color: var(--c-ink); font-size: var(--fs-heading); font-weight: 500; }

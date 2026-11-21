@@ -1,5 +1,9 @@
 /**
- * Flow engine: resolves the values on each port of a project's flow and runs node types from `creativeNodes`.
+ * Flow engine: resolves the values on each port of a document's canvas and runs node types from `creativeNodes`.
+ *
+ * Every method takes the project and the document (`docId`, default `flow`, the canvas a project had before documents;
+ * see `documents.mjs`). Project assets of the other documents of the project take part as `foreign` nodes: their
+ * results count for `@` mentions, but they run only in their own document.
  *
  * The flow document (`app_data(flow)`: `{ nodes: [{ id, type, x, y, prompt, params }], edges: [{ id, source, sourceHandle,
  * target, targetHandle }] }`) is written by the editor. The run state lives apart in the setting `flows:state:<projectId>`
@@ -10,6 +14,7 @@ import { createHash } from 'node:crypto'
 import { InputError } from '../../../store.mjs'
 import { absolute, adoptIntoFrames, readingOrder } from './frames.mjs'
 import { implicitEdges, mentionPattern, nodeName, textHandle } from './mentions.mjs'
+import { docKey, foreignAssets } from './documents.mjs'
 
 export { nodeName, readingOrder }
 
@@ -67,13 +72,15 @@ export function createEngine(store, registry) {
     store.setSettings(stateKey(projectId), state)
   }
 
-  function flow(projectId) {
-    const data = store.appData(projectId, 'flow').data
+  function flow(projectId, docId = 'flow') {
+    const data = store.appData(projectId, docKey(docId)).data
     const doc = { nodes: Array.isArray(data.nodes) ? data.nodes : [], edges: Array.isArray(data.edges) ? data.edges : [] }
     // Flows saved before frames were sub-flows have no `parentId`; read them the same way the editor shows them.
     const framed = adoptIntoFrames(doc, node => Boolean(registry.node(node.type)?.contains)).doc
+    const own = new Set(framed.nodes.map(node => node.id))
+    const all = { ...framed, nodes: [...framed.nodes, ...foreignAssets(store, projectId, docId).filter(node => !own.has(node.id))] }
     // Mentions of project assets count as lines for ordering, planning and staleness.
-    return { ...framed, edges: [...framed.edges, ...implicitEdges(framed, typeOf)] }
+    return { ...all, edges: [...all.edges, ...implicitEdges(all, typeOf)] }
   }
   function typeOf(name) {
     const type = registry.node(name)
@@ -212,24 +219,24 @@ export function createEngine(store, registry) {
    * - `downstream`: this node and every run node after it; for a source node (Notiz, Datei …) the run nodes it feeds.
    * @returns {{ id: string, type: string, title: string, name: string, paid: boolean }[]}
    */
-  function plan(projectId, nodeId, scope) {
+  function plan(projectId, nodeId, scope, docId = 'flow') {
     if (Array.isArray(nodeId)) {
       if (!nodeId.length) throw new InputError('Wähle mindestens einen Knoten.')
-      const doc = flow(projectId)
-      const ids = new Set(nodeId.flatMap(id => planOne(projectId, id, scope)).map(step => step.id))
+      const doc = flow(projectId, docId)
+      const ids = new Set(nodeId.flatMap(id => planOne(projectId, id, scope, docId)).map(step => step.id))
       return ordered(doc, ids).map(id => step(doc, id))
     }
-    return planOne(projectId, nodeId, scope)
+    return planOne(projectId, nodeId, scope, docId)
   }
   function step(doc, id) {
     const item = doc.nodes.find(n => n.id === id)
     const type = registry.node(item.type)
     return { id: item.id, type: item.type, title: type.title, name: nodeName(item, type), paid: Boolean(type.paid) }
   }
-  function planOne(projectId, nodeId, scope) {
-    const doc = flow(projectId)
+  function planOne(projectId, nodeId, scope, docId) {
+    const doc = flow(projectId, docId)
     const state = readState(projectId)
-    const node = doc.nodes.find(item => item.id === nodeId)
+    const node = doc.nodes.find(item => item.id === nodeId && !item.foreign)
     if (!node) throw new InputError('Den Knoten gibt es im gespeicherten Flow nicht. Warte, bis „Gespeichert“ erscheint.', 404)
     // A source node has nothing to run itself; „Ab hier ausführen“ runs the nodes it feeds.
     const source = !registry.node(node.type)?.run
@@ -237,13 +244,15 @@ export function createEngine(store, registry) {
     const { up, down } = neighbours(doc)
     const ids = new Set([nodeId])
     if (scope === 'downstream') {
-      const walk = id => { for (const next of down.get(id) ?? []) if (!ids.has(next)) { ids.add(next); walk(next) } }
+      const walk = id => { for (const next of down.get(id) ?? []) if (!ids.has(next) && !doc.nodes.find(n => n.id === next)?.foreign) { ids.add(next); walk(next) } }
       walk(nodeId)
     } else if (scope === 'upstream') {
       const walk = id => {
         for (const prev of up.get(id) ?? []) {
           if (ids.has(prev)) continue
           const item = doc.nodes.find(n => n.id === prev)
+          // An asset of another document runs there; here it only gives its result.
+          if (item.foreign) continue
           const type = registry.node(item.type)
           if (type?.run) {
             const entry = live(projectId, state, prev)
@@ -260,19 +269,19 @@ export function createEngine(store, registry) {
     return steps
   }
 
-  async function execute(projectId, nodeId, waitFor) {
-    try { return await attempt(projectId, nodeId, waitFor) } finally { active.get(projectId)?.delete(nodeId) }
+  async function execute(projectId, nodeId, waitFor, docId) {
+    try { return await attempt(projectId, nodeId, waitFor, docId) } finally { active.get(projectId)?.delete(nodeId) }
   }
 
-  async function attempt(projectId, nodeId, waitFor) {
+  async function attempt(projectId, nodeId, waitFor, docId) {
     const results = await Promise.all(waitFor)
     if (stopped) return false
     if (results.some(ok => !ok)) {
       patch(projectId, nodeId, () => ({ status: 'failed', error: 'Ein Schritt davor ist fehlgeschlagen. Er wurde nicht ausgeführt.' }))
       return false
     }
-    const doc = flow(projectId)
-    const node = doc.nodes.find(item => item.id === nodeId)
+    const doc = flow(projectId, docId)
+    const node = doc.nodes.find(item => item.id === nodeId && !item.foreign)
     const type = node && registry.node(node.type)
     if (!type) {
       patch(projectId, nodeId, () => ({ status: 'failed', error: 'Den Knoten oder seine Knotenart gibt es nicht mehr.' }))
@@ -283,8 +292,13 @@ export function createEngine(store, registry) {
       const state = readState(projectId)
       const { inputs, missing, refs, texts } = inputsOf(projectId, doc, state, node)
       if (missing.length) {
-        const names = missing.map(id => { const item = doc.nodes.find(n => n.id === id); return item ? nodeName(item, registry.node(item.type)) : 'Knoten' })
-        throw new InputError(`Führe zuerst ${[...new Set(names)].map(name => '„' + name + '“').join(', ')} aus.`)
+        const names = missing.map(id => {
+          const item = doc.nodes.find(n => n.id === id)
+          if (!item) return '„Knoten“'
+          const name = '„' + nodeName(item, registry.node(item.type)) + '“'
+          return item.foreign ? `${name} in „${item.foreign.title}“` : name
+        })
+        throw new InputError(`Führe zuerst ${[...new Set(names)].join(', ')} aus.`)
       }
       for (const port of type.inputs) if (port.required && !inputs[port.id].length) throw new InputError(`Verbinde den Eingang „${port.label}“.`)
       const key = keyOf(node, inputs)
@@ -319,14 +333,14 @@ export function createEngine(store, registry) {
      * Starts the planned nodes and returns at once; poll `view()` for progress.
      * @returns {{ id: string, title: string, paid: boolean }[]} the started nodes.
      */
-    run(projectId, nodeId, scope = 'node') {
+    run(projectId, nodeId, scope = 'node', docId = 'flow') {
       if (stopped) throw new InputError('Das Atelier wird neu gestartet.', 503)
-      const steps = plan(projectId, nodeId, scope)
+      const steps = plan(projectId, nodeId, scope, docId)
       const running = active.get(projectId) ?? new Set()
       active.set(projectId, running)
       const busy = steps.find(step => running.has(step.id))
       if (busy) throw new InputError(`„${busy.name}“ läuft noch. Warte, bis der Knoten fertig ist.`, 409)
-      const doc = flow(projectId)
+      const doc = flow(projectId, docId)
       const { up } = neighbours(doc)
       const promises = new Map()
       for (const step of steps) {
@@ -337,7 +351,7 @@ export function createEngine(store, registry) {
         const waitFor = []
         const collect = id => { for (const prev of up.get(id) ?? []) { if (promises.has(prev)) waitFor.push(promises.get(prev)); else collect(prev) } }
         collect(step.id)
-        promises.set(step.id, execute(projectId, step.id, waitFor))
+        promises.set(step.id, execute(projectId, step.id, waitFor, docId))
       }
       return steps
     },
@@ -345,11 +359,11 @@ export function createEngine(store, registry) {
      * Current state of every node: status, outputs (source nodes included), whether the result is stale and errors.
      * @returns {Record<string, { status: string, outputs: Record<string, string[]> | null, stale: boolean, error?: string, credits?: number | null, ms?: number, history?: object[] }>}
      */
-    view(projectId) {
-      const doc = flow(projectId)
+    view(projectId, docId = 'flow') {
+      const doc = flow(projectId, docId)
       const state = readState(projectId)
       const nodes = {}
-      for (const node of doc.nodes) {
+      for (const node of doc.nodes.filter(item => !item.foreign)) {
         const type = registry.node(node.type)
         if (!type) { nodes[node.id] = { status: 'unknown', outputs: null, stale: false, error: 'Diese Knotenart ist gerade nicht geladen.' }; continue }
         try {
@@ -366,13 +380,22 @@ export function createEngine(store, registry) {
       return nodes
     },
     /** Makes an earlier result of a run node its current output again. */
-    pick(projectId, nodeId, index) {
+    pick(projectId, nodeId, index, docId = 'flow') {
       const entry = readState(projectId)[nodeId]
       const chosen = entry?.history?.[index]
       if (!chosen) throw new InputError('Dieses Ergebnis ist nicht mehr im Verlauf.', 404)
       if (active.get(projectId)?.has(nodeId)) throw new InputError('Der Knoten läuft gerade.', 409)
       patch(projectId, nodeId, () => ({ outputs: chosen.outputs, data: chosen.data, credits: chosen.credits, at: chosen.at, key: chosen.key }))
-      return this.view(projectId)
+      return this.view(projectId, docId)
+    },
+    /**
+     * Project assets of the other documents, for `@` suggestions in the editor.
+     * @returns {{ name: string, docId: string, docTitle: string, kind: string, ready: boolean }[]}
+     */
+    foreignAssets(projectId, docId = 'flow') {
+      const state = readState(projectId)
+      return foreignAssets(store, projectId, docId).map(node => ({ name: nodeName(node, registry.node(node.type)), docId: node.foreign.id, docTitle: node.foreign.title, kind: node.foreign.kind,
+        ready: Boolean(registry.node(node.type)?.resolve || state[node.id]?.status === 'done') }))
     },
   }
 }

@@ -55,6 +55,15 @@ Stand: 2026-11-21. Grundlage ist das Konzept „AI-Film-Workflow im React-Flowbo
 - Konsistenter Film: Pro Szene gibt es einen Keyframe (Bild) als Startbild des Videos. Die Szene speist beide, und `@Figur`, `@Set` und `@Look` halten Figur, Outfit und Ort gleich.
 - Die Auswahldialoge haben große Hochformat-Kacheln. Der Flows-Dialog hat dazu Filter, nummerierte Auswahl und eine Großansicht.
 
+### Nachtrag: Dokumente statt einer Fläche pro Projekt (umgesetzt)
+
+Befund: Jedes Projekt hatte nur eine Fläche. Die Schritt-Seiten filterten sie nur, und Vorlagen hängten neue Rahmen daneben, so dass die Fläche immer voller wurde. Dazu sprang der Projektwechsel zurück, weil das Auswahlfeld seinen alten Wert hatte, bevor der Wechsel ihn las. Vorbilder: Bei ElevenLabs wird jeder Flow als eigenes Projekt gespeichert, in einer Liste geführt und mit „+ New Flow“ leer angelegt. Bei Milanote sind Boards eigene Seiten, eine Vorlage ergibt eine frische Kopie, und eine Brotkrumenleiste zeigt den Ort.
+
+- Ein Projekt hat Dokumente (Moodboard, Storyboard, Figur und Set, Flow), jedes mit eigener Fläche. Der Index liegt in `app_data(flows)`, die Fläche in `app_data(flow-<id>)`, der Laufzustand bleibt pro Projekt.
+- Vorlagen legen neue Dokumente an, nie in ein offenes. Mehrere Dokumente einer Vorlage verbinden sich über Projekt-Assets.
+- Die Engine rechnet pro Dokument. Projekt-Assets anderer Dokumente kommen als fremde Knoten dazu: Ihre Ergebnisse zählen, laufen tun sie nur in ihrem Dokument.
+- Die alte eine Fläche wird ohne Kopie zum Dokument „Flow“, „Rahmen in Dokumente aufteilen“ zerlegt sie.
+
 ### Phase 3: ComfyUI über Rancher und Rezepte
 
 - Provider-Plugin `providers/comfyui`: Es nimmt einen exportierten API-Workflow (JSON) und macht die markierten Eingänge (`prompt`, `ref_image`, `seed`, `denoise`) zu Ports. Aufträge gehen an eine Queue vor dem Rancher-Cluster, und Fortschritt und Ergebnis kommen zurück in den Knoten. Adresse und Zugang sind Plugin-Einstellungen.

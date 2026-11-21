@@ -41,19 +41,21 @@ const flowsApi = async (path, method = 'GET', body) => {
 const mediaUrl = id => '/creativity-hub/api/media/' + encodeURIComponent(id)
 const route = (project, page = 'flows') => `#/${page}?project=${encodeURIComponent(project)}`
 
-/**
- * Step pages: one phase of the film as its own sidebar entry, on the same flow. A step page shows only its phase frame
- * (and the free nodes); the other phases stay in the flow untouched. Frames carry `params.phase`; older frames are
- * recognised by their name.
- */
-export const steps = {
-  moodboard: { title: 'Moodboard', name: /mood/i, empty: 'Hier sammelst du Bilder, Farben und Notizen ohne Linien. Die Style-DNA macht daraus @Look für alle späteren Schritte.' },
-  storyboard: { title: 'Storyboard', name: /story/i, empty: 'Story und Regie werden hier zur Shotliste. Unten im Filmstreifen siehst du jede Einstellung mit Keyframe, Video und Status.' },
-  cast: { title: 'Figur und Set', name: /figur|set|cast/i, empty: 'Hier entstehen Charakterblatt und Set. Als Projekt-Assets wirken sie mit @Figur und @Set in jedem Prompt.' },
-  voice: { title: 'Stimme', name: /stimme|voice|ton/i },
-  shots: { title: 'Videos', name: /video|dreh|shot/i },
-  edit: { title: 'Schnitt', name: /schnitt|edit/i },
+/** Kinds of documents (see engine/documents.mjs), with the sidebar page that lists them. */
+export const kinds = {
+  moodboard: { title: 'Moodboard', plural: 'Moodboards', page: 'moodboard', icon: 'board', blank: 'Neues Moodboard', empty: 'Ein Moodboard ist eine freie Pinnwand für Bilder, Farben, Notizen und Stichworte. „Look erzeugen“ macht daraus @Look für alle anderen Dokumente des Projekts.' },
+  storyboard: { title: 'Storyboard', plural: 'Storyboards', page: 'storyboard', icon: 'shot', blank: 'Neues Storyboard', empty: 'Im Storyboard schreibt die Regie aus deiner Story die Szenen. Der Filmstreifen zeigt jede Einstellung mit Keyframe, Video und Status.' },
+  cast: { title: 'Figur und Set', plural: 'Figuren und Sets', page: 'figur-und-set', icon: 'person', blank: 'Neue Figur mit Set', empty: 'Hier entstehen Charakterblatt und Set. Als Projekt-Assets wirken sie mit @Figur und @Set in jedem Dokument des Projekts.' },
+  flow: { title: 'Flow', plural: 'Flows', page: 'flows', icon: 'sparkle', blank: 'Leerer Flow', empty: 'Ein Flow ist eine freie Fläche für eigene Abläufe aus Bild-, Video- und Textknoten.' },
 }
+/** App-data key of a document's canvas (`flow` is the canvas a project had before documents). */
+const docKey = id => (id === 'flow' ? 'flow' : 'flow-' + id)
+const docRoute = (project, doc, page = 'flows') => `${route(project, page)}&doc=${encodeURIComponent(doc)}`
+/** The project shown last, so the sidebar pages open where you were. */
+const remembered = { get: () => { try { return localStorage.getItem('atelier-project') } catch { return null } }, // storage blocked: no memory
+  set: id => { try { localStorage.setItem('atelier-project', id) } catch { /* storage blocked: the choice lasts for this page only */ } } }
+const phaseOf = frame => frame.params?.phase ?? null
+
 /**
  * Grows a frame to at least `width` × `height` and moves every top-level node right of its old right edge (frames
  * included, with their content) by the added width, so a growing phase never runs into the next one. Nodes in `stay`
@@ -83,7 +85,6 @@ function readingOrderOf(list, byId) {
   placed.forEach((item, i) => { if (i && item.y - placed[i - 1].y >= 160) row++; item.row = row })
   return placed.sort((a, b) => (a.row - b.row) || (a.x - b.x)).map(item => item.node)
 }
-const phaseOf = frame => frame.params?.phase ?? Object.entries(steps).find(([, item]) => item.name.test(String(frame.name ?? '')))?.[0] ?? null
 
 // Node types name their icon; the editor maps the names onto Lucide, the one icon pack of the canvas.
 const icons = { text: Type, image: Image, video: Video, audio: AudioLines, library: Archive, board: LayoutGrid, shot: Clapperboard,
@@ -872,23 +873,6 @@ function AssetPicker({ ctx, project, initial, single, onDone, onClose }) {
   </Dialog>
 }
 
-/** The template dialog: each template with its steps in order, so the difference between them shows at a glance. */
-function Templates({ list, onPick, onClose, busy }) {
-  return <Dialog open onOpenChange={open => { if (!open) onClose() }}>
-    <DialogContent className="flow-dialog sm:max-w-[880px]">
-      <DialogHeader><DialogTitle>Vorlage einfügen</DialogTitle>
-        <DialogDescription>Die Vorlage kommt rechts neben das, was schon auf der Fläche liegt, und füllt Moodboard und Referenzen mit passenden Bildern aus deiner Sammlung. Ausgeführt wird nichts.</DialogDescription></DialogHeader>
-      <div className="[display:grid] grid-cols-[repeat(auto-fill,minmax(360px,1fr))] gap-3">{list.filter(item => item.listed !== false).map((item, i) =>
-        <button key={item.id} autoFocus={i === 0} disabled={busy} onClick={() => onPick(item)}
-          className="[display:grid] content-start gap-2 rounded-lg border bg-card p-4 text-left text-sm text-secondary-foreground hover:bg-secondary active:bg-accent disabled:opacity-50">
-          <b className="text-lg font-medium text-foreground">{item.title}</b>
-          {item.steps?.length > 0 && <ol className="flow-template-steps" aria-label="Schritte">{item.steps.map(step => <li key={step}>{step}</li>)}</ol>}
-          <span>{item.description}</span></button>)}</div>
-      <DialogFooter><Button variant="outline" onClick={onClose}>Abbrechen</Button></DialogFooter>
-    </DialogContent>
-  </Dialog>
-}
-
 function Confirm({ steps, onYes, onNo }) {
   const paid = steps.filter(step => step.paid)
   return <Dialog open onOpenChange={open => { if (!open) onNo() }}>
@@ -992,7 +976,7 @@ function ZoomBar({ overview, setOverview }) {
   </Panel>
 }
 
-function Canvas({ ctx, project, record, types, boards, templates, step = null, page = 'flows' }) {
+function Canvas({ ctx, project, doc: current, docs, record, types, page = 'flows' }) {
   const flow = useReactFlow()
   const typeOf = useMemo(() => new Map(types.map(type => [type.type, type])), [types])
   const isFrame = node => Boolean(typeOf.get(node.type)?.contains)
@@ -1000,18 +984,15 @@ function Canvas({ ctx, project, record, types, boards, templates, step = null, p
   const initial = useMemo(() => adoptIntoFrames({ nodes: [], edges: [], ...record.data }, isFrame), [])
   const [doc, setDoc] = useState(initial.doc)
   const [view, setView] = useState({ nodes: {}, assets: {} })
-  // On a step page only the phase frame, its content and the free nodes are shown; other phases are hidden, not removed.
-  const stepFrame = step ? doc.nodes.find(node => isFrame(node) && phaseOf(node) === step) ?? null : null
-  const hidden = new Set(step ? doc.nodes.filter(node => (isFrame(node) && node !== stepFrame) || (node.parentId && node.parentId !== stepFrame?.id)).map(node => node.id) : [])
-  const [strip, setStrip] = useState(step === 'storyboard')
+  const hidden = new Set()
+  const [strip, setStrip] = useState(current.kind === 'storyboard')
+  const base = '/projects/' + project + '/documents/' + current.id
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
   const [menu, setMenu] = useState(null)
   const [picker, setPicker] = useState(null)
   const [viewer, setViewer] = useState(null)
   const [confirm, setConfirm] = useState(null)
-  const [showTemplates, setShowTemplates] = useState(false)
-  const [inserting, setInserting] = useState(false)
   const [hand, setHand] = useState(false)
   const [renaming, setRenaming] = useState(null)
   const [overview, setOverview] = useState(false)
@@ -1034,7 +1015,7 @@ function Canvas({ ctx, project, record, types, boards, templates, step = null, p
   const pointer = useRef(null)
 
   async function refresh() {
-    try { setView(await flowsApi('/projects/' + project + '/state')) } catch (e) { setError(e.message) }
+    try { setView(await flowsApi(base + '/state')) } catch (e) { setError(e.message) }
   }
   async function flush() {
     clearTimeout(state.timer)
@@ -1042,7 +1023,7 @@ function Canvas({ ctx, project, record, types, boards, templates, step = null, p
     state.saving = (async () => {
       while (state.saved !== state.data) {
         const data = state.data
-        const result = await ctx.api('/projects/' + project + '/apps/flow', 'PUT', { data, revision: state.revision })
+        const result = await ctx.api('/projects/' + project + '/apps/' + docKey(current.id), 'PUT', { data, revision: state.revision })
         state.revision = result.revision
         state.saved = data
       }
@@ -1066,8 +1047,7 @@ function Canvas({ ctx, project, record, types, boards, templates, step = null, p
     if (fitted.current || !doc.nodes.length || measuredCount < doc.nodes.filter(item => !hidden.has(item.id) && !(glance && item.parentId)).length) return
     fitted.current = true
     // A step page shows its frame together with the nodes the frame feeds directly (the Style-DNA beside the moodboard).
-    if (stepFrame) flow.fitView({ nodes: [stepFrame.id, ...doc.edges.filter(edge => edge.source === stepFrame.id).map(edge => edge.target)].map(id => ({ id })), padding: fitPadding, duration: 0 })
-    else flow.fitView({ padding: fitPadding, duration: 0 })
+    flow.fitView({ padding: fitPadding, duration: 0, maxZoom: 1 })
   }, [measuredCount])
   const busy = Object.values(view.nodes).some(item => item.status === 'running' || item.status === 'waiting')
   useEffect(() => {
@@ -1127,15 +1107,15 @@ function Canvas({ ctx, project, record, types, boards, templates, step = null, p
   async function run(nodeId, scope) {
     try {
       await flush()
-      const { steps } = await flowsApi('/projects/' + project + '/run', 'POST', { nodeId, scope, dryRun: true })
-      const start = async () => { setConfirm(null); await flowsApi('/projects/' + project + '/run', 'POST', { nodeId, scope }); await refresh() }
+      const { steps } = await flowsApi(base + '/run', 'POST', { nodeId, scope, dryRun: true })
+      const start = async () => { setConfirm(null); await flowsApi(base + '/run', 'POST', { nodeId, scope }); await refresh() }
       if (!steps.length) return ctx.toast('Alle Schritte davor sind aktuell.')
       if (steps.filter(step => step.paid).length > 1) setConfirm({ steps, start })
       else await start()
     } catch (e) { setError(e.message) }
   }
   async function pick(nodeId, index) {
-    try { setView(await flowsApi('/projects/' + project + '/nodes/' + nodeId + '/pick', 'POST', { index })) } catch (e) { setError(e.message) }
+    try { setView(await flowsApi(base + '/nodes/' + nodeId + '/pick', 'POST', { index })) } catch (e) { setError(e.message) }
   }
   function pickAssets(node, single = false) { setPicker({ id: node.id, single, board: node.type === 'moodboard' }) }
   /**
@@ -1221,31 +1201,6 @@ function Canvas({ ctx, project, record, types, boards, templates, step = null, p
     document.addEventListener('paste', onPaste)
     return () => document.removeEventListener('paste', onPaste)
   }, [])
-  async function insertTemplate(template) {
-    setInserting(true)
-    try {
-      await flush()
-      const result = await flowsApi('/projects/' + project + '/templates', 'POST', { templateId: template.id, revision: state.revision })
-      state.revision = result.record.revision
-      state.data = state.saved = { nodes: [], edges: [], ...result.record.data }
-      setDoc(state.data)
-      setShowTemplates(false)
-      await refresh()
-      if (result.skipped.length) ctx.toast(`Nicht geladene Knotenarten fehlen in der Vorlage: ${result.skipped.join(', ')}.`, true)
-      const fresh = new Set(result.record.data.nodes.map(node => node.id))
-      setTimeout(() => flow.fitView({ nodes: [...fresh].slice(-result.added).map(id => ({ id })), padding: 0.1, duration: 0 }), 80)
-    } catch (e) { setError(e.message) } finally { setInserting(false) }
-  }
-  async function importBoards() {
-    try {
-      const result = await flowsApi('/projects/' + project + '/import-boards', 'POST', {})
-      state.revision = result.revision
-      state.data = state.saved = { nodes: [], edges: [], ...result.data }
-      setDoc(state.data)
-      await refresh()
-      setTimeout(() => flow.fitView({ padding: 0.2, duration: 0 }), 50)
-    } catch (e) { setError(e.message) }
-  }
   /** Shows one frame (a phase of the production) filling the canvas. */
   function focusFrame(node) {
     // The floating bar covers the top 64 px; the frame title must stay visible below it.
@@ -1312,8 +1267,8 @@ function Canvas({ ctx, project, record, types, boards, templates, step = null, p
     }
   })
   const frames = doc.nodes.filter(isFrame).sort((a, b) => (a.x - b.x) || (a.y - b.y))
-  const mentionNames = [...new Set(doc.nodes.filter(node => (node.asset || typeOf.get(node.type)?.outputs.some(port => port.kind !== 'text')) && !isFrame(node))
-    .map(node => nodeName(node, typeOf.get(node.type))))]
+  const mentionNames = [...new Set([...doc.nodes.filter(node => (node.asset || typeOf.get(node.type)?.outputs.some(port => port.kind !== 'text')) && !isFrame(node))
+    .map(node => nodeName(node, typeOf.get(node.type))), ...(view.projectAssets ?? []).map(item => item.name)])]
   const sceneCount = id => doc.nodes.filter(node => node.type === 'scene' && node.params?.from === id).length
   /**
    * Turns the shots of a Regie node into Szene nodes, four per row in shot order (reading order is also the order
@@ -1357,7 +1312,9 @@ function Canvas({ ctx, project, record, types, boards, templates, step = null, p
     }, true)
     ctx.toast(fresh.length && kept.size ? `${kept.size} Szenen aktualisiert, ${fresh.length} neu.` : fresh.length ? `${fresh.length} Szenen angelegt.` : `${kept.size} Szenen aktualisiert.`)
   }
-  const assetNames = doc.nodes.filter(node => node.asset).map(node => ({ id: node.id, name: nodeName(node, typeOf.get(node.type)) }))
+  // Project assets of this document and of the other documents of the project (@Look from a moodboard, @Figur …).
+  const assetNames = [...doc.nodes.filter(node => node.asset).map(node => ({ id: node.id, name: nodeName(node, typeOf.get(node.type)) })),
+    ...(view.projectAssets ?? []).map(item => ({ id: 'doc:' + item.docId + ':' + item.name, name: item.name, from: item.docTitle }))]
   /** Makes a node a project asset or releases it; returns true when the node still needs a name of its own. */
   function toggleAsset(id) {
     const node = state.data.nodes.find(item => item.id === id)
@@ -1433,7 +1390,7 @@ function Canvas({ ctx, project, record, types, boards, templates, step = null, p
    * order, each with the video its text feeds, the keyframe before that video and a status; and the first composition.
    */
   function filmOf() {
-    const storyFrame = doc.nodes.find(node => isFrame(node) && phaseOf(node) === 'storyboard')
+    const storyFrame = null
     const all = new Map(doc.nodes.map(node => [node.id, node]))
     const scenes = readingOrderOf(doc.nodes.filter(node => node.type === 'scene' && (!storyFrame || node.parentId === storyFrame.id)), all)
     const runs = node => Boolean(node && typeOf.get(node.type)?.runs)
@@ -1581,12 +1538,15 @@ function Canvas({ ctx, project, record, types, boards, templates, step = null, p
         <ZoomBar overview={overview} setOverview={setOverview}/>
         {/* One opaque floating bar (ElevenLabs layout): project, phases, save state. Nothing translucent over the nodes. */}
         <Panel position="top-left" className="flex max-w-[calc(100%-32px)] flex-wrap items-center gap-1 rounded-full border bg-popover p-1 shadow-[var(--shadow-subtle)]">
-          <select className="text-in h-9 w-auto max-w-60 rounded-full border-0 bg-transparent text-base font-medium" aria-label="Projekt" value={project} onChange={async e => { try { await flush(); location.hash = route(e.target.value, page) } catch (err) { report(err) } }}>
-            {ctx.projects.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select>
-          {step && <><span className="mx-1 h-5 w-px bg-border" aria-hidden="true"/><span className="px-2 text-sm font-medium">{steps[step].title}</span>
-            <Button asChild variant="ghost" size="sm"><a href={route(project)} className="no-underline">Ganzer Flow</a></Button></>}
-          {!step && <Button variant={strip ? 'secondary' : 'ghost'} size="sm" aria-pressed={strip} onClick={() => setStrip(!strip)}><Clapperboard/>Filmstreifen</Button>}
-          {!step && frames.length > 1 && <><span className="mx-1 h-5 w-px bg-border" aria-hidden="true"/><nav className="flex flex-wrap gap-0.5" aria-label="Rahmen anspringen">
+          {/* Breadcrumb as in Milanote: project › list › document. The document name opens the other documents of the project. */}
+          <nav className="flex items-center gap-0.5" aria-label="Pfad">
+            <Button asChild variant="ghost" size="sm"><a href={route(project, page)} className="no-underline" onClick={() => flush().catch(report)}>
+              <ChevronLeft/>{ctx.projects.find(item => item.id === project)?.title ?? 'Projekt'} · {page === 'flows' ? 'Alle Dokumente' : kinds[current.kind].plural}</a></Button>
+            <span className="text-muted-foreground" aria-hidden="true">/</span>
+            <DocSwitch project={project} current={current} docs={docs} page={page} onLeave={() => flush()}/>
+          </nav>
+          {(current.kind === 'storyboard' || current.kind === 'flow') && <Button variant={strip ? 'secondary' : 'ghost'} size="sm" aria-pressed={strip} onClick={() => setStrip(!strip)}><Clapperboard/>Filmstreifen</Button>}
+          {frames.length > 1 && <><span className="mx-1 h-5 w-px bg-border" aria-hidden="true"/><nav className="flex flex-wrap gap-0.5" aria-label="Rahmen anspringen">
             {frames.map(node => <Button key={node.id} variant="ghost" size="sm" onClick={() => focusFrame(node)}>{nodeName(node, typeOf.get(node.type))}</Button>)}
             <Button variant="ghost" size="sm" onClick={() => flow.fitView({ padding: fitPadding, duration: 0 })}>Alles</Button></nav></>}
           {status && <span className="px-2 text-sm text-muted-foreground" role="status">{status}</span>}
@@ -1596,30 +1556,16 @@ function Canvas({ ctx, project, record, types, boards, templates, step = null, p
           <Button variant={hand ? 'ghost' : 'secondary'} size="icon" aria-pressed={!hand} aria-label="Auswählen" title="Auswählen" onClick={() => setHand(false)}><MousePointer2/></Button>
           <Button variant={hand ? 'secondary' : 'ghost'} size="icon" aria-pressed={hand} aria-label="Verschieben" title="Verschieben (Hand)" onClick={() => setHand(true)}><Hand/></Button>
           <Button variant="outline" aria-haspopup="dialog" onClick={openCentered}><Plus/>Knoten hinzufügen</Button>
-          <Button variant="outline" aria-haspopup="dialog" onClick={() => setShowTemplates(true)}><LayoutGrid/>Vorlage</Button>
         </Panel>
       </ReactFlow>
-      {strip && (!step || step === 'storyboard') && (() => {
+      {strip && (() => {
         const { shots, film } = filmOf()
-        return <Filmstrip shots={shots} film={film} onRun={run} onCreate={createSteps} onReorder={reorder} onClose={() => setStrip(false)}
-          onFocus={id => (hidden.has(id) ? ctx.toast('Dieser Schritt liegt in einer anderen Phase. Öffne ihn über „Ganzer Flow“.') : focusNode(id))}/>
+        return <Filmstrip shots={shots} film={film} onRun={run} onCreate={createSteps} onReorder={reorder} onClose={() => setStrip(false)} onFocus={focusNode}/>
       })()}
-      {step === 'storyboard' && !strip && stepFrame && <Button variant="outline" className="flow-strip-open" onClick={() => setStrip(true)}><Clapperboard/>Filmstreifen</Button>}
-      {step && !stepFrame && <div className="flow-start">
-        <strong>{steps[step].title} fehlt in diesem Projekt</strong>
-        <p>{steps[step].empty} Der Schritt gehört zum Flow des Projekts und lässt sich dort mit den anderen Schritten verbinden.</p>
-        <div className="flex flex-wrap gap-2">
-          {templates.some(item => item.phase === step) && <Button size="lg" variant="brand" disabled={inserting} onClick={() => insertTemplate(templates.find(item => item.phase === step))}>{steps[step].title} anlegen</Button>}
-          <Button asChild size="lg" variant="outline"><a href={route(project)} className="no-underline">Ganzen Flow öffnen</a></Button>
-        </div>
-      </div>}
-      {!step && !doc.nodes.length && <div className="flow-start">
-        <strong>Dieses Projekt hat noch keinen Flow</strong>
-        <p>Hier liegen Moodboard, Storyboard und alle KI-Schritte auf einer Fläche. Füge Bilder per Einfügen oder Hineinziehen ein, ordne sie in Rahmen und verbinde sie mit Bild- und Videoknoten. Kostenpflichtiges läuft nur, wenn du auf „Ausführen“ klickst.</p>
-        {boards > 0
-          ? <div className="flex flex-wrap gap-2"><Button size="lg" variant="brand" onClick={importBoards}>Moodboard und Storyboard übernehmen</Button><Button size="lg" variant="outline" onClick={() => setShowTemplates(true)}>Mit Vorlage beginnen</Button></div>
-          : <div className="flex flex-wrap gap-2"><Button size="lg" variant="brand" onClick={() => setShowTemplates(true)}>Mit Vorlage beginnen</Button><Button size="lg" variant="outline" onClick={openCentered}>Knoten hinzufügen</Button></div>}
-        {boards > 0 && <p className="text-sm">Aus den bisherigen Boards entstehen {boards} Knoten in Rahmen. Die alten Boards bleiben gespeichert.</p>}
+      {!doc.nodes.length && <div className="flow-start">
+        <strong>„{current.title}“ ist noch leer</strong>
+        <p>{kinds[current.kind].empty} Füge Knoten über die Leiste unten hinzu, per Rechtsklick auf die Fläche oder indem du Dateien hineinziehst. Kostenpflichtiges läuft nur, wenn du auf „Ausführen“ klickst.</p>
+        <Button size="lg" variant="outline" onClick={openCentered}><Plus/>Knoten hinzufügen</Button>
       </div>}
       {menu && <AddMenu types={types} at={menu} filter={menu.filter} onClose={() => setMenu(null)} onPick={type => addNode(type, menu.position, menu.filter)}
         {...(menu.filter?.side === 'target' && menu.filter.kind !== 'text' && typeOf.has('library') && {
@@ -1630,40 +1576,186 @@ function Canvas({ ctx, project, record, types, boards, templates, step = null, p
         onDone={ids => { if (picker.board) addToBoard(picker.id, ids); else update(picker.id, n => ({ ...n, params: { ...n.params, assetIds: ids } })); setPicker(null) }}/>}
       {viewer && <Viewer {...viewer} ids={viewer.nodeId ? (state.data.nodes.find(n => n.id === viewer.nodeId)?.params?.assetIds ?? []) : viewer.ids}
         onIndex={index => setViewer({ ...viewer, index })} onClose={() => setViewer(null)}/>}
-      {showTemplates && <Templates list={templates} busy={inserting} onClose={() => setShowTemplates(false)} onPick={insertTemplate}/>}
       {confirm && <Confirm steps={confirm.steps} onNo={() => setConfirm(null)} onYes={() => confirm.start().catch(e => setError(e.message))}/>}
     </div>
   </Actions.Provider>
 }
 
-function Page({ ctx, project, step, page }) {
+/**
+ * Switches to another document of the project from the breadcrumb: the documents grouped by kind, the current one
+ * checked. Saves before leaving.
+ */
+function DocSwitch({ project, current, docs, page, onLeave }) {
+  const go = async doc => { try { await onLeave() } finally { location.hash = docRoute(project, doc.id, page === 'flows' ? 'flows' : kinds[doc.kind].page) } }
+  return <DropdownMenu>
+    <DropdownMenuTrigger asChild><Button variant="ghost" size="sm" className="max-w-72 font-medium" aria-label={`Dokument: ${current.title}. Anderes Dokument öffnen`}>
+      <Icon name={kinds[current.kind].icon} className="size-4"/><span className="truncate">{current.title}</span><ChevronDown/></Button></DropdownMenuTrigger>
+    <DropdownMenuContent align="start" className="w-72">
+      {Object.entries(kinds).map(([kind, info]) => {
+        const list = docs.filter(doc => doc.kind === kind)
+        return list.length > 0 && <React.Fragment key={kind}>
+          <DropdownMenuLabel className="text-xs text-muted-foreground">{info.plural}</DropdownMenuLabel>
+          {list.map(doc => <DropdownMenuItem key={doc.id} onSelect={() => go(doc)} className={cn(doc.id === current.id && 'font-medium')}>
+            <Icon name={info.icon} className="size-4"/><span className="truncate">{doc.title}</span>{doc.id === current.id && <span className="ml-auto text-xs text-muted-foreground">offen</span>}</DropdownMenuItem>)}
+        </React.Fragment>
+      })}
+    </DropdownMenuContent>
+  </DropdownMenu>
+}
+
+/** Loads one document's canvas, the node types and the project's documents, then shows the editor. */
+function Editor({ ctx, project, docId, page }) {
   const [loaded, setLoaded] = useState(null)
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
   useEffect(() => {
     let active = true
     setError('')
-    const path = '/projects/' + project + '/apps/'
-    Promise.all([ctx.api(path + 'flow'), flowsApi('/nodes'), flowsApi('/projects/' + project + '/import-boards'), flowsApi('/templates')])
-      .then(([record, types, boards, templates]) => { if (active) setLoaded({ record, types, boards: boards.nodes, templates }) })
+    Promise.all([flowsApi('/projects/' + project + '/documents'), flowsApi('/nodes')])
+      .then(async ([{ docs }, types]) => {
+        const doc = docs.find(item => item.id === docId)
+        if (!doc) throw new Error('Dieses Dokument gibt es in diesem Projekt nicht mehr.')
+        const record = await ctx.api('/projects/' + project + '/apps/' + docKey(doc.id))
+        if (active) setLoaded({ record, types, doc, docs })
+      })
       .catch(e => { if (active) setError(e.message) })
     return () => { active = false }
   }, [attempt])
-  if (error) return <p role="alert" className="canvas-note err">{error} <button className="btn sm" onClick={() => setAttempt(attempt + 1)}>Erneut versuchen</button></p>
-  if (!loaded) return <div className="flow-shell flow-loading" role="status" aria-label="Flow lädt"><span/><span/><span/></div>
-  return <ReactFlowProvider><Canvas ctx={ctx} project={project} step={step} page={page} {...loaded}/></ReactFlowProvider>
+  if (error) return <div className="flow-start static"><strong>Das Dokument lässt sich nicht öffnen</strong><p>{error}</p>
+    <div className="flex gap-2"><Button variant="outline" onClick={() => setAttempt(attempt + 1)}>Erneut versuchen</Button><Button asChild><a href={route(project, page)} className="no-underline">Zur Liste</a></Button></div></div>
+  if (!loaded) return <div className="flow-shell flow-loading" role="status" aria-label="Dokument lädt"><span/><span/><span/></div>
+  return <ReactFlowProvider><Canvas ctx={ctx} project={project} page={page} {...loaded}/></ReactFlowProvider>
+}
+
+const dateLabel = iso => new Date(iso).toLocaleDateString('de-DE', { day: 'numeric', month: 'short', year: 'numeric' })
+
+/**
+ * The documents of a project, like the flow list of ElevenLabs or a Milanote home: grouped by kind, each a card with
+ * pictures, name and date. „Neu“ creates an empty document or one from a template; a template never fills an open
+ * document. With `kind` the page shows only that kind.
+ */
+function Documents({ ctx, project, kind, page, embedded = false }) {
+  const [docs, setDocs] = useState(null)
+  const [templates, setTemplates] = useState([])
+  const [boards, setBoards] = useState(0)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [renaming, setRenaming] = useState(null)
+  const [deleting, setDeleting] = useState(null)
+  const [assets, setAssets] = useState({})
+  const load = () => Promise.all([flowsApi('/projects/' + project + '/documents'), flowsApi('/templates'), flowsApi('/projects/' + project + '/import-boards')])
+    .then(([list, all, old]) => { setDocs(list.docs); setAssets(list.assets); setTemplates(all); setBoards(old.nodes); setError('') })
+    .catch(e => setError(e.message))
+  useEffect(() => { load() }, [project])
+  const open = doc => { location.hash = docRoute(project, doc.id, page) }
+  async function create(body) {
+    setBusy(true)
+    try {
+      const result = await flowsApi('/projects/' + project + '/documents', 'POST', body)
+      if (result.skipped?.length) ctx.toast(`Nicht geladene Knotenarten fehlen: ${result.skipped.join(', ')}.`, true)
+      if (result.docs.length > 1) ctx.toast(`${result.docs.length} Dokumente angelegt: ${result.docs.map(doc => doc.title).join(', ')}.`)
+      open(result.docs[0])
+    } catch (e) { ctx.toast(e.message, true) } finally { setBusy(false) }
+  }
+  async function act(doc, action) {
+    try {
+      if (action === 'duplicate') { const copy = await flowsApi(`/projects/${project}/documents/${doc.id}/duplicate`, 'POST', {}); ctx.toast(`„${copy.title}“ angelegt.`) }
+      if (action === 'split') { const result = await flowsApi(`/projects/${project}/documents/${doc.id}/split`, 'POST', {}); ctx.toast(`${result.docs.length} Dokumente aus den Rahmen angelegt.`) }
+      await load()
+    } catch (e) { ctx.toast(e.message, true) }
+  }
+  async function rename(doc, title) {
+    setRenaming(null)
+    if (!title.trim() || title.trim() === doc.title) return
+    try { await flowsApi(`/projects/${project}/documents/${doc.id}`, 'PATCH', { title }); await load() } catch (e) { ctx.toast(e.message, true) }
+  }
+  async function remove(doc) {
+    setDeleting(null)
+    try { await fetch(`/creativity-flows/api/projects/${project}/documents/${doc.id}`, { method: 'DELETE' }); ctx.toast(`„${doc.title}“ gelöscht. Die Bilder und Videos bleiben in der Library.`); await load() } catch (e) { ctx.toast(e.message, true) }
+  }
+  const shownKinds = kind ? [kind] : Object.keys(kinds)
+  const offered = templates.filter(item => item.listed && (!kind || item.kind === kind || (item.steps ?? []).length > 1))
+  if (error) return <div className="flow-docs"><p className="flow-error" role="alert">{error} <Button variant="outline" size="sm" onClick={load}>Erneut versuchen</Button></p></div>
+  return <div className={cn('flow-docs', embedded && 'embedded')}>
+    {!embedded && <header className="flow-docs-head">
+      <label className="flow-docs-project"><span>Projekt</span>
+        <select className="text-in" value={project} onChange={e => { const next = e.target.value; remembered.set(next); location.hash = route(next, page) }}>
+          {ctx.projects.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
+      <h1>{kind ? kinds[kind].plural : 'Dokumente'}</h1>
+      <div className="ml-auto flex flex-wrap gap-2">
+        {shownKinds.map(item => <Button key={item} variant={kind ? 'brand' : 'outline'} disabled={busy} onClick={() => create({ kind: item })}><Plus/>{kinds[item].blank}</Button>)}
+      </div>
+    </header>}
+    {embedded && <div className="flex flex-wrap items-center gap-2"><h2 className="mr-auto text-[length:var(--fs-title)] font-medium">Dokumente</h2>
+      {shownKinds.map(item => <Button key={item} variant="outline" size="sm" disabled={busy} onClick={() => create({ kind: item })}><Plus/>{kinds[item].blank}</Button>)}</div>}
+    {!docs ? <div className="flow-doc-grid" aria-label="Lädt">{Array.from({ length: 4 }, (_, i) => <span key={i} className="flow-doc-skeleton"/>)}</div>
+      : shownKinds.map(item => {
+        const list = docs.filter(doc => doc.kind === item)
+        if (!kind && !list.length && item === 'flow') return null
+        return <section key={item} className="flow-doc-group" aria-label={kinds[item].plural}>
+          {!kind && <h2>{kinds[item].plural} <span className="tabular-nums">{list.length}</span></h2>}
+          {!list.length ? <div className="flow-doc-empty"><p>{kinds[item].empty}</p>
+            <Button variant="outline" disabled={busy} onClick={() => create({ kind: item })}><Plus/>{kinds[item].blank}</Button></div>
+            : <div className="flow-doc-grid">{list.map(doc => <article key={doc.id} className="flow-doc">
+              <button type="button" className={cn('flow-doc-cover', 'n' + Math.min(doc.cover.length, 4))} onClick={() => open(doc)} aria-label={`${doc.title} öffnen`}>
+                {doc.cover.length ? doc.cover.map(id => assets[id] ? <Media key={id} asset={assets[id]} ctx={ctx}/> : <span key={id}/>) : <span className="flow-doc-icon"><Icon name={kinds[doc.kind].icon} className="size-6"/></span>}
+              </button>
+              <div className="flow-doc-meta">
+                {renaming === doc.id
+                  ? <input className="text-in" autoFocus defaultValue={doc.title} aria-label="Name des Dokuments" maxLength={60}
+                    onBlur={e => rename(doc, e.target.value)} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') setRenaming(null) }}/>
+                  : <button type="button" className="flow-doc-title" onClick={() => open(doc)}>{doc.title}</button>}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild><Button variant="ghost" size="icon-sm" aria-label={`Aktionen für ${doc.title}`}><MoreHorizontal/></Button></DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56">
+                    <DropdownMenuItem onSelect={() => open(doc)}>Öffnen</DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => setRenaming(doc.id)}>Umbenennen</DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => act(doc, 'duplicate')}>Duplizieren</DropdownMenuItem>
+                    {doc.kind === 'flow' && <DropdownMenuItem onSelect={() => act(doc, 'split')}>Rahmen in Dokumente aufteilen</DropdownMenuItem>}
+                    <DropdownMenuSeparator/>
+                    <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(doc)}>Löschen …</DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <span className="flow-doc-facts">{doc.nodes === 1 ? '1 Knoten' : `${doc.nodes} Knoten`} · {dateLabel(doc.updatedAt)}</span>
+              </div>
+            </article>)}</div>}
+        </section>
+      })}
+    {offered.length > 0 && <section className="flow-doc-group" aria-label="Vorlagen">
+      <h2>Mit Vorlage neu anlegen</h2>
+      <p className="flow-doc-hint">Eine Vorlage legt neue Dokumente an und füllt sie mit passenden Bildern aus deiner Sammlung. Offene Dokumente bleiben, wie sie sind. Ausgeführt wird nichts.</p>
+      <div className="flow-doc-grid templates">{offered.map(item => <button key={item.id} type="button" disabled={busy} className="flow-template" onClick={() => create({ templateId: item.id })}>
+        <b>{item.title}</b>
+        <ol className="flow-template-steps" aria-label="Dokumente und Schritte">{(item.steps ?? []).map(step => <li key={step}>{step}</li>)}</ol>
+        <span>{item.description}</span></button>)}</div>
+    </section>}
+    {boards > 0 && <p className="flow-doc-hint">Aus den früheren Apps Moodboard und Storyboard gibt es noch {boards} Elemente. <Button variant="outline" size="sm" disabled={busy} onClick={async () => { setBusy(true); try { const result = await flowsApi('/projects/' + project + '/import-boards', 'POST', {}); open(result.docs[0]) } catch (e) { ctx.toast(e.message, true) } finally { setBusy(false) } }}>Als Dokument übernehmen</Button></p>}
+    {deleting && <Dialog open onOpenChange={value => { if (!value) setDeleting(null) }}>
+      <DialogContent className="flow-dialog sm:max-w-[440px]">
+        <DialogHeader><DialogTitle>„{deleting.title}“ löschen?</DialogTitle>
+          <DialogDescription>Das Dokument und seine Knoten verschwinden aus dem Projekt. Erzeugte Bilder und Videos bleiben in der Library. Andere Dokumente, die @Namen daraus nennen, finden sie danach nicht mehr.</DialogDescription></DialogHeader>
+        <DialogFooter><Button variant="outline" autoFocus onClick={() => setDeleting(null)}>Abbrechen</Button><Button variant="destructive" onClick={() => remove(deleting)}>Löschen</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>}
+  </div>
 }
 
 /**
- * Mounts the editor for the project in the route (or the first project) and unmounts when the container leaves the page.
- * @param {{ step?: keyof typeof steps, page?: string }} [options] a step page (`step`) under its sidebar route (`page`).
+ * Mounts the Flows page for the project in the route (otherwise the project shown last, otherwise the first): the
+ * document list, or with `doc` in the route that document's editor. Unmounts when the container leaves the page.
+ * @param {{ kind?: keyof typeof kinds, page?: string, projectId?: string, embedded?: boolean }} [options] `kind` lists
+ *   one kind of document under its sidebar route (`page`); `embedded` draws only the list inside the hub's project page.
  */
-export function mount(container, ctx, { step = null, page = 'flows' } = {}) {
-  const project = ctx.projects.find(item => item.id === ctx.params.get('project')) ?? ctx.projects[0]
-  if (project && !ctx.params.get('project')) history.replaceState(null, '', route(project.id, page))
+export function mount(container, ctx, { kind = null, page = 'flows', projectId = null, embedded = false } = {}) {
+  const wanted = projectId ?? ctx.params?.get('project') ?? remembered.get()
+  const project = ctx.projects.find(item => item.id === wanted) ?? ctx.projects[0]
+  if (project && !embedded && ctx.params?.get('project') !== project.id) history.replaceState(null, '', route(project.id, page))
+  if (project) remembered.set(project.id)
+  const docId = embedded ? null : ctx.params?.get('doc')
   const root = createRoot(container)
   const observer = new MutationObserver(() => { if (!container.isConnected) { observer.disconnect(); root.unmount() } })
   observer.observe(document.body, { childList: true, subtree: true })
-  root.render(project ? <Page key={project.id} ctx={ctx} project={project.id} step={step} page={page}/>
-    : <div className="flow-start static"><strong>Noch kein Projekt</strong><p>Ein Flow gehört zu einem Projekt. Lege über das Plus neben „Projekte“ eines an.</p></div>)
+  root.render(!project ? <div className="flow-start static"><strong>Noch kein Projekt</strong><p>Dokumente gehören zu einem Projekt. Lege über das Plus neben „Projekte“ eines an.</p></div>
+    : docId ? <Editor key={project.id + docId} ctx={ctx} project={project.id} docId={docId} page={page}/>
+      : <Documents key={project.id} ctx={ctx} project={project.id} kind={kind} page={page} embedded={embedded}/>)
 }

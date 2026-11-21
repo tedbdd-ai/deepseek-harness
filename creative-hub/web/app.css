@@ -683,3 +683,7 @@ kbd { display: inline-flex; align-items: center; justify-content: center; min-wi
 .cut-block.sel { outline: 2px solid var(--c-focus); outline-offset: 1px; }
 .cut-playhead { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: 104px; background: var(--c-focus); pointer-events: none; z-index: 3; }
 @media (max-width: 960px) { .cut-main { grid-template-columns: minmax(0, 1fr); } }
+
+/* Project page: plugin sections (Flows: the project's documents) above the project's files. */
+.project-section { margin-bottom: var(--s-6); }
+.project-files { margin: 0 0 var(--s-3); font-size: var(--fs-heading); line-height: var(--lh-heading); font-weight: 500; }

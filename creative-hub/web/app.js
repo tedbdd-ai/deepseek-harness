@@ -687,12 +687,20 @@ async function renderProject(id) {
   if (!project) { view.replaceChildren(emptyState('inbox', 'Projekt nicht gefunden', 'Vielleicht wurde es gelöscht.', el('a', { class: 'btn', href: '#/sammlung' }, 'Zur Sammlung'))); return }
   const snapshot = state.snapshots.find(s => s.id === project.snapshot)
   const body = el('div', { class: 'scroll' }, loading())
-  view.replaceChildren(...header(project.title, [snapshot && snapshot.id !== 'blank' ? snapshot.title : '', project.due ? 'Termin ' + new Date(project.due).toLocaleDateString('de-DE') : ''].filter(Boolean).join(' · ') || null, el('div', { class: 'tools' }, pickControls([]), ...['moodboard','storyboard','schnitt'].filter(key=>state.pages.some(app=>app.id===key)).map(key=>el('a',{class:'btn sm',href:'#/'+key+'?project='+id},{moodboard:'Moodboard',storyboard:'Storyboard',schnitt:'Schnitt'}[key])), uploadButton({ projectId: id }))), body)
+  view.replaceChildren(...header(project.title, [snapshot && snapshot.id !== 'blank' ? snapshot.title : '', project.due ? 'Termin ' + new Date(project.due).toLocaleDateString('de-DE') : ''].filter(Boolean).join(' · ') || null, el('div', { class: 'tools' }, pickControls([]), uploadButton({ projectId: id }))), body)
+  // Plugins with a project module draw their section first (Flows: the project's documents), then come the files.
+  const sections = (state.apps ?? []).filter(app => app.project).map(app => {
+    const box = el('section', { class: 'project-section', 'aria-label': app.title })
+    import(app.project).then(module => module.renderProject(box, { el, api, icon, media, withFullscreen, draggingInside, toast, refreshCounts, uploadFiles, uploadButton, projects: state.projects, params: new URLSearchParams(), projectId: id }))
+      .catch(error => box.replaceChildren(errorState(error, () => renderProject(id))))
+    return box
+  })
   try {
     const items = await api('/assets?project=' + id)
-    if (!items.length) return body.replaceChildren(emptyState('inbox', 'Noch nichts im Projekt', 'Ordne Dinge aus der Sammlung oder der Library zu, oder zieh Dateien hierher.', el('a', { class: 'btn primary', href: '#/sammlung' }, 'Zur Sammlung')))
+    const files = items.length ? el('div', { class: 'masonry' }, items.map(item => tile(item, item.library === 'generation' ? openGeneration : openClip)))
+      : emptyState('inbox', 'Noch keine Dateien im Projekt', 'Ordne Dinge aus der Sammlung oder der Library zu, oder zieh Dateien hierher.', el('a', { class: 'btn', href: '#/sammlung' }, 'Zur Sammlung'))
     picking.visible = items; drawPickBar()
-    body.replaceChildren(el('div', { class: 'masonry' }, items.map(item => tile(item, item.library === 'generation' ? openGeneration : openClip))))
+    body.replaceChildren(...sections, el('h2', { class: 'project-files' }, 'Dateien'), files)
   } catch (error) { body.replaceChildren(errorState(error, () => renderProject(id))) }
 }
 
@@ -836,7 +844,8 @@ addEventListener('hashchange', route)
 ;(async () => {
   try { state.snapshots = await api('/snapshots') } catch { state.snapshots = [] /* Snapshots sind optional; ohne sie legt der Hub „blank“-Projekte an. */ }
   try {
-    state.pages = (await api('/apps')).filter(app => app.page)
+    state.apps = await api('/apps')
+    state.pages = state.apps.filter(app => app.page)
     $('#plugin-pages').replaceChildren(...state.pages.map(app => el('a', { class: 'navi', href: '#/' + app.id, 'data-route': app.id }, svg(`<path d="${app.icon}"/>`), el('span', { class: 't' }, app.title))))
   } catch (error) { toast(error.message, true) }
   try { await loadProjects() } catch (error) { toast(error.message, true) }
