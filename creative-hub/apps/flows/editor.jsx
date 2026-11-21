@@ -14,7 +14,7 @@ import '@xyflow/react/dist/style.css'
 import './ui/flows.css'
 import {
   Archive, AudioLines, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Copy, Download, Hand, History, Image, LayoutGrid,
-  AtSign, Link, Map as MapIcon, Maximize, Maximize2, Minus, MoreHorizontal, MousePointer2, Palette, Play, Plus, Scissors, SlidersHorizontal, Sparkles, Trash2, Type, Upload, User, Video, Volume2, VolumeX, X,
+  AtSign, Link, Map as MapIcon, Star, Maximize, Maximize2, Minus, MoreHorizontal, MousePointer2, Palette, Play, Plus, Scissors, SlidersHorizontal, Sparkles, Trash2, Type, Upload, User, Video, Volume2, VolumeX, X,
 } from 'lucide-react'
 import { BaseNode, BaseNodeContent, BaseNodeFooter, BaseNodeHeader, BaseNodeHeaderTitle } from '@/components/base-node'
 import { BaseHandle } from '@/components/base-handle'
@@ -281,19 +281,64 @@ function RunButton({ node, view, first = 'Ausführen', again = 'Neu ausführen' 
 }
 
 function Ports({ ports, side, connected, nodeId }) {
-  const { portMenu } = useContext(Actions)
+  const { portMenu, setPeek } = useContext(Actions)
   // A click (without dragging) on a port opens the menu of nodes that fit it; dragging still draws a line.
   return ports.map((port, i) => {
     const handle = { nodeId, handle: port.id, kind: port.kind, side: side === 'in' ? 'target' : 'source' }
     return <BaseHandle key={port.id} id={port.id} type={side === 'in' ? 'target' : 'source'} position={side === 'in' ? Position.Left : Position.Right}
       className={'flow-port kind-' + port.kind + (connected.has(port.id) ? ' on' : '')} style={{ top: 56 + i * 40 }}
-      title={port.label + ' (' + kindNames[port.kind] + (port.multiple ? ', mehrere' : '') + '). Klicken für passende Knoten, ziehen zum Verbinden.'}
-      aria-label={port.label} role="button" tabIndex={0}
-      onClick={event => portMenu(event, handle)}
+      aria-label={port.label + ' (' + kindNames[port.kind] + '). Klicken für passende Knoten, ziehen zum Verbinden.'} role="button" tabIndex={0}
+      // Hovering or focusing a port shows what flows through it and where it comes from (PortCard).
+      onMouseEnter={event => setPeek({ nodeId, port: port.id, side, rect: event.currentTarget.getBoundingClientRect() })}
+      onMouseLeave={() => setPeek(null)}
+      onFocus={event => setPeek({ nodeId, port: port.id, side, rect: event.currentTarget.getBoundingClientRect() })}
+      onBlur={() => setPeek(null)}
+      onClick={event => { setPeek(null); portMenu(event, handle) }}
       onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); portMenu(event, handle) } }}>
       <Icon name={port.kind} className="pointer-events-none size-3"/>
     </BaseHandle>
   })
+}
+
+/**
+ * What flows through a port, shown on hover or focus: label and kind, the port's own description, the values (pictures
+ * as thumbnails, texts as excerpts) and, on an input, the nodes they come from. On a moodboard the matching items light
+ * up at the same time (BoardNode reads `peek`).
+ */
+function PortCard({ peek, shell, doc, view, typeOf, implied }) {
+  const { ctx, assets } = useContext(Actions)
+  const node = doc.nodes.find(item => item.id === peek.nodeId)
+  const type = node && typeOf.get(node.type)
+  const port = type?.[peek.side === 'in' ? 'inputs' : 'outputs'].find(item => item.id === peek.port)
+  if (!port) return null
+  const nameOf = id => { const item = doc.nodes.find(other => other.id === id); return item ? nodeName(item, typeOf.get(item.type)) : 'Knoten' }
+  const labelOf = (id, handle) => typeOf.get(doc.nodes.find(other => other.id === id)?.type)?.outputs.find(item => item.id === handle)?.label ?? handle
+  // An output shows its own values; an input lists each line (drawn or through an @mention) with what it brings.
+  const sources = peek.side === 'in'
+    ? [...doc.edges, ...implied].filter(edge => edge.target === node.id && edge.targetHandle === port.id)
+      .map(edge => ({ from: `${nameOf(edge.source)} · ${labelOf(edge.source, edge.sourceHandle)}${edge.implicit ? ' (über @-Namen)' : ''}`, values: view.nodes[edge.source]?.outputs?.[edge.sourceHandle] ?? [] }))
+    : [{ from: null, values: view.nodes[node.id]?.outputs?.[port.id] ?? [] }]
+  const values = sources.flatMap(item => item.values)
+  const status = view.nodes[node.id]?.status
+  const empty = peek.side === 'in' ? 'Noch nichts verbunden. Zieh eine Linie hierher oder klicke für passende Knoten.'
+    : type.runs && status !== 'done' ? 'Entsteht, wenn der Knoten läuft.' : 'Noch leer.'
+  const box = shell.current?.getBoundingClientRect()
+  const left = peek.rect.left - (box?.left ?? 0) + (peek.side === 'in' ? -296 : 24)
+  const top = peek.rect.top - (box?.top ?? 0) - 8
+  const media = list => { const shown = list.filter(id => assets[id]); return shown.length > 0 && <div className="flow-peek-media">{shown.slice(0, 6).map(id => <Media key={id} asset={assets[id]} ctx={ctx}/>)}{shown.length > 6 && <span className="tabular-nums">+{shown.length - 6}</span>}</div> }
+  // Kept inside the canvas: an output port at the right edge opens its card to the left.
+  const fits = left + 280 <= (box?.width ?? Infinity)
+  const x = fits ? left : peek.rect.left - (box?.left ?? 0) - 296
+  return <div className="flow-peek" style={{ left: Math.max(8, x), top: Math.max(8, Math.min(top, (box?.height ?? Infinity) - 320)) }} role="tooltip">
+    <b><Icon name={port.kind} className="size-3.5"/>{port.label}<span className="tabular-nums">{kindNames[port.kind]}{values.length ? ` · ${values.length}` : ''}</span></b>
+    {port.hint && <p>{port.hint}</p>}
+    {!values.length ? <p className="flow-peek-empty">{empty}</p>
+      : sources.map((item, i) => item.values.length > 0 && <div key={i} className="flow-peek-source">
+        {item.from && <span className="flow-peek-from">von {item.from}</span>}
+        {port.kind === 'text' ? <>{item.values.slice(0, 3).map((value, k) => <q key={k}>{String(value).slice(0, 240)}{String(value).length > 240 ? ' …' : ''}</q>)}
+          {item.values.length > 3 && <span className="flow-peek-from">und {item.values.length - 3} weitere</span>}</> : media(item.values)}
+      </div>)}
+  </div>
 }
 
 /**
@@ -743,7 +788,7 @@ const boardSize = node => ({ width: Number(node.params?.width) || board.width, h
  * One item on a moodboard: a Library file, a note, a keyword or a colour. It moves with the pointer (screen distance
  * divided by the zoom) and is saved when let go; the last moved item lies on top.
  */
-function BoardItem({ node, item, onMove, onChange, onRemove, onOpen }) {
+function BoardItem({ node, item, lit, reference, onReference, onMove, onChange, onRemove, onOpen }) {
   const { ctx, assets } = useContext(Actions)
   const zoom = useViewportStore(store => store.transform[2])
   const [shift, setShift] = useState(null)
@@ -753,12 +798,16 @@ function BoardItem({ node, item, onMove, onChange, onRemove, onOpen }) {
   const editable = event => event.target.closest('textarea, input, button')
   // A note sizes itself by its text field, which can be pulled wider and taller; the size is kept in the item.
   const width = item.kind === 'file' ? Number(item.w) || board.file : item.kind === 'color' ? board.color : undefined
-  return <div className={cn('flow-board-item', 'is-' + item.kind, shift && 'moving')} style={{ left: (item.x ?? 0) + (shift?.x ?? 0), top: (item.y ?? 0) + (shift?.y ?? 0), width }}
+  // `lit`: true while a port of the board is hovered that carries this item, false for the other items.
+  return <div className={cn('flow-board-item', 'is-' + item.kind, shift && 'moving', lit === true && 'lit', lit === false && 'dim', reference && 'reference')} style={{ left: (item.x ?? 0) + (shift?.x ?? 0), top: (item.y ?? 0) + (shift?.y ?? 0), width }}
     onPointerDown={event => { if (editable(event) || event.button !== 0) return; event.currentTarget.setPointerCapture(event.pointerId); start.current = { x: event.clientX, y: event.clientY }; setShift({ x: 0, y: 0 }) }}
     onPointerMove={event => { if (start.current) setShift({ x: (event.clientX - start.current.x) / zoom, y: (event.clientY - start.current.y) / zoom }) }}
     onPointerUp={() => { if (!start.current) return; start.current = null; if (shift && (Math.abs(shift.x) > 2 || Math.abs(shift.y) > 2)) onMove(shift); setShift(null) }}
     onDoubleClick={event => { if (item.kind === 'file' && !editable(event)) onOpen() }}>
     {item.kind === 'file' && (assets[item.assetId] ? <Media asset={assets[item.assetId]} ctx={ctx}/> : <span className="flow-board-gone">Datei fehlt in der Library</span>)}
+    {reference && <span className="flow-board-badge">Referenz</span>}
+    {onReference && <Button variant={reference ? 'default' : 'secondary'} size="icon-xs" className="flow-board-ref" aria-pressed={reference}
+      aria-label={reference ? 'Nicht mehr als Referenz für die Skizzen nutzen' : 'Als Referenz für die Skizzen nutzen'} title={reference ? 'Referenz für die Skizzen: an' : 'Als Referenz für die Skizzen nutzen'} onClick={onReference}><Star/></Button>}
     {item.kind === 'note' && <textarea className="nowheel" aria-label="Notiz" placeholder="Notiz" maxLength={20000} value={text}
       style={{ width: Number(item.w) || board.note - 24, height: Number(item.h) || 96 }}
       onChange={e => write(e.target.value)}
@@ -777,13 +826,28 @@ function BoardItem({ node, item, onMove, onChange, onRemove, onOpen }) {
   </div>
 }
 
+/**
+ * Binding wishes for idea and sketches („Nur die Frau aus den Referenzen, keine Männer“), and which pictures the
+ * sketches use as references. Changing them marks the look stale, so the next run follows them.
+ */
+function Guidance({ node, refs }) {
+  const { update } = useContext(Actions)
+  const [text, setText] = useDraft(node.params?.guidance ?? '')
+  return <label className="nodrag [display:grid] gap-1 text-xs text-muted-foreground">
+    <span className="flex justify-between gap-2"><span>Vorgaben für Idee und Skizzen</span>
+      <span>{refs ? `${refs} ${refs === 1 ? 'Bild' : 'Bilder'} als Referenz markiert` : 'Referenzen: ★ an einem Bild auf dem Board, sonst wählt das Modell'}</span></span>
+    <textarea className="flow-prompt nowheel" rows={2} value={text} placeholder="Zum Beispiel: Nur die Frau aus den Referenzen, keine Männer, keine Schrift im Bild."
+      onChange={e => { const next = e.target.value; setText(next); update(node.id, n => ({ ...n, params: { ...n.params, guidance: next } })) }}/>
+  </label>
+}
+
 /** The structured look of a moodboard after „Look erzeugen“: overall look, light, camera, palette, materials, key images. */
 function LookCard({ view }) {
   const { ctx, assets, openViewer } = useContext(Actions)
   const dna = view?.data
   if (!dna?.look) return null
   const sketches = (dna.sketches ?? []).filter(item => item.assetId && assets[item.assetId])
-  const picks = (dna.keyImages ?? []).filter(id => assets[id])
+  const picks = (dna.sketchRefs ?? dna.keyImages ?? []).filter(id => assets[id])
   const rows = [['Licht', dna.light], ['Kamera', dna.camera], ['Palette', dna.palette], ['Material', dna.materials]].filter(([, value]) => value)
   const hexes = String(dna.palette ?? '').match(/#[0-9a-f]{6}/gi) ?? []
   return <div className={cn('flow-look', view.stale && 'stale')}>
@@ -797,7 +861,7 @@ function LookCard({ view }) {
     <section aria-label="Look"><h3>Look</h3><p className="flow-look-lead">{dna.look}</p>
       <dl>{rows.map(([label, value]) => <React.Fragment key={label}><dt>{label}</dt><dd>{value}
         {label === 'Palette' && hexes.length > 0 && <span className="flow-look-chips">{hexes.map(hex => <span key={hex} style={{ backgroundColor: hex }} title={hex}/>)}</span>}</dd></React.Fragment>)}</dl></section>
-    {picks.length > 0 && <section aria-label="Leitbilder vom Board"><h3>Leitbilder vom Board</h3>
+    {picks.length > 0 && <section aria-label="Referenzen der Skizzen"><h3>{dna.refsMarked ? 'Referenzen der Skizzen (von dir markiert)' : 'Referenzen der Skizzen (vom Modell gewählt)'}</h3>
       <div className="flow-look-keys">{picks.map((id, i) => <button key={id} type="button" className="nodrag" aria-label={`Leitbild ${i + 1} ansehen`} onClick={() => openViewer({ ids: picks, index: i })}><Media asset={assets[id]} ctx={ctx}/></button>)}</div></section>}
     <p className="text-xs text-muted-foreground">Mit @Look nennt ein anderes Dokument diesen Look: Es bekommt den Look-Text und {sketches.length ? 'die Skizzen' : 'die Leitbilder'} als Referenz. Die Idee übernimmt die Regie im Storyboard per Knopf.</p>
   </div>
@@ -809,7 +873,7 @@ function LookCard({ view }) {
  * „Look erzeugen“ condenses the board into the structured look shown under it.
  */
 function BoardNode({ id, data, selected }) {
-  const { update, edges, pickAssets, uploadAssets, openViewer } = useContext(Actions)
+  const { update, edges, pickAssets, uploadAssets, openViewer, assets, peek } = useContext(Actions)
   const { node, type, view } = data
   const { width, height } = boardSize(node)
   const items = node.params?.items ?? []
@@ -818,6 +882,21 @@ function BoardNode({ id, data, selected }) {
   const free = () => { const n = items.filter(item => item.kind !== 'file').length % 6; return { x: 24 + n * 24, y: 24 + n * 24 } }
   const add = fields => setItems(list => [...list, { id: crypto.randomUUID(), ...free(), ...fields }])
   const files = items.filter(item => item.kind === 'file').map(item => item.assetId)
+  const kindOfItem = item => (assets[item.assetId]?.media_type ?? '').split('/')[0]
+  // While a port of this board is hovered, the items it carries light up and the others step back.
+  const carried = {
+    images: item => item.kind === 'file' && kindOfItem(item) === 'image',
+    videos: item => item.kind === 'file' && kindOfItem(item) === 'video',
+    notes: item => item.kind !== 'file',
+    keys: item => item.kind === 'file' && (view?.outputs?.keys ?? []).includes(item.assetId),
+  }
+  const litOf = item => (peek?.nodeId === id && peek.side === 'out' && carried[peek.port] ? carried[peek.port](item) : undefined)
+  // Pictures marked as references of the sketches (at most six); without marks the model picks them.
+  const refs = Array.isArray(node.params?.sketchRefs) ? node.params.sketchRefs : []
+  const toggleRef = assetId => update(id, n => {
+    const list = Array.isArray(n.params?.sketchRefs) ? n.params.sketchRefs : []
+    return { ...n, params: { ...n.params, sketchRefs: list.includes(assetId) ? list.filter(other => other !== assetId) : [...list, assetId].slice(-6) } }
+  })
   const model = modelOf(node, type)
   const modelField = type.fields.find(field => field.key === 'modelId')
   const outbound = new Set(edges.filter(edge => edge.source === id).map(edge => edge.sourceHandle))
@@ -835,7 +914,8 @@ function BoardNode({ id, data, selected }) {
           <div className="flow-board nodrag nowheel" style={{ height }} aria-label="Moodboard-Fläche"
             data-board={id}>
             {!items.length && <p className="flow-board-empty">Zieh Bilder vom Mac hierher, füge sie mit ⌘V ein oder nutze die Leiste unten. Alles darf frei liegen, ohne Linien.</p>}
-            {items.map(item => <BoardItem key={item.id} node={node} item={item}
+            {items.map(item => <BoardItem key={item.id} node={node} item={item} lit={litOf(item)}
+              reference={refs.includes(item.assetId)} onReference={item.kind === 'file' && kindOfItem(item) === 'image' ? () => toggleRef(item.assetId) : null}
               onMove={delta => setItems(list => [...list.filter(other => other.id !== item.id), { ...item, x: Math.round(Math.max(0, Math.min(width - 48, (item.x ?? 0) + delta.x))), y: Math.round(Math.max(0, Math.min(height - 32, (item.y ?? 0) + delta.y))) }])}
               onChange={fields => setItems(list => list.map(other => (other.id === item.id ? { ...other, ...fields } : other)))}
               onRemove={() => setItems(list => list.filter(other => other.id !== item.id))}
@@ -849,6 +929,7 @@ function BoardNode({ id, data, selected }) {
             <Button variant="ghost" size="sm" onClick={() => add({ kind: 'color', color: '#8A6A4F' })}><Palette/>Farbe</Button>
           </div>
           <BaseNodeContent className="border-t">
+            <Guidance node={node} refs={refs.length}/>
             <LookCard view={view}/>
             {!view?.data?.look && view?.status !== 'running' && <p className="text-sm text-muted-foreground">„Look erzeugen“ liest Bilder, Notizen, Stichworte und Farben auf dem Board und macht daraus den Look (Licht, Kamera, Palette, Material), eine Story-Idee aus deinen Notizen{sketchCount ? ` und ${sketchCount} erste Skizzen von Schlüsselszenen` : ''}. Als Projekt-Asset wirkt er mit @{nodeName(node, type)} in jedem Dokument des Projekts.</p>}
             {(view?.warnings ?? []).map(text => <p key={text} className="flow-warning" role="status">{text}</p>)}
@@ -1082,6 +1163,7 @@ function Canvas({ ctx, project, doc: current, docs, record, types, page = 'flows
   const [menu, setMenu] = useState(null)
   const [picker, setPicker] = useState(null)
   const [viewer, setViewer] = useState(null)
+  const [peek, setPeek] = useState(null)
   const [confirm, setConfirm] = useState(null)
   const [hand, setHand] = useState(false)
   const [renaming, setRenaming] = useState(null)
@@ -1321,12 +1403,15 @@ function Canvas({ ctx, project, doc: current, docs, record, types, page = 'flows
   const byNode = new Map(doc.nodes.map(node => [node.id, node]))
   // Mentioned project assets reach their nodes without a line. A dashed line shows that link, but only while the asset
   // or the node that mentions it is selected, so the canvas stays free of lines across the phases.
-  const implied = implicitEdges(doc, name => typeOf.get(name)).flatMap(edge => {
-    if (!meta[edge.source]?.selected && !meta[edge.target]?.selected) return []
-    const outputs = view.nodes[edge.source]?.outputs
-    if (outputs ? !outputs[edge.sourceHandle]?.length : !typeOf.get(byNode.get(edge.source)?.type)?.runs) return []
+  // Text of a mentioned asset arrives on the node's first text input, for drawing and for the port card.
+  const implicitAll = implicitEdges(doc, name => typeOf.get(name)).flatMap(edge => {
     const handle = edge.targetHandle === textHandle ? typeOf.get(byNode.get(edge.target)?.type)?.inputs.find(port => port.kind === 'text')?.id : edge.targetHandle
     return handle ? [{ ...edge, targetHandle: handle, selectable: false, deletable: false, focusable: false }] : []
+  })
+  const implied = implicitAll.filter(edge => {
+    if (!meta[edge.source]?.selected && !meta[edge.target]?.selected) return false
+    const outputs = view.nodes[edge.source]?.outputs
+    return outputs ? outputs[edge.sourceHandle]?.length > 0 : Boolean(typeOf.get(byNode.get(edge.source)?.type)?.runs)
   })
   const edges = [...doc.edges, ...implied].filter(edge => !hidden.has(edge.source) && !hidden.has(edge.target)).map(edge => ({ ...edge, zIndex: 1, animated: running(edge.target),
     className: 'flow-edge kind-' + (portKind(edge.source, edge.sourceHandle, 'source') ?? 'text') + (edge.implicit ? ' implicit' : '') }))
@@ -1624,7 +1709,7 @@ function Canvas({ ctx, project, doc: current, docs, record, types, page = 'flows
   }
   const removeAsset = (nodeId, assetId) => update(nodeId, n => ({ ...n, params: { ...n.params, assetIds: (n.params?.assetIds ?? []).filter(id => id !== assetId) } }))
   const actions = { ctx, focusFrame, assets: view.assets, edges: doc.edges, update, remove, duplicate, run, pick, pickAssets, uploadAssets, mentionNames, portMenu,
-    renaming, setRenaming, rename, copyNodes, pasteNodes, focusNode, openViewer: setViewer, removeAsset, toggleAsset, assetNames, spawnScenes, sceneCount, ideas }
+    renaming, setRenaming, rename, copyNodes, pasteNodes, focusNode, openViewer: setViewer, removeAsset, toggleAsset, assetNames, spawnScenes, sceneCount, ideas, peek, setPeek }
 
   return <Actions.Provider value={actions}>
     <div className="flow-shell" ref={shell} data-drop-hint="Loslassen legt einen Datei-Knoten an">
@@ -1714,6 +1799,7 @@ function Canvas({ ctx, project, doc: current, docs, record, types, page = 'flows
         })}/>}
       {picker && <AssetPicker ctx={ctx} project={project} single={picker.single} initial={picker.board ? [] : state.data.nodes.find(n => n.id === picker.id)?.params?.assetIds ?? []} onClose={() => setPicker(null)}
         onDone={ids => { if (picker.board) addToBoard(picker.id, ids); else update(picker.id, n => ({ ...n, params: { ...n.params, assetIds: ids } })); setPicker(null) }}/>}
+      {peek && <PortCard peek={peek} shell={shell} doc={doc} view={view} typeOf={typeOf} implied={implicitAll}/>}
       {viewer && <Viewer {...viewer} ids={viewer.nodeId ? (state.data.nodes.find(n => n.id === viewer.nodeId)?.params?.assetIds ?? []) : viewer.ids}
         onIndex={index => setViewer({ ...viewer, index })} onClose={() => setViewer(null)}/>}
       {confirm && <Confirm steps={confirm.steps} onNo={() => setConfirm(null)} onYes={() => confirm.start().catch(e => setError(e.message))}/>}

@@ -703,7 +703,7 @@ test('the moodboard pins items without lines, gives its pictures at once and its
   assert.match(calls[0].prompt, /Stichworte: Latex, Neon/)
   assert.equal(calls[0].images.length, 3, 'nur Bilder gehen an das Modell')
   const look = engine.view(project).look
-  assert.deepEqual(look.data, { look: 'Kalt und glänzend.', light: 'hart', camera: '', palette: 'Rot #B3122E', materials: 'Latex', idea: '', keyImages: [pictures[2]], sketches: [] })
+  assert.deepEqual(look.data, { look: 'Kalt und glänzend.', light: 'hart', camera: '', palette: 'Rot #B3122E', materials: 'Latex', idea: '', keyImages: [pictures[2]], sketchRefs: [pictures[2]], refsMarked: false, sketches: [] })
   assert.deepEqual(look.outputs.keys, [pictures[2]])
   assert.deepEqual(look.outputs.images, [pictures[0], pictures[1], pictures[2]], 'die Bilder bleiben neben dem Ergebnis')
   assert.deepEqual(seen[0].refs, [pictures[2]], '@Look bringt nur die Leitbilder, nicht das ganze Board')
@@ -734,5 +734,13 @@ test('the moodboard pins items without lines, gives its pictures at once and its
   assert.deepEqual(result.data.sketches.map(item => [item.title, item.assetId]), [['Erwachen', 'skizze-1'], ['Flur', null], ['Tür', 'skizze-3']])
   assert.match(result.data.warning, /1 von 3 Skizzen sind fehlgeschlagen: kaputt/)
   assert.equal(result.credits, 4)
+  rendered.length = 0
+  answers.push(JSON.stringify({ look: 'Kalt.', idea: 'Sie allein.', keyImages: [1], sketches: [{ title: 'Eins', prompt: 'A woman alone' }] }))
+  const marked = await sketchy.run({ params: { items: [{ id: '1', kind: 'file', assetId: pictures[0], x: 0, y: 0 }, { id: '2', kind: 'file', assetId: pictures[1], x: 200, y: 0 }],
+    sketches: '3', sketchRefs: [pictures[1], 'nicht-auf-dem-board'], guidance: 'Keine Männer im Bild.' }, projectId: project, stopped: () => false })
+  assert.deepEqual(rendered[0].refs, [pictures[1]], 'die auf dem Board markierten Bilder sind die Referenzen der Skizzen')
+  assert.match(rendered[0].prompt, /Must follow: Keine Männer im Bild\./, 'die Vorgaben gehen in jede Skizze')
+  assert.match(calls.at(-1).prompt, /Vorgaben:\nKeine Männer im Bild\./, 'und an das Sprachmodell')
+  assert.deepEqual([marked.data.sketchRefs, marked.data.refsMarked], [[pictures[1]], true])
   store.close()
 })

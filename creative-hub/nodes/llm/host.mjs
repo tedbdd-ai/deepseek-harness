@@ -7,8 +7,9 @@
  * - „Moodboard“ is a free pinboard (pictures, colours, notes and keywords in `params.items`, placed by hand, no lines)
  *   whose pictures and notes go out without running. Its run condenses the board into a structured look (look, light,
  *   camera, palette, materials), a story idea from the notes and, with the Foto Playground's „Bild“ node, first scene
- *   sketches (0, 3 or 6) made from the look and the board's key pictures. As project asset (@Look) it gives the look
- *   text and the sketches (or, without sketches, the key pictures).
+ *   sketches (0, 3 or 6) made from the look and reference pictures: the ones marked on the board (`params.sketchRefs`),
+ *   otherwise the key pictures the model picks. `params.guidance` holds binding wishes for idea and sketches („keine
+ *   Männer“). As project asset (@Look) it gives the look text and the sketches (or, without sketches, the key pictures).
  * - „Style-DNA“ does the same for whatever is wired into it.
  * - „Regie“ turns story, look and moodboard into a shot list with the needed figures and places. Its result `data`
  *   holds `{ shots: [{ title, duration, shot, prompt, motion }], assets: [{ name, kind, description }] }`; the editor
@@ -114,14 +115,16 @@ const dnaSystem = (sketches = 0) => [
   'idea: the film idea in three to five sentences, built from the notes and keywords: who, where, what happens, how it ends. Invent only what the board suggests.',
   sketches ? `sketches: exactly ${sketches} key scenes of that idea, in story order. title: two or three words. prompt: one English image prompt per scene with framing, subject, place, light and mood in this look, 16:9 film still.` : 'sketches: an empty list.',
   'Write look, light, camera, palette, materials, idea and titles in the language of the notes; German if there are none.',
+  'When the request has „Vorgaben“, they are binding for the idea and every sketch prompt: follow them, and repeat restrictions (such as who must not appear) inside each sketch prompt.',
 ].join('\n')
 
 /**
  * Asks the model for the look of `images` and `notes` and returns it as text, structured data and key images.
  * @returns {Promise<{ text: string, data: object, keys: string[] }>}
  */
-async function condense(chat, params, notes, images, sketches = 0) {
-  const answer = await chat(params, { system: dnaSystem(sketches), prompt: notes.length ? 'Notizen, Stichworte und Farben:\n' + notes.join('\n') : 'Es gibt nur Bilder.', images: images.slice(0, 16) })
+async function condense(chat, params, notes, images, sketches = 0, guidance = '') {
+  const request = [notes.length ? 'Notizen, Stichworte und Farben:\n' + notes.join('\n') : 'Es gibt nur Bilder.', guidance && 'Vorgaben:\n' + guidance].filter(Boolean).join('\n\n')
+  const answer = await chat(params, { system: dnaSystem(sketches), prompt: request, images: images.slice(0, 16) })
   const dna = parseJson(answer.text)
   if (!dna || typeof dna.look !== 'string' || !dna.look.trim()) throw new InputError('Das Modell hat keinen lesbaren Look geliefert. Führe den Knoten noch einmal aus oder wähle ein anderes Modell.')
   const field = value => (typeof value === 'string' ? value.trim().slice(0, 400) : '')
@@ -174,12 +177,12 @@ export function moodboardNode(providers, store, nodes) {
     description: 'Freie Pinnwand für Bilder, Farben, Notizen und Stichworte, ohne Linien. „Look erzeugen“ macht daraus Licht, Kamera, Palette, Material und Leitbilder. Als Projekt-Asset reicht @Look.',
     inputs: [],
     outputs: [
-      { id: 'look', kind: 'text', label: 'Look' },
-      { id: 'keys', kind: 'image', label: 'Skizzen oder Leitbilder' },
-      { id: 'idea', kind: 'text', label: 'Story-Idee', mention: false },
-      { id: 'images', kind: 'image', label: 'Alle Bilder', mention: false },
-      { id: 'videos', kind: 'video', label: 'Clips', mention: false },
-      { id: 'notes', kind: 'text', label: 'Notizen und Farben', mention: false },
+      { id: 'look', kind: 'text', label: 'Look', hint: 'Der Look-Text aus „Look erzeugen“: Licht, Kamera, Palette, Material.' },
+      { id: 'keys', kind: 'image', label: 'Skizzen oder Leitbilder', hint: 'Die Skizzen aus „Look erzeugen“; ohne Skizzen die Referenzbilder vom Board.' },
+      { id: 'idea', kind: 'text', label: 'Story-Idee', mention: false, hint: 'Die Story-Idee aus deinen Notizen und Stichworten.' },
+      { id: 'images', kind: 'image', label: 'Alle Bilder', mention: false, hint: 'Alle Bilder, die auf dem Board liegen, von oben links nach unten rechts.' },
+      { id: 'videos', kind: 'video', label: 'Clips', mention: false, hint: 'Alle Clips, die auf dem Board liegen.' },
+      { id: 'notes', kind: 'text', label: 'Notizen und Farben', mention: false, hint: 'Notizen, Stichworte (als eine Zeile) und Farben („Farbe #…“) vom Board.' },
     ],
     async fields() {
       const image = nodes?.node('image')
@@ -197,11 +200,15 @@ export function moodboardNode(providers, store, nodes) {
       if (!images.length && !notes.length) throw new InputError('Leg zuerst Bilder, Farben, Notizen oder Stichworte auf das Moodboard.')
       const image = nodes?.node('image')
       const wanted = image ? Number(params.sketches ?? 3) || 0 : 0
-      const { text, data, keys, idea, scenes } = await condense(chat, params, notes, images, wanted)
-      // The sketches run as one Foto Playground job each, in parallel, with the key pictures as references.
+      const guidance = typeof params.guidance === 'string' ? params.guidance.trim().slice(0, 2000) : ''
+      const { text, data, keys, idea, scenes } = await condense(chat, params, notes, images, wanted, guidance)
+      // References of the sketches: the pictures marked on the board, otherwise the key pictures the model picked.
+      const marked = (Array.isArray(params.sketchRefs) ? params.sketchRefs : []).filter(id => images.includes(id)).slice(0, 6)
+      const refs = marked.length ? marked : keys.slice(0, 3)
+      // The sketches run as one Foto Playground job each, in parallel.
       const rendered = await Promise.allSettled(scenes.map(scene => image.run({
-        inputs: { prompt: [], refs: keys.slice(0, 3) }, params: { ...(params.sketchModel && { modelId: params.sketchModel }), count: '1' },
-        prompt: scene.prompt + '\nLook: ' + data.look, projectId, stopped,
+        inputs: { prompt: [], refs }, params: { ...(params.sketchModel && { modelId: params.sketchModel }), count: '1' },
+        prompt: [scene.prompt, 'Look: ' + data.look, guidance && 'Must follow: ' + guidance].filter(Boolean).join('\n'), projectId, stopped,
       })))
       const sketches = scenes.map((scene, i) => ({ ...scene, assetId: rendered[i].status === 'fulfilled' ? rendered[i].value.outputs.image[0] ?? null : null }))
       const failed = rendered.find(result => result.status === 'rejected')
@@ -210,7 +217,7 @@ export function moodboardNode(providers, store, nodes) {
       const credits = rendered.reduce((sum, result) => (result.status === 'fulfilled' && typeof result.value.credits === 'number' ? (sum ?? 0) + result.value.credits : sum), null)
       return {
         outputs: { look: [text], keys: made.length ? made : keys, idea: idea ? [idea] : [] },
-        data: { ...data, idea, keyImages: keys, sketches, ...(failed && { warning: `${scenes.length - made.length} von ${scenes.length} Skizzen sind fehlgeschlagen: ${failed.reason?.message ?? 'unbekannter Fehler'}` }) },
+        data: { ...data, idea, keyImages: keys, sketchRefs: refs, refsMarked: marked.length > 0, sketches, ...(failed && { warning: `${scenes.length - made.length} von ${scenes.length} Skizzen sind fehlgeschlagen: ${failed.reason?.message ?? 'unbekannter Fehler'}` }) },
         credits,
       }
     },

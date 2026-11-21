@@ -305,3 +305,25 @@
 .flow-look-sketches .flow-media img { aspect-ratio: 16 / 9; border-radius: var(--s-2); object-fit: cover; }
 /* A note's text field can be pulled wider and taller; the node follows it. */
 .flow-prompt.free { min-width: 224px; max-width: 880px; resize: both; }
+
+/* Port card: what flows through a port, on hover or focus. Opaque, above the nodes. */
+.flow-peek { position: absolute; z-index: 30; display: grid; width: 272px; gap: var(--s-2); padding: var(--s-3); border: 1px solid var(--c-line); border-radius: var(--r-ctl); background: var(--c-panel); color: var(--c-ink-2); font-size: var(--fs-meta); line-height: var(--lh-meta); box-shadow: var(--shadow-subtle); pointer-events: none; }
+.flow-peek b { display: flex; align-items: center; gap: var(--s-1); color: var(--c-ink); font-size: var(--fs-ui); font-weight: 500; }
+.flow-peek b span { margin-left: auto; color: var(--c-ink-3); font-size: var(--fs-micro); font-weight: 400; }
+.flow-peek p { margin: 0; }
+.flow-peek-empty { color: var(--c-ink-3); }
+.flow-peek-source { display: grid; gap: var(--s-1); }
+.flow-peek-from { color: var(--c-ink-3); font-size: var(--fs-micro); }
+.flow-peek q { display: -webkit-box; overflow: hidden; padding: var(--s-1) var(--s-2); border-radius: var(--s-1); background: var(--c-bg); quotes: none; -webkit-box-orient: vertical; -webkit-line-clamp: 4; }
+.flow-peek-media { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-1); }
+.flow-peek-media .flow-media img, .flow-peek-media .flow-media video { aspect-ratio: 1; border-radius: var(--s-1); object-fit: cover; }
+.flow-peek-media > span { display: flex; align-items: center; justify-content: center; border-radius: var(--s-1); background: var(--c-fill); color: var(--c-ink-2); }
+
+/* Moodboard items while a port is hovered, and pictures marked as sketch references. */
+.flow-board-item { transition: opacity .12s; }
+.flow-board-item.dim { opacity: .25; }
+.flow-board-item.lit { z-index: 1; border-radius: var(--s-2); box-shadow: 0 0 0 3px var(--c-ink); }
+.flow-board-badge { position: absolute; left: var(--s-1); top: var(--s-1); padding: 0 var(--s-2); border-radius: 9999px; background: var(--c-ink); color: var(--c-bg); font-size: var(--fs-micro); line-height: 20px; pointer-events: none; }
+.flow-board-ref { position: absolute; top: -8px; right: 20px; opacity: 0; transition: opacity .12s; }
+.flow-board-item:hover .flow-board-ref, .flow-board-item:focus-within .flow-board-ref, .flow-board-item.reference .flow-board-ref { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .flow-board-item, .flow-board-ref { transition: none; } }
